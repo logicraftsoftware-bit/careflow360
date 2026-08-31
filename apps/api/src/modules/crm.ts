@@ -228,6 +228,25 @@ crmRouter.post(
   }),
 );
 crmRouter.patch(
+  "/leads/:id/status",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const { status } = z.object({ status: z.enum(["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP_REQUIRED", "APPOINTMENT_PENDING", "CONVERTED", "NOT_INTERESTED", "CALLBACK_LATER", "INVALID", "LOST"]) }).parse(req.body);
+    const lead = await prisma.lead.findFirst({ where: { id: req.params.id, tenantId: tid } });
+    if (!lead) throw new AppError(404, "Lead not found", "NOT_FOUND");
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.lead.update({ where: { id: lead.id }, data: { status } });
+      let patient = await tx.patient.findUnique({ where: { leadId: lead.id } });
+      if (status === "CONVERTED" && !patient) {
+        patient = await tx.patient.create({ data: { tenantId: tid, leadId: lead.id, patientNumber: `PT-${Date.now().toString(36).toUpperCase()}`, name: lead.name, mobile: lead.mobile, email: lead.email, city: lead.city } });
+      }
+      return { lead: updated, patient };
+    });
+    await audit(req, `lead.status.${status.toLowerCase()}`, "Lead", lead.id, { status, patientId: result.patient?.id });
+    return ok(res, result, status === "CONVERTED" ? "Lead converted and patient created" : "Lead status updated");
+  }),
+);
+crmRouter.patch(
   "/:resource/:id",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];

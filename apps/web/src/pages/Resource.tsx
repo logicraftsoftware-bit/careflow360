@@ -313,6 +313,18 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) => api.patch(`/super-admin/tenants/${id}/status`, { status, reason }),
       onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }),
     });
+  const leadStatuses = ["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP_REQUIRED", "APPOINTMENT_PENDING", "CONVERTED", "NOT_INTERESTED", "CALLBACK_LATER", "INVALID", "LOST"];
+  const statusOptions = mode === "tenant" ? (["leads", "interested-leads", "converted-leads"].includes(slug) ? leadStatuses : c.fields.find((field) => field.name === "status")?.options || []) : [];
+  const changeStatus = useMutation({
+    mutationFn: ({ row, status }: { row: any; status: string }) => (["leads", "interested-leads", "converted-leads"].includes(slug) ? api.patch(`/crm/leads/${row.id}/status`, { status }) : api.patch(`${base}/${row.id}`, { status })),
+    onSuccess: () => qc.invalidateQueries(),
+    onError: (statusError: any) => window.alert(statusError.response?.data?.message || "Unable to change status"),
+  });
+  const requestStatusChange = (row: any, status: string) => {
+    if (status === row.status) return;
+    const conversion = status === "CONVERTED" ? " This will also create a patient record automatically." : "";
+    if (window.confirm(`Change ${row.name || row.title || "this record"} from ${label(row.status)} to ${label(status)}?${conversion}`)) changeStatus.mutate({ row, status });
+  };
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const d = new FormData(e.currentTarget),
@@ -399,6 +411,13 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                       ))}
                       <td>
                         <div className="row-actions">
+                          {!!statusOptions.length && r.status && (
+                            <select className="quick-status" value={r.status} disabled={changeStatus.isPending} onChange={(event) => { const nextStatus = event.target.value; event.currentTarget.value = r.status; requestStatusChange(r, nextStatus); }} aria-label={`Change status for ${r.name || r.title || "record"}`}>
+                              {statusOptions.map((status) => (
+                                <option key={status} value={status}>{label(status)}</option>
+                              ))}
+                            </select>
+                          )}
                           <button onClick={() => setView(r)}>
                             <Eye />
                           </button>
