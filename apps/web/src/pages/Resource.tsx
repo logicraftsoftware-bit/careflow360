@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../api";
 import { CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, Filter, Plus, Search, SquarePen, Trash2, X } from "lucide-react";
 type Mode = "tenant" | "admin";
@@ -251,7 +251,8 @@ const label = (s: string) =>
   s
     .replace(/([A-Z])/g, " $1")
     .replaceAll("_", " ")
-    .replace(/^./, (x) => x.toUpperCase());
+    .replace(/^./, (x) => x.toUpperCase())
+    .replace(/ Id$/, "");
 const val = (r: any, k: string) => r[k] ?? r.data?.[k];
 const show = (v: any) => (v == null || v === "" ? "—" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? v.name || v.title || JSON.stringify(v) : /T\d\d:\d\d/.test(String(v)) ? new Date(v).toLocaleString() : String(v));
 function Ref({ field, value }: { field: Field; value?: string }) {
@@ -291,6 +292,19 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     queryKey: [endpoint],
     queryFn: () => api.get(endpoint).then(unwrap),
   });
+  const referenceEndpoints: Record<string, string> = { doctorId: "/crm/doctors", branchId: "/crm/branches", departmentId: "/crm/departments", patientId: "/crm/patients", leadId: "/crm/leads", appointmentId: "/crm/appointments" };
+  const referenceKeys = Object.keys(referenceEndpoints);
+  const referenceQueries = useQueries({
+    queries: referenceKeys.map((key) => ({ queryKey: ["table-ref", referenceEndpoints[key]], queryFn: () => api.get(`${referenceEndpoints[key]}?limit=100`).then(unwrap), enabled: mode === "tenant" })),
+  });
+  const display = (record: any, key: string) => {
+    const raw = val(record, key), referenceIndex = referenceKeys.indexOf(key);
+    if (referenceIndex < 0 || !raw) return show(raw);
+    const referenceData = referenceQueries[referenceIndex].data as any;
+    const referenceRows = Array.isArray(referenceData) ? referenceData : referenceData?.items || [];
+    const match = referenceRows.find((item: any) => item.id === raw);
+    return show(match?.name || match?.title || match?.patientNumber || match?.leadNumber || match?.appointmentNumber || raw);
+  };
   const all = useMemo(() => {
     const x = (Array.isArray(data) ? data : data?.items || []).map((r: any) => (r.data ? { ...r, ...r.data } : r));
     return x.filter((r: any) => (filter === "ALL" || r.status === filter) && JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
@@ -338,7 +352,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   };
   const statuses = [...new Set(all.map((r: any) => r.status).filter(Boolean))] as string[];
   const csv = () => {
-    const blob = new Blob([[c.columns.join(","), ...all.map((r: any) => c.columns.map((k) => `"${show(val(r, k)).replaceAll('"', '""')}"`).join(","))].join("\n")], { type: "text/csv" }),
+    const blob = new Blob([[c.columns.map(label).join(","), ...all.map((r: any) => c.columns.map((k) => `"${display(r, k).replaceAll('"', '""')}"`).join(","))].join("\n")], { type: "text/csv" }),
       u = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = u;
@@ -406,7 +420,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     <tr key={r.id}>
                       {c.columns.map((k) => (
                         <td key={k}>
-                          <span className={k === "status" ? "status-pill" : ""}>{show(val(r, k))}</span>
+                          <span className={k === "status" ? "status-pill" : ""}>{display(r, k)}</span>
                         </td>
                       ))}
                       <td>
@@ -553,7 +567,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               {c.columns.map((k) => (
                 <div key={k}>
                   <dt>{label(k)}</dt>
-                  <dd>{show(val(view, k))}</dd>
+                  <dd>{display(view, k)}</dd>
                 </div>
               ))}
             </dl>
