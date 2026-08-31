@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../api";
 import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
@@ -273,6 +273,23 @@ function Ref({ field, value }: { field: Field; value?: string }) {
     </select>
   );
 }
+function PatientSearchRef({ field, value }: { field: Field; value?: string }) {
+  const { data } = useQuery({ queryKey: ["ref", field.endpoint], queryFn: () => api.get(`${field.endpoint}?limit=100`).then(unwrap) });
+  const rows = Array.isArray(data) ? data : data?.items || [];
+  const [selectedId, setSelectedId] = useState(value || "");
+  const [searchText, setSearchText] = useState("");
+  const [openResults, setOpenResults] = useState(false);
+  const patientText = (patient: any) => `${patient.name} · ${patient.mobile || "No phone"} · ${patient.patientNumber || patient.id}`;
+  useEffect(() => { const selected = rows.find((patient: any) => patient.id === selectedId); if (selected && !searchText) setSearchText(patientText(selected)); }, [rows, selectedId]);
+  const query = searchText.toLowerCase().trim();
+  const matches = rows.filter((patient: any) => !query || [patient.name, patient.mobile, patient.patientNumber, patient.id].some((item) => String(item || "").toLowerCase().includes(query))).slice(0, 10);
+  return <div className="patient-search">
+    <input type="hidden" name={field.name} value={selectedId} />
+    <input required={field.required} value={searchText} placeholder="Search name, phone or patient ID" autoComplete="off" onFocus={() => setOpenResults(true)} onBlur={() => setTimeout(() => setOpenResults(false), 150)} onChange={(event) => { setSearchText(event.target.value); setSelectedId(""); setOpenResults(true); }} />
+    {openResults && <div className="patient-results">{matches.length ? matches.map((patient: any) => <button type="button" key={patient.id} onMouseDown={() => { setSelectedId(patient.id); setSearchText(patientText(patient)); setOpenResults(false); }}><strong>{patient.name}</strong><span>{patient.mobile || "No phone"}</span><small>{patient.patientNumber || patient.id}</small></button>) : <p>No matching patient found</p>}</div>}
+    {selectedId && <small className="patient-selected">Patient selected</small>}
+  </div>;
+}
 export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const c = configs[slug] || {
     title: label(slug),
@@ -346,7 +363,10 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       body: any = {};
     for (const x of c.fields) {
       const v = d.get(x.name);
-      if (x.type === "reference" && v === "") continue;
+      if (x.type === "reference" && v === "") {
+        if (x.required) { window.alert(`Please select ${x.label}`); return; }
+        continue;
+      }
       body[x.name] = x.type === "checkbox" ? v === "on" : x.type === "number" && v !== "" ? Number(v) : v;
     }
     save.mutate(body);
@@ -529,8 +549,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                         </option>
                       ))}
                     </select>
-                  ) : x.type === "reference" ? (
-                    <Ref field={x} value={val(edit || {}, x.name)} />
+                    ) : x.type === "reference" ? (
+                      x.name === "patientId" ? <PatientSearchRef field={x} value={val(edit || {}, x.name)} /> : <Ref field={x} value={val(edit || {}, x.name)} />
                   ) : x.type === "checkbox" ? (
                     <input name={x.name} type="checkbox" defaultChecked={!!val(edit || {}, x.name)} />
                   ) : (
