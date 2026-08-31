@@ -300,6 +300,8 @@ model Department {
   doctors      Doctor[]
   leads        Lead[]
   appointments Appointment[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -352,18 +354,22 @@ model DoctorSchedule {
   maxPatients Int          @default(20)
   status      RecordStatus @default(ACTIVE)
   doctor      Doctor       @relation(fields: [doctorId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   @@index([tenantId, doctorId, dayOfWeek])
 }
 
 model LeadSource {
-  id       String       @id @default(auto()) @map("_id") @db.ObjectId
-  tenantId String       @db.ObjectId
-  tenant   Tenant       @relation(fields: [tenantId], references: [id])
-  name     String
-  code     String
-  status   RecordStatus @default(ACTIVE)
-  leads    Lead[]
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId  String       @db.ObjectId
+  tenant    Tenant       @relation(fields: [tenantId], references: [id])
+  name      String
+  code      String
+  status    RecordStatus @default(ACTIVE)
+  leads     Lead[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
   @@unique([tenantId, code])
 }
