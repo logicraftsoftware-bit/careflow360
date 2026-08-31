@@ -173,9 +173,9 @@ const configs: Record<string, Config> = {
   },
   "doctor-schedules": {
     title: "Doctor Schedules",
-    description: "Configure recurring availability.",
-    fields: [f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"), f("branchId", "Branch", "reference", true, undefined, "/crm/branches"), f("dayOfWeek", "Day (0-6)", "select", true, ["0", "1", "2", "3", "4", "5", "6"]), f("startTime", "Start time", "text", true), f("endTime", "End time", "text", true), f("slotMinutes", "Slot minutes", "number", true), f("maxPatients", "Maximum patients", "number", true), stat],
-    columns: ["doctorId", "branchId", "dayOfWeek", "startTime", "endTime", "status"],
+    description: "Configure date-wise doctor availability and patient slots.",
+    fields: [f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"), f("branchId", "Branch", "reference", true, undefined, "/crm/branches"), f("scheduleDate", "Schedule date", "date", true), f("startTime", "Start time", "text", true), f("endTime", "End time", "text", true), f("slotMinutes", "Slot minutes", "number", true), f("maxPatients", "Maximum patients", "number", true), stat],
+    columns: ["doctorId", "branchId", "scheduleDate", "startTime", "endTime", "slotMinutes", "maxPatients", "status"],
   },
   departments: {
     title: "Departments",

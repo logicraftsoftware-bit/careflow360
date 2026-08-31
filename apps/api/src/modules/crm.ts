@@ -21,7 +21,7 @@ const allowedFields: Record<string, string[]> = {
   branches: ["name", "address", "city", "state", "country", "pin", "phone", "email", "status"],
   departments: ["name", "code", "description", "status"],
   doctors: ["departmentId", "name", "qualification", "specialization", "registrationNumber", "mobile", "email", "experience", "consultationFee", "status"],
-  doctorSchedules: ["doctorId", "branchId", "dayOfWeek", "startTime", "endTime", "slotMinutes", "maxPatients", "status"],
+  doctorSchedules: ["doctorId", "branchId", "dayOfWeek", "scheduleDate", "startTime", "endTime", "slotMinutes", "maxPatients", "status"],
   leadSources: ["name", "code", "status"],
   leads: ["name", "mobile", "email", "city", "departmentId", "doctorId", "sourceId", "status", "priority", "remarks", "nextFollowUpAt", "assignedToId"],
   patients: ["leadId", "name", "gender", "dob", "mobile", "email", "address", "city", "state", "pin", "status"],
@@ -36,9 +36,10 @@ function prepared(resource: string, body: any, userId: string, creating = false)
   for (const key of Object.keys(data)) {
     if (key.endsWith("Id") && data[key] === "") delete data[key];
   }
-  for (const key of ["startsAt", "endsAt", "scheduledAt", "nextFollowUpAt", "dob"]) if (data[key]) data[key] = new Date(data[key]);
+  for (const key of ["startsAt", "endsAt", "scheduledAt", "scheduleDate", "nextFollowUpAt", "dob"]) if (data[key]) data[key] = new Date(data[key]);
   for (const key of ["experience", "dayOfWeek", "slotMinutes", "maxPatients", "serialNumber"]) if (data[key] !== undefined && data[key] !== "") data[key] = Number(data[key]);
   for (const key of ["consultationFee", "amount"]) if (data[key] !== undefined && data[key] !== "") data[key] = Number(data[key]);
+  if (resource === "doctorSchedules" && data.scheduleDate && data.dayOfWeek === undefined) data.dayOfWeek = data.scheduleDate.getUTCDay();
   if (creating && resource === "leads") {
     data.leadNumber = `LD-${Date.now().toString(36).toUpperCase()}`;
     data.createdById = userId;

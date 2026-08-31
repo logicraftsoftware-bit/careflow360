@@ -348,6 +348,7 @@ model DoctorSchedule {
   doctorId    String       @db.ObjectId
   branchId    String       @db.ObjectId
   dayOfWeek   Int
+  scheduleDate DateTime?
   startTime   String
   endTime     String
   slotMinutes Int          @default(15)
@@ -358,6 +359,7 @@ model DoctorSchedule {
   updatedAt   DateTime     @updatedAt
 
   @@index([tenantId, doctorId, dayOfWeek])
+  @@index([tenantId, doctorId, scheduleDate])
 }
 
 model LeadSource {
