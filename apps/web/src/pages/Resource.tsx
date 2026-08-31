@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../api";
 import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
+import { AppointmentFields } from "./AppointmentFields";
 import { CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, Filter, Plus, Search, SquarePen, Trash2, X } from "lucide-react";
 type Mode = "tenant" | "admin";
 type Field = {
@@ -535,7 +536,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 <X />
               </button>
             </div>
-            <div className="modal-grid">
+            {slug === "appointments" ? <AppointmentFields appointment={edit} /> : <div className="modal-grid">
               {c.fields.map((x) => (
                 <label key={x.name} className={x.type === "textarea" ? "wide" : ""}>
                   {x.label}
@@ -558,7 +559,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                   )}
                 </label>
               ))}
-            </div>
+            </div>}
             {save.error && <div className="alert error">{(save.error as any).response?.data?.message || "Unable to save"}</div>}
             <div className="modal-actions">
               <button
