@@ -1,11 +1,8 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: careflow360
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports: ["5432:5432"]
-    volumes: ["careflow360_pg:/var/lib/postgresql/data"]
+  mongodb:
+    image: mongo:8
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports: ["27017:27017"]
+    volumes: ["careflow360_mongo:/data/db"]
 volumes:
-  careflow360_pg:
+  careflow360_mongo:

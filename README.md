@@ -1,6 +1,6 @@
 # CareFlow360
 
-CareFlow360 is a multi-tenant SaaS lead-management and doctor-appointment CRM for clinics. This repository contains a React/Vite web app and an Express/Prisma API backed by PostgreSQL.
+CareFlow360 is a multi-tenant SaaS lead-management and doctor-appointment CRM for clinics. This repository contains a React/Vite web app and an Express/Prisma API backed by MongoDB.
 
 ## Included foundation
 
@@ -15,13 +15,13 @@ CareFlow360 is a multi-tenant SaaS lead-management and doctor-appointment CRM fo
 
 ## Local setup
 
-Requirements: Node.js 20+, npm 10+, and PostgreSQL 16+.
+Requirements: Node.js 20+, npm 10+, and a MongoDB replica set (MongoDB Atlas is recommended).
 
 1. Copy `.env.example` to `.env` and set secure values.
-2. Start PostgreSQL with `docker compose up -d postgres`, or supply another PostgreSQL URL.
+2. Supply a MongoDB Atlas URL or start a local MongoDB replica set.
 3. Install packages with `npm install`.
 4. Generate Prisma Client with `npm run db:generate`.
-5. Create the initial migration with `npm run db:migrate -- --name init`.
+5. Synchronize collections and indexes with `npm run db:push`.
 6. Seed plans, permissions, and the Super Admin with `npm run db:seed`.
 7. Start both apps with `npm run dev`.
 
@@ -38,7 +38,7 @@ npm run typecheck
 npm run test
 npm run build
 npm run db:generate
-npm run db:migrate
+npm run db:push
 npm run db:seed
 ```
 
@@ -61,7 +61,7 @@ Build the web app from `apps/web` using `npm run build`; its output is `apps/web
 
 Before production launch:
 
-- Attach managed PostgreSQL and run reviewed migrations and seed.
+- Attach MongoDB Atlas, review the schema push, and seed the database.
 - Replace all example secrets and the seed password.
 - Configure HTTPS origins and provider webhook secrets.
 - Add production email/payment/Meta/WhatsApp adapters as selected.

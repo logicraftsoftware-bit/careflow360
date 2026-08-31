@@ -1,5 +1,6 @@
 {
   "name": "careflow360",
+  "type": "module",
   "private": true,
   "version": "1.0.0",
   "workspaces": ["apps/*"],
@@ -10,6 +11,7 @@
     "test": "npm run test -w @careflow360/api",
     "lint": "npm run lint -w @careflow360/api && npm run lint -w @careflow360/web",
     "db:generate": "npm run db:generate -w @careflow360/api",
+    "db:push": "npm run db:push -w @careflow360/api",
     "db:migrate": "npm run db:migrate -w @careflow360/api",
     "db:seed": "npm run db:seed -w @careflow360/api"
   },

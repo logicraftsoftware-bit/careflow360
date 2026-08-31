@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
@@ -76,7 +76,7 @@ enum RecordStatus {
 }
 
 model Tenant {
-  id              String         @id @default(cuid())
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
   name            String
   slug            String         @unique
   ownerName       String
@@ -107,8 +107,8 @@ model Tenant {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  tenantId      String?
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId      String?        @db.ObjectId
   tenant        Tenant?        @relation(fields: [tenantId], references: [id])
   name          String
   email         String
@@ -132,8 +132,8 @@ model User {
 }
 
 model Role {
-  id          String           @id @default(cuid())
-  tenantId    String?
+  id          String           @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String?          @db.ObjectId
   name        String
   code        String
   isSystem    Boolean          @default(false)
@@ -144,46 +144,48 @@ model Role {
 }
 
 model Permission {
-  id          String           @id @default(cuid())
+  id          String           @id @default(auto()) @map("_id") @db.ObjectId
   key         String           @unique
   description String?
   roles       RolePermission[]
 }
 
 model UserRole {
-  userId String
-  roleId String
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  roleId String @db.ObjectId
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  @@id([userId, roleId])
+  @@unique([userId, roleId])
 }
 
 model RolePermission {
-  roleId       String
-  permissionId String
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  roleId       String     @db.ObjectId
+  permissionId String     @db.ObjectId
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
-  @@id([roleId, permissionId])
+  @@unique([roleId, permissionId])
 }
 
 model RefreshToken {
-  id           String    @id @default(cuid())
-  userId       String
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String    @db.ObjectId
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash    String    @unique
   expiresAt    DateTime
   revokedAt    DateTime?
-  replacedById String?
+  replacedById String?   @db.ObjectId
   createdAt    DateTime  @default(now())
 
   @@index([userId])
 }
 
 model PasswordResetToken {
-  id        String    @id @default(cuid())
-  userId    String
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String    @db.ObjectId
   tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
@@ -191,8 +193,8 @@ model PasswordResetToken {
 }
 
 model EmailVerification {
-  id         String    @id @default(cuid())
-  userId     String
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String    @db.ObjectId
   tokenHash  String    @unique
   expiresAt  DateTime
   verifiedAt DateTime?
@@ -200,12 +202,12 @@ model EmailVerification {
 }
 
 model Plan {
-  id            String         @id @default(cuid())
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
   name          String
   code          String         @unique
   description   String?
-  monthlyPrice  Decimal        @db.Decimal(12, 2)
-  annualPrice   Decimal        @db.Decimal(12, 2)
+  monthlyPrice  Float
+  annualPrice   Float
   trialDays     Int            @default(14)
   currency      String         @default("INR")
   status        RecordStatus   @default(ACTIVE)
@@ -219,7 +221,7 @@ model Plan {
 }
 
 model Feature {
-  id          String        @id @default(cuid())
+  id          String        @id @default(auto()) @map("_id") @db.ObjectId
   code        String        @unique
   name        String
   description String?
@@ -227,18 +229,19 @@ model Feature {
 }
 
 model PlanFeature {
-  planId    String
-  featureId String
+  id        String  @id @default(auto()) @map("_id") @db.ObjectId
+  planId    String  @db.ObjectId
+  featureId String  @db.ObjectId
   enabled   Boolean @default(true)
   plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
   feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
 
-  @@id([planId, featureId])
+  @@unique([planId, featureId])
 }
 
 model PlanLimit {
-  id     String @id @default(cuid())
-  planId String
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  planId String @db.ObjectId
   code   String
   value  Int
   plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -247,9 +250,9 @@ model PlanLimit {
 }
 
 model Subscription {
-  id           String             @id @default(cuid())
-  tenantId     String
-  planId       String
+  id           String             @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String             @db.ObjectId
+  planId       String             @db.ObjectId
   tenant       Tenant             @relation(fields: [tenantId], references: [id])
   plan         Plan               @relation(fields: [planId], references: [id])
   billingCycle String
@@ -265,8 +268,8 @@ model Subscription {
 }
 
 model Branch {
-  id           String         @id @default(cuid())
-  tenantId     String
+  id           String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String         @db.ObjectId
   tenant       Tenant         @relation(fields: [tenantId], references: [id])
   name         String
   address      String?
@@ -287,8 +290,8 @@ model Branch {
 }
 
 model Department {
-  id           String        @id @default(cuid())
-  tenantId     String
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String        @db.ObjectId
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
   name         String
   code         String
@@ -303,10 +306,10 @@ model Department {
 }
 
 model Doctor {
-  id                 String           @id @default(cuid())
-  tenantId           String
+  id                 String           @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String           @db.ObjectId
   tenant             Tenant           @relation(fields: [tenantId], references: [id])
-  departmentId       String?
+  departmentId       String?          @db.ObjectId
   department         Department?      @relation(fields: [departmentId], references: [id])
   name               String
   qualification      String?
@@ -315,7 +318,7 @@ model Doctor {
   mobile             String?
   email              String?
   experience         Int?
-  consultationFee    Decimal          @default(0) @db.Decimal(12, 2)
+  consultationFee    Float            @default(0)
   status             RecordStatus     @default(ACTIVE)
   branches           DoctorBranch[]
   schedules          DoctorSchedule[]
@@ -328,19 +331,20 @@ model Doctor {
 }
 
 model DoctorBranch {
-  doctorId String
-  branchId String
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  doctorId String @db.ObjectId
+  branchId String @db.ObjectId
   doctor   Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@id([doctorId, branchId])
+  @@unique([doctorId, branchId])
 }
 
 model DoctorSchedule {
-  id          String       @id @default(cuid())
-  tenantId    String
-  doctorId    String
-  branchId    String
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String       @db.ObjectId
+  doctorId    String       @db.ObjectId
+  branchId    String       @db.ObjectId
   dayOfWeek   Int
   startTime   String
   endTime     String
@@ -353,8 +357,8 @@ model DoctorSchedule {
 }
 
 model LeadSource {
-  id       String       @id @default(cuid())
-  tenantId String
+  id       String       @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId String       @db.ObjectId
   tenant   Tenant       @relation(fields: [tenantId], references: [id])
   name     String
   code     String
@@ -365,27 +369,27 @@ model LeadSource {
 }
 
 model Lead {
-  id             String        @id @default(cuid())
-  tenantId       String
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId       String        @db.ObjectId
   tenant         Tenant        @relation(fields: [tenantId], references: [id])
   leadNumber     String
   name           String
   mobile         String
   email          String?
   city           String?
-  departmentId   String?
+  departmentId   String?       @db.ObjectId
   department     Department?   @relation(fields: [departmentId], references: [id])
-  doctorId       String?
+  doctorId       String?       @db.ObjectId
   doctor         Doctor?       @relation(fields: [doctorId], references: [id])
-  sourceId       String?
+  sourceId       String?       @db.ObjectId
   source         LeadSource?   @relation(fields: [sourceId], references: [id])
   status         LeadStatus    @default(NEW)
   priority       String        @default("MEDIUM")
   remarks        String?
   nextFollowUpAt DateTime?
-  assignedToId   String?
+  assignedToId   String?       @db.ObjectId
   assignedTo     User?         @relation("LeadAssignee", fields: [assignedToId], references: [id])
-  createdById    String
+  createdById    String        @db.ObjectId
   createdBy      User          @relation("LeadCreator", fields: [createdById], references: [id])
   followups      FollowUp[]
   patient        Patient?
@@ -399,11 +403,11 @@ model Lead {
 }
 
 model FollowUp {
-  id             String    @id @default(cuid())
-  tenantId       String
-  leadId         String
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId       String    @db.ObjectId
+  leadId         String    @db.ObjectId
   lead           Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  staffId        String
+  staffId        String    @db.ObjectId
   scheduledAt    DateTime
   type           String
   remarks        String?
@@ -416,11 +420,11 @@ model FollowUp {
 }
 
 model Patient {
-  id            String        @id @default(cuid())
-  tenantId      String
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId      String        @db.ObjectId
   tenant        Tenant        @relation(fields: [tenantId], references: [id])
   patientNumber String
-  leadId        String?       @unique
+  leadId        String?       @unique @db.ObjectId
   lead          Lead?         @relation(fields: [leadId], references: [id])
   name          String
   gender        String?
@@ -441,25 +445,25 @@ model Patient {
 }
 
 model Appointment {
-  id                 String            @id @default(cuid())
-  tenantId           String
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String            @db.ObjectId
   tenant             Tenant            @relation(fields: [tenantId], references: [id])
   appointmentNumber  String
-  patientId          String
+  patientId          String            @db.ObjectId
   patient            Patient           @relation(fields: [patientId], references: [id])
-  leadId             String?
+  leadId             String?           @db.ObjectId
   lead               Lead?             @relation(fields: [leadId], references: [id])
-  branchId           String
+  branchId           String            @db.ObjectId
   branch             Branch            @relation(fields: [branchId], references: [id])
-  departmentId       String
+  departmentId       String            @db.ObjectId
   department         Department        @relation(fields: [departmentId], references: [id])
-  doctorId           String
+  doctorId           String            @db.ObjectId
   doctor             Doctor            @relation(fields: [doctorId], references: [id])
   startsAt           DateTime
   endsAt             DateTime
   status             AppointmentStatus @default(BOOKING_PENDING)
   paymentStatus      PaymentStatus     @default(PENDING)
-  amount             Decimal           @default(0) @db.Decimal(12, 2)
+  amount             Float             @default(0)
   serialNumber       Int?
   token              String?
   paymentConfirmedAt DateTime?
@@ -473,13 +477,13 @@ model Appointment {
 }
 
 model Payment {
-  id                    String        @id @default(cuid())
-  tenantId              String
-  appointmentId         String
+  id                    String        @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId              String        @db.ObjectId
+  appointmentId         String        @db.ObjectId
   appointment           Appointment   @relation(fields: [appointmentId], references: [id])
   provider              String
   providerTransactionId String?       @unique
-  amount                Decimal       @db.Decimal(12, 2)
+  amount                Float
   currency              String        @default("INR")
   status                PaymentStatus @default(PENDING)
   secureToken           String        @unique
@@ -492,7 +496,7 @@ model Payment {
 }
 
 model WebhookEvent {
-  id          String    @id @default(cuid())
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
   provider    String
   externalId  String
   payload     Json
@@ -503,14 +507,14 @@ model WebhookEvent {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  tenantId   String?
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId   String?  @db.ObjectId
   tenant     Tenant?  @relation(fields: [tenantId], references: [id])
-  actorId    String?
+  actorId    String?  @db.ObjectId
   actor      User?    @relation(fields: [actorId], references: [id])
   action     String
   entityType String
-  entityId   String?
+  entityId   String?  @db.ObjectId
   metadata   Json?
   ipAddress  String?
   createdAt  DateTime @default(now())
@@ -519,7 +523,7 @@ model AuditLog {
 }
 
 model Announcement {
-  id         String    @id @default(cuid())
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
   title      String
   body       String
   targetType String    @default("ALL")
@@ -531,9 +535,9 @@ model Announcement {
 }
 
 model Notification {
-  id        String    @id @default(cuid())
-  tenantId  String
-  userId    String?
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId  String    @db.ObjectId
+  userId    String?   @db.ObjectId
   type      String
   title     String
   body      String
@@ -544,14 +548,14 @@ model Notification {
 }
 
 model SupportTicket {
-  id            String   @id @default(cuid())
-  tenantId      String
-  requesterId   String
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId      String   @db.ObjectId
+  requesterId   String   @db.ObjectId
   subject       String
   description   String
   priority      String   @default("MEDIUM")
   status        String   @default("OPEN")
-  assignedToId  String?
+  assignedToId  String?  @db.ObjectId
   internalNotes String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -560,8 +564,8 @@ model SupportTicket {
 }
 
 model ModuleRecord {
-  id        String   @id @default(cuid())
-  tenantId  String?
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId  String?  @db.ObjectId
   module    String
   title     String
   status    String   @default("ACTIVE")
