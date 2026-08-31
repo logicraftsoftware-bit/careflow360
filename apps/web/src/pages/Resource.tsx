@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../api";
+import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
 import { CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, Filter, Plus, Search, SquarePen, Trash2, X } from "lucide-react";
 type Mode = "tenant" | "admin";
 type Field = {
@@ -360,6 +361,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     a.click();
     URL.revokeObjectURL(u);
   };
+  if (slug === "doctor-schedules" && edit) return <DoctorScheduleEditor schedule={edit} onBack={() => setEdit(undefined)} />;
   return (
     <>
       <div className="page-head">
