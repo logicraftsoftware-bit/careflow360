@@ -17,10 +17,22 @@ const resources: any = {
   notifications: prisma.notification,
   supportTickets: prisma.supportTicket,
 };
+const allowedFields: Record<string, string[]> = {
+  branches: ["name", "address", "city", "state", "country", "pin", "phone", "email", "status"],
+  departments: ["name", "code", "description", "status"],
+  doctors: ["departmentId", "name", "qualification", "specialization", "registrationNumber", "mobile", "email", "experience", "consultationFee", "status"],
+  doctorSchedules: ["doctorId", "branchId", "dayOfWeek", "startTime", "endTime", "slotMinutes", "maxPatients", "status"],
+  leadSources: ["name", "code", "status"],
+  leads: ["name", "mobile", "email", "city", "departmentId", "doctorId", "sourceId", "status", "priority", "remarks", "nextFollowUpAt", "assignedToId"],
+  patients: ["leadId", "name", "gender", "dob", "mobile", "email", "address", "city", "state", "pin", "status"],
+  appointments: ["patientId", "leadId", "branchId", "departmentId", "doctorId", "startsAt", "endsAt", "status", "paymentStatus", "amount", "serialNumber", "token", "paymentConfirmedAt"],
+  followups: ["leadId", "staffId", "scheduledAt", "type", "remarks", "outcome", "status", "nextFollowUpAt"],
+  notifications: ["userId", "type", "title", "body", "readAt"],
+  supportTickets: ["requesterId", "subject", "description", "priority", "status", "assignedToId", "internalNotes"],
+};
 function prepared(resource: string, body: any, userId: string, creating = false) {
-  const data = { ...body };
-  delete data.id;
-  delete data.tenantId;
+  const allowed = allowedFields[resource] ?? [];
+  const data: any = Object.fromEntries(Object.entries(body).filter(([key]) => allowed.includes(key)));
   for (const key of Object.keys(data)) {
     if (key.endsWith("Id") && data[key] === "") delete data[key];
   }
@@ -37,6 +49,7 @@ function prepared(resource: string, body: any, userId: string, creating = false)
     if (data.startsAt && !data.endsAt) data.endsAt = new Date(data.startsAt.getTime() + 30 * 60000);
   }
   if (creating && resource === "followups" && !data.staffId) data.staffId = userId;
+  if (creating && resource === "supportTickets") data.requesterId = userId;
   return data;
 }
 crmRouter.get(
