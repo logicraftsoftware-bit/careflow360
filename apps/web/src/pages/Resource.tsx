@@ -1,9 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { api, unwrap } from "../api";
 import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
 import { AppointmentFields } from "./AppointmentFields";
-import { CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, Filter, Plus, Search, SquarePen, Trash2, X } from "lucide-react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
+  FileText,
+  Filter,
+  Plus,
+  Search,
+  SquarePen,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 type Mode = "tenant" | "admin";
 type Field = {
@@ -23,9 +42,56 @@ type Config = {
   noCreate?: boolean;
   fixedStatus?: string;
 };
-const f = (name: string, label: string, type = "text", required = false, options?: string[], endpoint?: string): Field => ({ name, label, type, required, options, endpoint });
+const f = (
+  name: string,
+  label: string,
+  type = "text",
+  required = false,
+  options?: string[],
+  endpoint?: string,
+): Field => ({ name, label, type, required, options, endpoint });
 const active = ["ACTIVE", "INACTIVE"];
 const stat = f("status", "Status", "select", true, active);
+const parseCsv = (text: string) => {
+  const rows: string[][] = [];
+  let row: string[] = [],
+    cell = "",
+    quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index],
+      next = text[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      cell += '"';
+      index += 1;
+    } else if (char === '"') quoted = !quoted;
+    else if (char === "," && !quoted) {
+      row.push(cell.trim());
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += char;
+  }
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((header) =>
+    header
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, ""),
+  );
+  return rows
+    .slice(1)
+    .map((values) =>
+      Object.fromEntries(
+        headers.map((header, index) => [header, values[index] || ""]),
+      ),
+    );
+};
 const configs: Record<string, Config> = {
   registrations: {
     title: "Registrations",
@@ -46,67 +112,183 @@ const configs: Record<string, Config> = {
   plans: {
     title: "Subscription Plans",
     description: "Create and maintain database-driven SaaS pricing.",
-    fields: [f("name", "Plan name", "text", true), f("code", "Code", "text", true), f("description", "Description", "textarea"), f("monthlyPrice", "Monthly price", "number", true), f("annualPrice", "Annual price", "number", true), f("trialDays", "Trial days", "number", true), f("currency", "Currency", "select", true, ["INR", "USD", "EUR"]), f("popular", "Popular", "checkbox"), stat],
-    columns: ["name", "code", "monthlyPrice", "annualPrice", "trialDays", "status"],
+    fields: [
+      f("name", "Plan name", "text", true),
+      f("code", "Code", "text", true),
+      f("description", "Description", "textarea"),
+      f("monthlyPrice", "Monthly price", "number", true),
+      f("annualPrice", "Annual price", "number", true),
+      f("trialDays", "Trial days", "number", true),
+      f("currency", "Currency", "select", true, ["INR", "USD", "EUR"]),
+      f("popular", "Popular", "checkbox"),
+      stat,
+    ],
+    columns: [
+      "name",
+      "code",
+      "monthlyPrice",
+      "annualPrice",
+      "trialDays",
+      "status",
+    ],
   },
   "features-limits": {
     title: "Features & Limits",
     description: "Define plan entitlements and usage limits.",
-    fields: [f("title", "Feature name", "text", true), f("code", "Code", "text", true), f("value", "Limit", "number"), f("description", "Description", "textarea"), stat],
+    fields: [
+      f("title", "Feature name", "text", true),
+      f("code", "Code", "text", true),
+      f("value", "Limit", "number"),
+      f("description", "Description", "textarea"),
+      stat,
+    ],
     columns: ["title", "code", "value", "status", "updatedAt"],
   },
   subscriptions: {
     title: "Subscriptions",
     description: "Track clinic subscriptions and renewals.",
-    fields: [f("title", "Reference", "text", true), f("tenant", "Tenant", "text", true), f("plan", "Plan", "text", true), f("billingCycle", "Billing cycle", "select", true, ["MONTHLY", "ANNUAL"]), f("renewalDate", "Renewal date", "date"), f("status", "Status", "select", true, ["TRIAL", "ACTIVE", "PAST_DUE", "SUSPENDED", "CANCELLED", "EXPIRED"])],
-    columns: ["title", "tenant", "plan", "billingCycle", "renewalDate", "status"],
+    fields: [
+      f("title", "Reference", "text", true),
+      f("tenant", "Tenant", "text", true),
+      f("plan", "Plan", "text", true),
+      f("billingCycle", "Billing cycle", "select", true, ["MONTHLY", "ANNUAL"]),
+      f("renewalDate", "Renewal date", "date"),
+      f("status", "Status", "select", true, [
+        "TRIAL",
+        "ACTIVE",
+        "PAST_DUE",
+        "SUSPENDED",
+        "CANCELLED",
+        "EXPIRED",
+      ]),
+    ],
+    columns: [
+      "title",
+      "tenant",
+      "plan",
+      "billingCycle",
+      "renewalDate",
+      "status",
+    ],
   },
   invoices: {
     title: "SaaS Invoices",
     description: "Manage platform invoices issued to clinics.",
-    fields: [f("title", "Invoice number", "text", true), f("tenant", "Tenant", "text", true), f("amount", "Amount", "number", true), f("dueDate", "Due date", "date"), f("status", "Status", "select", true, ["DRAFT", "ISSUED", "PAID", "OVERDUE", "VOID"])],
+    fields: [
+      f("title", "Invoice number", "text", true),
+      f("tenant", "Tenant", "text", true),
+      f("amount", "Amount", "number", true),
+      f("dueDate", "Due date", "date"),
+      f("status", "Status", "select", true, [
+        "DRAFT",
+        "ISSUED",
+        "PAID",
+        "OVERDUE",
+        "VOID",
+      ]),
+    ],
     columns: ["title", "tenant", "amount", "dueDate", "status"],
   },
   transactions: {
     title: "Transactions",
     description: "Reconcile platform subscription transactions.",
-    fields: [f("title", "Transaction ID", "text", true), f("tenant", "Tenant", "text", true), f("provider", "Provider", "text", true), f("amount", "Amount", "number", true), f("status", "Status", "select", true, ["PENDING", "PAID", "FAILED", "REFUNDED"])],
+    fields: [
+      f("title", "Transaction ID", "text", true),
+      f("tenant", "Tenant", "text", true),
+      f("provider", "Provider", "text", true),
+      f("amount", "Amount", "number", true),
+      f("status", "Status", "select", true, [
+        "PENDING",
+        "PAID",
+        "FAILED",
+        "REFUNDED",
+      ]),
+    ],
     columns: ["title", "tenant", "provider", "amount", "status"],
   },
   "platform-staff": {
     title: "Platform Staff",
     description: "Manage SaaS operations and support employees.",
-    fields: [f("title", "Full name", "text", true), f("email", "Email", "email", true), f("mobile", "Mobile"), f("role", "Role", "select", true, ["Platform Staff", "Platform Support", "Platform Finance"]), stat],
+    fields: [
+      f("title", "Full name", "text", true),
+      f("email", "Email", "email", true),
+      f("mobile", "Mobile"),
+      f("role", "Role", "select", true, [
+        "Platform Staff",
+        "Platform Support",
+        "Platform Finance",
+      ]),
+      stat,
+    ],
     columns: ["title", "email", "mobile", "role", "status"],
   },
   "roles-permissions": {
     title: "Roles & Permissions",
     description: "Configure roles and permission keys.",
-    fields: [f("title", "Role name", "text", true), f("code", "Role code", "text", true), f("permissions", "Permission keys", "textarea", true), stat],
+    fields: [
+      f("title", "Role name", "text", true),
+      f("code", "Role code", "text", true),
+      f("permissions", "Permission keys", "textarea", true),
+      stat,
+    ],
     columns: ["title", "code", "permissions", "status"],
   },
   usage: {
     title: "Usage",
     description: "Track billing and capacity usage metrics.",
-    fields: [f("title", "Metric", "text", true), f("tenant", "Tenant"), f("value", "Value", "number", true), f("period", "Period", "text", true), stat],
+    fields: [
+      f("title", "Metric", "text", true),
+      f("tenant", "Tenant"),
+      f("value", "Value", "number", true),
+      f("period", "Period", "text", true),
+      stat,
+    ],
     columns: ["title", "tenant", "value", "period", "status"],
   },
   announcements: {
     title: "Announcements",
     description: "Publish platform notices to clinics.",
-    fields: [f("title", "Title", "text", true), f("body", "Message", "textarea", true), f("audience", "Audience", "select", true, ["ALL_TENANTS", "SELECTED_PLANS", "SELECTED_TENANTS"]), f("publishDate", "Publish date", "date"), f("status", "Status", "select", true, ["DRAFT", "ACTIVE", "ARCHIVED"])],
+    fields: [
+      f("title", "Title", "text", true),
+      f("body", "Message", "textarea", true),
+      f("audience", "Audience", "select", true, [
+        "ALL_TENANTS",
+        "SELECTED_PLANS",
+        "SELECTED_TENANTS",
+      ]),
+      f("publishDate", "Publish date", "date"),
+      f("status", "Status", "select", true, ["DRAFT", "ACTIVE", "ARCHIVED"]),
+    ],
     columns: ["title", "audience", "publishDate", "status", "updatedAt"],
   },
   integrations: {
     title: "Integrations",
     description: "Manage secure platform provider configurations.",
-    fields: [f("title", "Integration", "text", true), f("provider", "Provider", "text", true), f("environment", "Environment", "select", true, ["TEST", "PRODUCTION"]), f("description", "Notes", "textarea"), stat],
+    fields: [
+      f("title", "Integration", "text", true),
+      f("provider", "Provider", "text", true),
+      f("environment", "Environment", "select", true, ["TEST", "PRODUCTION"]),
+      f("description", "Notes", "textarea"),
+      stat,
+    ],
     columns: ["title", "provider", "environment", "status", "updatedAt"],
   },
   settings: {
     title: "Settings",
     description: "Manage operational defaults and configuration.",
-    fields: [f("title", "Setting", "text", true), f("category", "Category", "select", true, ["GENERAL", "BRANDING", "APPOINTMENTS", "NOTIFICATIONS", "SECURITY", "INTEGRATIONS"]), f("value", "Value", "textarea", true), stat],
+    fields: [
+      f("title", "Setting", "text", true),
+      f("category", "Category", "select", true, [
+        "GENERAL",
+        "BRANDING",
+        "APPOINTMENTS",
+        "NOTIFICATIONS",
+        "SECURITY",
+        "INTEGRATIONS",
+      ]),
+      f("value", "Value", "textarea", true),
+      stat,
+    ],
     columns: ["title", "category", "value", "status", "updatedAt"],
   },
   "audit-logs": {
@@ -120,14 +302,54 @@ const configs: Record<string, Config> = {
   leads: {
     title: "Enquiries / Leads",
     description: "Capture and progress every patient enquiry.",
-    fields: [f("name", "Lead name", "text", true), f("mobile", "Mobile", "text", true), f("email", "Email", "email"), f("city", "City"), f("departmentId", "Department", "reference", false, undefined, "/crm/departments"), f("doctorId", "Doctor", "reference", false, undefined, "/crm/doctors"), f("priority", "Priority", "select", true, ["LOW", "MEDIUM", "HIGH", "URGENT"]), f("status", "Status", "select", true, ["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP_REQUIRED", "APPOINTMENT_PENDING", "CONVERTED", "NOT_INTERESTED", "CALLBACK_LATER", "INVALID", "LOST"]), f("remarks", "Remarks", "textarea")],
+    fields: [
+      f("name", "Lead name", "text", true),
+      f("mobile", "Mobile", "text", true),
+      f("email", "Email", "email"),
+      f("city", "City"),
+      f(
+        "departmentId",
+        "Department",
+        "reference",
+        false,
+        undefined,
+        "/crm/departments",
+      ),
+      f("doctorId", "Doctor", "reference", false, undefined, "/crm/doctors"),
+      f("priority", "Priority", "select", true, [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "URGENT",
+      ]),
+      f("status", "Status", "select", true, [
+        "NEW",
+        "CONTACTED",
+        "INTERESTED",
+        "FOLLOW_UP_REQUIRED",
+        "APPOINTMENT_PENDING",
+        "CONVERTED",
+        "NOT_INTERESTED",
+        "CALLBACK_LATER",
+        "INVALID",
+        "LOST",
+      ]),
+      f("remarks", "Remarks", "textarea"),
+    ],
     columns: ["leadNumber", "name", "mobile", "city", "priority", "status"],
   },
   "interested-leads": {
     title: "Interested Leads",
     description: "Work enquiries showing active interest.",
     fields: [],
-    columns: ["leadNumber", "name", "mobile", "priority", "status", "updatedAt"],
+    columns: [
+      "leadNumber",
+      "name",
+      "mobile",
+      "priority",
+      "status",
+      "updatedAt",
+    ],
     readOnly: true,
     noCreate: true,
     fixedStatus: "INTERESTED",
@@ -136,7 +358,14 @@ const configs: Record<string, Config> = {
     title: "Converted Leads",
     description: "Review converted patient enquiries.",
     fields: [],
-    columns: ["leadNumber", "name", "mobile", "priority", "status", "updatedAt"],
+    columns: [
+      "leadNumber",
+      "name",
+      "mobile",
+      "priority",
+      "status",
+      "updatedAt",
+    ],
     readOnly: true,
     noCreate: true,
     fixedStatus: "CONVERTED",
@@ -144,93 +373,307 @@ const configs: Record<string, Config> = {
   followups: {
     title: "Follow-ups",
     description: "Schedule calls and patient communications.",
-    fields: [f("leadId", "Lead", "reference", true, undefined, "/crm/leads"), f("scheduledAt", "Follow-up time", "datetime-local", true), f("type", "Type", "select", true, ["CALL", "WHATSAPP", "SMS", "EMAIL", "MEETING"]), f("remarks", "Remarks", "textarea"), f("outcome", "Outcome", "textarea"), f("status", "Status", "select", true, ["PENDING", "COMPLETED", "MISSED", "CANCELLED"])],
-    columns: ["leadId", "scheduledAt", "type", "outcome", "status", "createdAt"],
+    fields: [
+      f("leadId", "Lead", "reference", true, undefined, "/crm/leads"),
+      f("scheduledAt", "Follow-up time", "datetime-local", true),
+      f("type", "Type", "select", true, [
+        "CALL",
+        "WHATSAPP",
+        "SMS",
+        "EMAIL",
+        "MEETING",
+      ]),
+      f("remarks", "Remarks", "textarea"),
+      f("outcome", "Outcome", "textarea"),
+      f("status", "Status", "select", true, [
+        "PENDING",
+        "COMPLETED",
+        "MISSED",
+        "CANCELLED",
+      ]),
+    ],
+    columns: [
+      "leadId",
+      "scheduledAt",
+      "type",
+      "outcome",
+      "status",
+      "createdAt",
+    ],
   },
   patients: {
     title: "Patients",
     description: "Maintain isolated patient master records.",
-    fields: [f("name", "Patient name", "text", true), f("mobile", "Mobile", "text", true), f("email", "Email", "email"), f("gender", "Gender", "select", false, ["MALE", "FEMALE", "OTHER"]), f("dob", "Date of birth", "date"), f("address", "Address", "textarea"), f("city", "City"), f("state", "State"), f("pin", "PIN"), stat],
+    fields: [
+      f("name", "Patient name", "text", true),
+      f("mobile", "Mobile", "text", true),
+      f("email", "Email", "email"),
+      f("gender", "Gender", "select", false, ["MALE", "FEMALE", "OTHER"]),
+      f("dob", "Date of birth", "date"),
+      f("address", "Address", "textarea"),
+      f("city", "City"),
+      f("state", "State"),
+      f("pin", "PIN"),
+      stat,
+    ],
     columns: ["patientNumber", "name", "mobile", "email", "city", "status"],
   },
   appointments: {
     title: "Appointments",
     description: "Book and manage doctor appointments.",
-    fields: [f("patientId", "Patient", "reference", true, undefined, "/crm/patients"), f("branchId", "Branch", "reference", true, undefined, "/crm/branches"), f("departmentId", "Department", "reference", true, undefined, "/crm/departments"), f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"), f("startsAt", "Start time", "datetime-local", true), f("amount", "Fee", "number", true), f("status", "Status", "select", true, ["DRAFT", "BOOKING_PENDING", "PAYMENT_PENDING", "CONFIRMED", "CHECKED_IN", "IN_CONSULTATION", "COMPLETED", "CANCELLED", "NO_SHOW", "RESCHEDULED"]), f("paymentStatus", "Payment status", "select", true, ["NOT_REQUIRED", "PENDING", "PAID", "FAILED", "PARTIALLY_PAID", "REFUNDED"])],
-    columns: ["appointmentNumber", "patientId", "doctorId", "startsAt", "status", "paymentStatus"],
+    fields: [
+      f("patientId", "Patient", "reference", true, undefined, "/crm/patients"),
+      f("branchId", "Branch", "reference", true, undefined, "/crm/branches"),
+      f(
+        "departmentId",
+        "Department",
+        "reference",
+        true,
+        undefined,
+        "/crm/departments",
+      ),
+      f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"),
+      f("startsAt", "Start time", "datetime-local", true),
+      f("amount", "Fee", "number", true),
+      f("status", "Status", "select", true, [
+        "DRAFT",
+        "BOOKING_PENDING",
+        "PAYMENT_PENDING",
+        "CONFIRMED",
+        "CHECKED_IN",
+        "IN_CONSULTATION",
+        "COMPLETED",
+        "CANCELLED",
+        "NO_SHOW",
+        "RESCHEDULED",
+      ]),
+      f("paymentStatus", "Payment status", "select", true, [
+        "NOT_REQUIRED",
+        "PENDING",
+        "PAID",
+        "FAILED",
+        "PARTIALLY_PAID",
+        "REFUNDED",
+      ]),
+    ],
+    columns: [
+      "appointmentNumber",
+      "patientId",
+      "doctorId",
+      "startsAt",
+      "status",
+      "paymentStatus",
+    ],
   },
   calendar: {
     title: "Appointment Calendar",
     description: "View appointments in chronological order.",
     fields: [],
-    columns: ["appointmentNumber", "patientId", "doctorId", "startsAt", "status", "paymentStatus"],
+    columns: [
+      "appointmentNumber",
+      "patientId",
+      "doctorId",
+      "startsAt",
+      "status",
+      "paymentStatus",
+    ],
     readOnly: true,
     noCreate: true,
   },
   doctors: {
     title: "Doctors",
     description: "Manage doctors and consultation fees.",
-    fields: [f("name", "Doctor name", "text", true), f("departmentId", "Department", "reference", false, undefined, "/crm/departments"), f("qualification", "Qualification"), f("specialization", "Specialization"), f("registrationNumber", "Registration number"), f("mobile", "Mobile"), f("email", "Email", "email"), f("experience", "Experience", "number"), f("consultationFee", "Consultation fee", "number"), stat],
-    columns: ["name", "specialization", "qualification", "mobile", "consultationFee", "status"],
+    fields: [
+      f("name", "Doctor name", "text", true),
+      f(
+        "departmentId",
+        "Department",
+        "reference",
+        false,
+        undefined,
+        "/crm/departments",
+      ),
+      f("qualification", "Qualification"),
+      f("specialization", "Specialization"),
+      f("registrationNumber", "Registration number"),
+      f("mobile", "Mobile"),
+      f("email", "Email", "email"),
+      f("experience", "Experience", "number"),
+      f("consultationFee", "Consultation fee", "number"),
+      stat,
+    ],
+    columns: [
+      "name",
+      "specialization",
+      "qualification",
+      "mobile",
+      "consultationFee",
+      "status",
+    ],
   },
   "doctor-schedules": {
     title: "Doctor Schedules",
     description: "Configure date-wise doctor availability and patient slots.",
-    fields: [f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"), f("branchId", "Branch", "reference", true, undefined, "/crm/branches"), f("scheduleDate", "Schedule date", "date", true), f("startTime", "Start time", "text", true), f("endTime", "End time", "text", true), f("slotMinutes", "Slot minutes", "number", true), f("maxPatients", "Maximum patients", "number", true), stat],
+    fields: [
+      f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"),
+      f("branchId", "Branch", "reference", true, undefined, "/crm/branches"),
+      f("scheduleDate", "Schedule date", "date", true),
+      f("startTime", "Start time", "text", true),
+      f("endTime", "End time", "text", true),
+      f("slotMinutes", "Slot minutes", "number", true),
+      f("maxPatients", "Maximum patients", "number", true),
+      stat,
+    ],
     columns: ["doctorId", "branchId", "scheduleCount", "nextSchedule"],
   },
   departments: {
     title: "Departments",
     description: "Organize clinical specialties.",
-    fields: [f("name", "Department name", "text", true), f("code", "Code", "text", true), f("description", "Description", "textarea"), stat],
+    fields: [
+      f("name", "Department name", "text", true),
+      f("code", "Code", "text", true),
+      f("description", "Description", "textarea"),
+      stat,
+    ],
     columns: ["name", "code", "description", "status", "updatedAt"],
   },
   branches: {
     title: "Branches",
     description: "Manage clinic locations.",
-    fields: [f("name", "Branch name", "text", true), f("address", "Address", "textarea"), f("city", "City"), f("state", "State"), f("country", "Country"), f("pin", "PIN"), f("phone", "Phone"), f("email", "Email", "email"), stat],
+    fields: [
+      f("name", "Branch name", "text", true),
+      f("address", "Address", "textarea"),
+      f("city", "City"),
+      f("state", "State"),
+      f("country", "Country"),
+      f("pin", "PIN"),
+      f("phone", "Phone"),
+      f("email", "Email", "email"),
+      stat,
+    ],
     columns: ["name", "city", "phone", "email", "status", "updatedAt"],
   },
   staff: {
     title: "Staff",
     description: "Manage clinic employees and roles.",
-    fields: [f("title", "Full name", "text", true), f("email", "Email", "email", true), f("mobile", "Mobile"), f("role", "Role", "select", true, ["CLINIC_ADMIN", "BRANCH_ADMIN", "MANAGER", "CALL_CENTRE", "RECEPTIONIST", "DOCTOR", "BILLING"]), stat],
+    fields: [
+      f("title", "Full name", "text", true),
+      f("email", "Email", "email", true),
+      f("mobile", "Mobile"),
+      f("role", "Role", "select", true, [
+        "CLINIC_ADMIN",
+        "BRANCH_ADMIN",
+        "MANAGER",
+        "CALL_CENTRE",
+        "RECEPTIONIST",
+        "DOCTOR",
+        "BILLING",
+      ]),
+      stat,
+    ],
     columns: ["title", "email", "mobile", "role", "status"],
   },
   reports: {
     title: "Reports",
     description: "Create saved operational reports.",
-    fields: [f("title", "Report name", "text", true), f("type", "Type", "select", true, ["LEADS", "APPOINTMENTS", "PATIENTS", "PAYMENTS", "STAFF"]), f("dateRange", "Date range"), f("format", "Format", "select", true, ["TABLE", "CSV", "PDF"]), stat],
+    fields: [
+      f("title", "Report name", "text", true),
+      f("type", "Type", "select", true, [
+        "LEADS",
+        "APPOINTMENTS",
+        "PATIENTS",
+        "PAYMENTS",
+        "STAFF",
+      ]),
+      f("dateRange", "Date range"),
+      f("format", "Format", "select", true, ["TABLE", "CSV", "PDF"]),
+      stat,
+    ],
     columns: ["title", "type", "dateRange", "format", "status"],
   },
   payments: {
     title: "Payments",
     description: "Track payment and reconciliation records.",
-    fields: [f("title", "Reference", "text", true), f("appointment", "Appointment"), f("provider", "Provider", "text", true), f("amount", "Amount", "number", true), f("currency", "Currency", "select", true, ["INR", "USD"]), f("status", "Status", "select", true, ["PENDING", "PAID", "FAILED", "PARTIALLY_PAID", "REFUNDED"])],
+    fields: [
+      f("title", "Reference", "text", true),
+      f("appointment", "Appointment"),
+      f("provider", "Provider", "text", true),
+      f("amount", "Amount", "number", true),
+      f("currency", "Currency", "select", true, ["INR", "USD"]),
+      f("status", "Status", "select", true, [
+        "PENDING",
+        "PAID",
+        "FAILED",
+        "PARTIALLY_PAID",
+        "REFUNDED",
+      ]),
+    ],
     columns: ["title", "appointment", "provider", "amount", "status"],
   },
   whatsapp: {
     title: "WhatsApp",
     description: "Manage templates and communication logs.",
-    fields: [f("title", "Template name", "text", true), f("templateCode", "Template code"), f("language", "Language", "select", true, ["en", "hi", "bn"]), f("message", "Message", "textarea", true), f("status", "Status", "select", true, ["DRAFT", "ACTIVE", "PAUSED"])],
+    fields: [
+      f("title", "Template name", "text", true),
+      f("templateCode", "Template code"),
+      f("language", "Language", "select", true, ["en", "hi", "bn"]),
+      f("message", "Message", "textarea", true),
+      f("status", "Status", "select", true, ["DRAFT", "ACTIVE", "PAUSED"]),
+    ],
     columns: ["title", "templateCode", "language", "status", "updatedAt"],
   },
   "meta-ads": {
     title: "Meta Ads",
     description: "Manage lead-form campaign mappings.",
-    fields: [f("title", "Connection name", "text", true), f("pageId", "Page ID"), f("formId", "Form ID"), f("campaign", "Campaign"), f("status", "Status", "select", true, ["CONNECTED", "DISCONNECTED", "PAUSED"])],
+    fields: [
+      f("title", "Connection name", "text", true),
+      f("pageId", "Page ID"),
+      f("formId", "Form ID"),
+      f("campaign", "Campaign"),
+      f("status", "Status", "select", true, [
+        "CONNECTED",
+        "DISCONNECTED",
+        "PAUSED",
+      ]),
+    ],
     columns: ["title", "pageId", "formId", "campaign", "status"],
   },
   notifications: {
     title: "Notifications",
     description: "Manage notification-center messages.",
-    fields: [f("type", "Type", "select", true, ["GENERAL", "LEAD", "FOLLOW_UP", "APPOINTMENT", "PAYMENT"]), f("title", "Title", "text", true), f("body", "Message", "textarea", true)],
+    fields: [
+      f("type", "Type", "select", true, [
+        "GENERAL",
+        "LEAD",
+        "FOLLOW_UP",
+        "APPOINTMENT",
+        "PAYMENT",
+      ]),
+      f("title", "Title", "text", true),
+      f("body", "Message", "textarea", true),
+    ],
     columns: ["type", "title", "body", "readAt", "createdAt"],
   },
   support: {
     title: "Support Tickets",
     description: "Manage platform support requests.",
-    fields: [f("subject", "Subject", "text", true), f("description", "Description", "textarea", true), f("priority", "Priority", "select", true, ["LOW", "MEDIUM", "HIGH", "URGENT"]), f("status", "Status", "select", true, ["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"])],
+    fields: [
+      f("subject", "Subject", "text", true),
+      f("description", "Description", "textarea", true),
+      f("priority", "Priority", "select", true, [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "URGENT",
+      ]),
+      f("status", "Status", "select", true, [
+        "OPEN",
+        "IN_PROGRESS",
+        "WAITING",
+        "RESOLVED",
+        "CLOSED",
+      ]),
+    ],
     columns: ["subject", "priority", "status", "assignedToId", "updatedAt"],
   },
 };
@@ -257,7 +700,18 @@ const label = (s: string) =>
     .replace(/^./, (x) => x.toUpperCase())
     .replace(/ Id$/, "");
 const val = (r: any, k: string) => r[k] ?? r.data?.[k];
-const show = (v: any) => (v == null || v === "" ? "—" : typeof v === "boolean" ? (v ? "Yes" : "No") : typeof v === "object" ? v.name || v.title || JSON.stringify(v) : /T\d\d:\d\d/.test(String(v)) ? new Date(v).toLocaleString() : String(v));
+const show = (v: any) =>
+  v == null || v === ""
+    ? "—"
+    : typeof v === "boolean"
+      ? v
+        ? "Yes"
+        : "No"
+      : typeof v === "object"
+        ? v.name || v.title || JSON.stringify(v)
+        : /T\d\d:\d\d/.test(String(v))
+          ? new Date(v).toLocaleString()
+          : String(v);
 function Ref({ field, value }: { field: Field; value?: string }) {
   const { data } = useQuery({
     queryKey: ["ref", field.endpoint],
@@ -265,7 +719,11 @@ function Ref({ field, value }: { field: Field; value?: string }) {
   });
   const rows = Array.isArray(data) ? data : data?.items || [];
   return (
-    <select name={field.name} defaultValue={value || ""} required={field.required}>
+    <select
+      name={field.name}
+      defaultValue={value || ""}
+      required={field.required}
+    >
       <option value="">Select {field.label}</option>
       {rows.map((r: any) => (
         <option key={r.id} value={r.id}>
@@ -276,68 +734,216 @@ function Ref({ field, value }: { field: Field; value?: string }) {
   );
 }
 function PatientSearchRef({ field, value }: { field: Field; value?: string }) {
-  const { data } = useQuery({ queryKey: ["ref", field.endpoint], queryFn: () => api.get(`${field.endpoint}?limit=100`).then(unwrap) });
+  const { data } = useQuery({
+    queryKey: ["ref", field.endpoint],
+    queryFn: () => api.get(`${field.endpoint}?limit=100`).then(unwrap),
+  });
   const rows = Array.isArray(data) ? data : data?.items || [];
   const [selectedId, setSelectedId] = useState(value || "");
   const [searchText, setSearchText] = useState("");
   const [openResults, setOpenResults] = useState(false);
-  const patientText = (patient: any) => `${patient.name} · ${patient.mobile || "No phone"} · ${patient.patientNumber || patient.id}`;
-  useEffect(() => { const selected = rows.find((patient: any) => patient.id === selectedId); if (selected && !searchText) setSearchText(patientText(selected)); }, [rows, selectedId]);
+  const patientText = (patient: any) =>
+    `${patient.name} · ${patient.mobile || "No phone"} · ${patient.patientNumber || patient.id}`;
+  useEffect(() => {
+    const selected = rows.find((patient: any) => patient.id === selectedId);
+    if (selected && !searchText) setSearchText(patientText(selected));
+  }, [rows, selectedId]);
   const query = searchText.toLowerCase().trim();
-  const matches = rows.filter((patient: any) => !query || [patient.name, patient.mobile, patient.patientNumber, patient.id].some((item) => String(item || "").toLowerCase().includes(query))).slice(0, 10);
-  return <div className="patient-search">
-    <input type="hidden" name={field.name} value={selectedId} />
-    <input required={field.required} value={searchText} placeholder="Search name, phone or patient ID" autoComplete="off" onFocus={() => setOpenResults(true)} onBlur={() => setTimeout(() => setOpenResults(false), 150)} onChange={(event) => { setSearchText(event.target.value); setSelectedId(""); setOpenResults(true); }} />
-    {openResults && <div className="patient-results">{matches.length ? matches.map((patient: any) => <button type="button" key={patient.id} onMouseDown={() => { setSelectedId(patient.id); setSearchText(patientText(patient)); setOpenResults(false); }}><strong>{patient.name}</strong><span>{patient.mobile || "No phone"}</span><small>{patient.patientNumber || patient.id}</small></button>) : <p>No matching patient found</p>}</div>}
-    {selectedId && <small className="patient-selected">Patient selected</small>}
-  </div>;
+  const matches = rows
+    .filter(
+      (patient: any) =>
+        !query ||
+        [patient.name, patient.mobile, patient.patientNumber, patient.id].some(
+          (item) =>
+            String(item || "")
+              .toLowerCase()
+              .includes(query),
+        ),
+    )
+    .slice(0, 10);
+  return (
+    <div className="patient-search">
+      <input type="hidden" name={field.name} value={selectedId} />
+      <input
+        required={field.required}
+        value={searchText}
+        placeholder="Search name, phone or patient ID"
+        autoComplete="off"
+        onFocus={() => setOpenResults(true)}
+        onBlur={() => setTimeout(() => setOpenResults(false), 150)}
+        onChange={(event) => {
+          setSearchText(event.target.value);
+          setSelectedId("");
+          setOpenResults(true);
+        }}
+      />
+      {openResults && (
+        <div className="patient-results">
+          {matches.length ? (
+            matches.map((patient: any) => (
+              <button
+                type="button"
+                key={patient.id}
+                onMouseDown={() => {
+                  setSelectedId(patient.id);
+                  setSearchText(patientText(patient));
+                  setOpenResults(false);
+                }}
+              >
+                <strong>{patient.name}</strong>
+                <span>{patient.mobile || "No phone"}</span>
+                <small>{patient.patientNumber || patient.id}</small>
+              </button>
+            ))
+          ) : (
+            <p>No matching patient found</p>
+          )}
+        </div>
+      )}
+      {selectedId && (
+        <small className="patient-selected">Patient selected</small>
+      )}
+    </div>
+  );
 }
 export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const navigate = useNavigate();
   const c = configs[slug] || {
     title: label(slug),
     description: `Manage ${slug}.`,
-    fields: [f("title", "Name", "text", true), f("description", "Description", "textarea"), stat],
+    fields: [
+      f("title", "Name", "text", true),
+      f("description", "Description", "textarea"),
+      stat,
+    ],
     columns: ["title", "description", "status", "updatedAt"],
   };
   const qc = useQueryClient(),
     [edit, setEdit] = useState<any>(),
     [view, setView] = useState<any>(),
     [open, setOpen] = useState(false),
+    [bulkOpen, setBulkOpen] = useState(false),
+    [bulkCsv, setBulkCsv] = useState(""),
     [search, setSearch] = useState(""),
     [filter, setFilter] = useState("ALL"),
+    [cityFilter, setCityFilter] = useState("ALL"),
+    [priorityFilter, setPriorityFilter] = useState("ALL"),
+    [actionFilter, setActionFilter] = useState("ALL"),
     [page, setPage] = useState(1);
-  const base = mode === "admin" ? (slug === "registrations" || slug === "tenants" ? "/super-admin/tenants" : slug === "plans" ? "/super-admin/plans" : `/super-admin/modules/${slug}`) : actual[slug] ? `/crm/${actual[slug]}` : `/crm/modules/${slug}`,
+  const base =
+      mode === "admin"
+        ? slug === "registrations" || slug === "tenants"
+          ? "/super-admin/tenants"
+          : slug === "plans"
+            ? "/super-admin/plans"
+            : `/super-admin/modules/${slug}`
+        : actual[slug]
+          ? `/crm/${actual[slug]}`
+          : `/crm/modules/${slug}`,
     endpoint = c.fixedStatus ? `${base}?status=${c.fixedStatus}` : base;
   const { data, isLoading, error } = useQuery({
     queryKey: [endpoint],
     queryFn: () => api.get(endpoint).then(unwrap),
   });
-  const referenceEndpoints: Record<string, string> = { doctorId: "/crm/doctors", branchId: "/crm/branches", departmentId: "/crm/departments", patientId: "/crm/patients", leadId: "/crm/leads", appointmentId: "/crm/appointments" };
+  const referenceEndpoints: Record<string, string> = {
+    doctorId: "/crm/doctors",
+    branchId: "/crm/branches",
+    departmentId: "/crm/departments",
+    patientId: "/crm/patients",
+    leadId: "/crm/leads",
+    appointmentId: "/crm/appointments",
+  };
   const referenceKeys = Object.keys(referenceEndpoints);
   const referenceQueries = useQueries({
-    queries: referenceKeys.map((key) => ({ queryKey: ["table-ref", referenceEndpoints[key]], queryFn: () => api.get(`${referenceEndpoints[key]}?limit=100`).then(unwrap), enabled: mode === "tenant" })),
+    queries: referenceKeys.map((key) => ({
+      queryKey: ["table-ref", referenceEndpoints[key]],
+      queryFn: () =>
+        api.get(`${referenceEndpoints[key]}?limit=100`).then(unwrap),
+      enabled: mode === "tenant",
+    })),
   });
   const display = (record: any, key: string) => {
-    const raw = val(record, key), referenceIndex = referenceKeys.indexOf(key);
+    const raw = val(record, key),
+      referenceIndex = referenceKeys.indexOf(key);
     if (referenceIndex < 0 || !raw) return show(raw);
     const referenceData = referenceQueries[referenceIndex].data as any;
-    const referenceRows = Array.isArray(referenceData) ? referenceData : referenceData?.items || [];
+    const referenceRows = Array.isArray(referenceData)
+      ? referenceData
+      : referenceData?.items || [];
     const match = referenceRows.find((item: any) => item.id === raw);
-    return show(match?.name || match?.title || match?.patientNumber || match?.leadNumber || match?.appointmentNumber || raw);
+    return show(
+      match?.name ||
+        match?.title ||
+        match?.patientNumber ||
+        match?.leadNumber ||
+        match?.appointmentNumber ||
+        raw,
+    );
   };
+  const sourceRows = useMemo(
+    () =>
+      (Array.isArray(data) ? data : data?.items || []).map((r: any) =>
+        r.data ? { ...r, ...r.data } : r,
+      ),
+    [data],
+  );
   const all = useMemo(() => {
-    const x = (Array.isArray(data) ? data : data?.items || []).map((r: any) => (r.data ? { ...r, ...r.data } : r));
-    const filtered = x.filter((r: any) => (filter === "ALL" || r.status === filter) && JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
+    const actionMatches = (status: string) =>
+      actionFilter === "ALL" ||
+      (actionFilter === "FOLLOW_UP" &&
+        [
+          "FOLLOW_UP_REQUIRED",
+          "CALLBACK_LATER",
+          "CONTACTED",
+          "INTERESTED",
+        ].includes(status)) ||
+      (actionFilter === "APPOINTMENT" && status === "APPOINTMENT_PENDING") ||
+      (actionFilter === "CONVERTED" && status === "CONVERTED") ||
+      (actionFilter === "CLOSED" &&
+        ["NOT_INTERESTED", "INVALID", "LOST"].includes(status));
+    const filtered = sourceRows.filter(
+      (r: any) =>
+        (filter === "ALL" || r.status === filter) &&
+        (cityFilter === "ALL" || r.city === cityFilter) &&
+        (priorityFilter === "ALL" || r.priority === priorityFilter) &&
+        actionMatches(r.status) &&
+        JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
+    );
     if (slug !== "doctor-schedules") return filtered;
     const groups = new Map<string, any[]>();
-    for (const row of filtered) { const key = `${row.doctorId}:${row.branchId}`; groups.set(key, [...(groups.get(key) || []), row]); }
-    return [...groups.values()].map(group => { const dated = group.filter(item => item.scheduleDate).sort((a,b) => a.scheduleDate.localeCompare(b.scheduleDate)); return { ...group[0], scheduleCount: dated.length, nextSchedule: dated.find(item => new Date(item.scheduleDate) >= new Date())?.scheduleDate || dated[0]?.scheduleDate }; });
-  }, [data, search, filter, slug]);
+    for (const row of filtered) {
+      const key = `${row.doctorId}:${row.branchId}`;
+      groups.set(key, [...(groups.get(key) || []), row]);
+    }
+    return [...groups.values()].map((group) => {
+      const dated = group
+        .filter((item) => item.scheduleDate)
+        .sort((a, b) => a.scheduleDate.localeCompare(b.scheduleDate));
+      return {
+        ...group[0],
+        scheduleCount: dated.length,
+        nextSchedule:
+          dated.find((item) => new Date(item.scheduleDate) >= new Date())
+            ?.scheduleDate || dated[0]?.scheduleDate,
+      };
+    });
+  }, [
+    sourceRows,
+    search,
+    filter,
+    cityFilter,
+    priorityFilter,
+    actionFilter,
+    slug,
+  ]);
   const pages = Math.max(1, Math.ceil(all.length / 10)),
-    rows = all.slice((Math.min(page, pages) - 1) * 10, Math.min(page, pages) * 10);
+    rows = all.slice(
+      (Math.min(page, pages) - 1) * 10,
+      Math.min(page, pages) * 10,
+    );
   const save = useMutation({
-      mutationFn: (body: any) => (edit ? api.patch(`${base}/${edit.id}`, body) : api.post(base, body)),
+      mutationFn: (body: any) =>
+        edit ? api.patch(`${base}/${edit.id}`, body) : api.post(base, body),
       onSuccess: () => {
         qc.invalidateQueries({ queryKey: [endpoint] });
         setEdit(undefined);
@@ -349,20 +955,58 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }),
     }),
     tenant = useMutation({
-      mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) => api.patch(`/super-admin/tenants/${id}/status`, { status, reason }),
+      mutationFn: ({
+        id,
+        status,
+        reason,
+      }: {
+        id: string;
+        status: string;
+        reason?: string;
+      }) => api.patch(`/super-admin/tenants/${id}/status`, { status, reason }),
       onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }),
     });
-  const leadStatuses = ["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP_REQUIRED", "APPOINTMENT_PENDING", "CONVERTED", "NOT_INTERESTED", "CALLBACK_LATER", "INVALID", "LOST"];
-  const statusOptions = mode === "tenant" && slug !== "doctor-schedules" ? (["leads", "interested-leads", "converted-leads"].includes(slug) ? leadStatuses : c.fields.find((field) => field.name === "status")?.options || []) : [];
+  const leadStatuses = [
+    "NEW",
+    "CONTACTED",
+    "INTERESTED",
+    "FOLLOW_UP_REQUIRED",
+    "APPOINTMENT_PENDING",
+    "CONVERTED",
+    "NOT_INTERESTED",
+    "CALLBACK_LATER",
+    "INVALID",
+    "LOST",
+  ];
+  const statusOptions =
+    mode === "tenant" && slug !== "doctor-schedules"
+      ? ["leads", "interested-leads", "converted-leads"].includes(slug)
+        ? leadStatuses
+        : c.fields.find((field) => field.name === "status")?.options || []
+      : [];
   const changeStatus = useMutation({
-    mutationFn: ({ row, status }: { row: any; status: string }) => (["leads", "interested-leads", "converted-leads"].includes(slug) ? api.patch(`/crm/leads/${row.id}/status`, { status }) : api.patch(`${base}/${row.id}`, { status })),
+    mutationFn: ({ row, status }: { row: any; status: string }) =>
+      ["leads", "interested-leads", "converted-leads"].includes(slug)
+        ? api.patch(`/crm/leads/${row.id}/status`, { status })
+        : api.patch(`${base}/${row.id}`, { status }),
     onSuccess: () => qc.invalidateQueries(),
-    onError: (statusError: any) => window.alert(statusError.response?.data?.message || "Unable to change status"),
+    onError: (statusError: any) =>
+      window.alert(
+        statusError.response?.data?.message || "Unable to change status",
+      ),
   });
   const requestStatusChange = (row: any, status: string) => {
     if (status === row.status) return;
-    const conversion = status === "CONVERTED" ? " This will also create a patient record automatically." : "";
-    if (window.confirm(`Change ${row.name || row.title || "this record"} from ${label(row.status)} to ${label(status)}?${conversion}`)) changeStatus.mutate({ row, status });
+    const conversion =
+      status === "CONVERTED"
+        ? " This will also create a patient record automatically."
+        : "";
+    if (
+      window.confirm(
+        `Change ${row.name || row.title || "this record"} from ${label(row.status)} to ${label(status)}?${conversion}`,
+      )
+    )
+      changeStatus.mutate({ row, status });
   };
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -371,16 +1015,45 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     for (const x of c.fields) {
       const v = d.get(x.name);
       if (x.type === "reference" && v === "") {
-        if (x.required) { window.alert(`Please select ${x.label}`); return; }
+        if (x.required) {
+          window.alert(`Please select ${x.label}`);
+          return;
+        }
         continue;
       }
-      body[x.name] = x.type === "checkbox" ? v === "on" : x.type === "number" && v !== "" ? Number(v) : v;
+      body[x.name] =
+        x.type === "checkbox"
+          ? v === "on"
+          : x.type === "number" && v !== ""
+            ? Number(v)
+            : v;
     }
     save.mutate(body);
   };
-  const statuses = [...new Set(all.map((r: any) => r.status).filter(Boolean))] as string[];
+  const statuses = [
+      ...new Set(sourceRows.map((r: any) => r.status).filter(Boolean)),
+    ] as string[],
+    cities = [
+      ...new Set(sourceRows.map((r: any) => r.city).filter(Boolean)),
+    ].sort() as string[],
+    priorities = [
+      ...new Set(sourceRows.map((r: any) => r.priority).filter(Boolean)),
+    ] as string[],
+    supportsBulk = mode === "tenant" && ["leads", "patients"].includes(slug);
   const csv = () => {
-    const blob = new Blob([[c.columns.map(label).join(","), ...all.map((r: any) => c.columns.map((k) => `"${display(r, k).replaceAll('"', '""')}"`).join(","))].join("\n")], { type: "text/csv" }),
+    const blob = new Blob(
+        [
+          [
+            c.columns.map(label).join(","),
+            ...all.map((r: any) =>
+              c.columns
+                .map((k) => `"${display(r, k).replaceAll('"', '""')}"`)
+                .join(","),
+            ),
+          ].join("\n"),
+        ],
+        { type: "text/csv" },
+      ),
       u = URL.createObjectURL(blob),
       a = document.createElement("a");
     a.href = u;
@@ -388,26 +1061,117 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     a.click();
     URL.revokeObjectURL(u);
   };
-  if (slug === "doctor-schedules" && edit) return <DoctorScheduleEditor schedule={edit} onBack={() => setEdit(undefined)} />;
+  const pdf = async () => {
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import("jspdf"),
+      import("jspdf-autotable"),
+    ]);
+    const document = new jsPDF({
+      orientation: c.columns.length > 6 ? "landscape" : "portrait",
+    });
+    document.setFontSize(16);
+    document.text(c.title, 14, 16);
+    document.setFontSize(9);
+    document.text(
+      `Exported ${new Date().toLocaleString("en-IN")} · ${all.length} records`,
+      14,
+      22,
+    );
+    autoTable(document, {
+      startY: 27,
+      head: [c.columns.map(label)],
+      body: all.map((record: any) =>
+        c.columns.map((key) => display(record, key)),
+      ),
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [37, 99, 235] },
+    });
+    document.save(`${slug}.pdf`);
+  };
+  const bulk = useMutation({
+    mutationFn: async () => {
+      const parsed = parseCsv(bulkCsv);
+      if (!parsed.length)
+        throw new Error("Add a header row and at least one data row.");
+      const records = parsed.map((raw: any, index) => {
+        if (!raw.name || !raw.mobile)
+          throw new Error(`Row ${index + 2}: name and mobile are required.`);
+        if (slug === "leads")
+          return {
+            name: raw.name,
+            mobile: raw.mobile,
+            email: raw.email || undefined,
+            city: raw.city || undefined,
+            priority: (raw.priority || "MEDIUM").toUpperCase(),
+            status: (raw.status || "NEW").toUpperCase(),
+            remarks: raw.remarks || undefined,
+          };
+        return {
+          name: raw.name,
+          mobile: raw.mobile,
+          email: raw.email || undefined,
+          city: raw.city || undefined,
+          gender: raw.gender ? raw.gender.toUpperCase() : undefined,
+          dob: raw.dob || undefined,
+          address: raw.address || undefined,
+          state: raw.state || undefined,
+          pin: raw.pin || undefined,
+          status: (raw.status || "ACTIVE").toUpperCase(),
+        };
+      });
+      const response = await api.post(`/crm/bulk/${slug}`, { records });
+      return response.data.data.count as number;
+    },
+    onSuccess: (count) => {
+      window.alert(`${count} records imported successfully.`);
+      setBulkOpen(false);
+      setBulkCsv("");
+      qc.invalidateQueries({ queryKey: [endpoint] });
+    },
+  });
+  if (slug === "doctor-schedules" && edit)
+    return (
+      <DoctorScheduleEditor schedule={edit} onBack={() => setEdit(undefined)} />
+    );
   return (
     <>
       <div className="page-head">
         <div>
-          <span>{mode === "admin" ? "PLATFORM MANAGEMENT" : "CLINIC MANAGEMENT"}</span>
+          <span>
+            {mode === "admin" ? "PLATFORM MANAGEMENT" : "CLINIC MANAGEMENT"}
+          </span>
           <h1>{c.title}</h1>
           <p>{c.description}</p>
         </div>
         {!c.noCreate && (
-          <button className="btn" onClick={() => slug === "appointments" ? navigate("/app/appointments/new") : setOpen(true)}>
-            <Plus /> Add record
-          </button>
+          <div className="page-actions">
+            {supportsBulk && (
+              <button className="btn ghost" onClick={() => setBulkOpen(true)}>
+                <Upload /> Bulk entry
+              </button>
+            )}
+            <button
+              className="btn"
+              onClick={() =>
+                slug === "appointments"
+                  ? navigate("/app/appointments/new")
+                  : setOpen(true)
+              }
+            >
+              <Plus /> Add record
+            </button>
+          </div>
         )}
       </div>
       <section className="panel table-panel">
         <div className="toolbar">
           <div className="search">
             <Search />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={`Search ${c.title.toLowerCase()}…`} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${c.title.toLowerCase()}…`}
+            />
           </div>
           <div className="filter-select">
             <Filter />
@@ -418,14 +1182,72 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               ))}
             </select>
           </div>
+          {supportsBulk && (
+            <div className="filter-select">
+              <select
+                value={cityFilter}
+                onChange={(event) => {
+                  setCityFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All cities</option>
+                {cities.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slug === "leads" && (
+            <div className="filter-select">
+              <select
+                value={priorityFilter}
+                onChange={(event) => {
+                  setPriorityFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All priorities</option>
+                {priorities.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {label(priority)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slug === "leads" && (
+            <div className="filter-select">
+              <select
+                value={actionFilter}
+                onChange={(event) => {
+                  setActionFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All actions</option>
+                <option value="FOLLOW_UP">Follow-up / callback</option>
+                <option value="APPOINTMENT">Appointment pending</option>
+                <option value="CONVERTED">Converted</option>
+                <option value="CLOSED">Closed / lost</option>
+              </select>
+            </div>
+          )}
           <button className="btn ghost" onClick={csv}>
-            <Download /> Export
+            <Download /> CSV
+          </button>
+          <button className="btn ghost" onClick={pdf}>
+            <FileText /> PDF
           </button>
         </div>
         {isLoading ? (
           <div className="state">Loading live data…</div>
         ) : error ? (
-          <div className="state error">{(error as any).response?.data?.message || "Unable to load data"}</div>
+          <div className="state error">
+            {(error as any).response?.data?.message || "Unable to load data"}
+          </div>
         ) : !rows.length ? (
           <div className="empty">
             <CheckCircle2 />
@@ -449,15 +1271,29 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     <tr key={r.id}>
                       {c.columns.map((k) => (
                         <td key={k}>
-                          <span className={k === "status" ? "status-pill" : ""}>{display(r, k)}</span>
+                          <span className={k === "status" ? "status-pill" : ""}>
+                            {display(r, k)}
+                          </span>
                         </td>
                       ))}
                       <td>
                         <div className="row-actions">
                           {!!statusOptions.length && r.status && (
-                            <select className="quick-status" value={r.status} disabled={changeStatus.isPending} onChange={(event) => { const nextStatus = event.target.value; event.currentTarget.value = r.status; requestStatusChange(r, nextStatus); }} aria-label={`Change status for ${r.name || r.title || "record"}`}>
+                            <select
+                              className="quick-status"
+                              value={r.status}
+                              disabled={changeStatus.isPending}
+                              onChange={(event) => {
+                                const nextStatus = event.target.value;
+                                event.currentTarget.value = r.status;
+                                requestStatusChange(r, nextStatus);
+                              }}
+                              aria-label={`Change status for ${r.name || r.title || "record"}`}
+                            >
                               {statusOptions.map((status) => (
-                                <option key={status} value={status}>{label(status)}</option>
+                                <option key={status} value={status}>
+                                  {label(status)}
+                                </option>
                               ))}
                             </select>
                           )}
@@ -469,34 +1305,41 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                               <SquarePen />
                             </button>
                           )}
-                          {mode === "admin" && ["registrations", "tenants"].includes(slug) && (
-                            <>
-                              <button
-                                className="approve"
-                                onClick={() =>
-                                  tenant.mutate({
-                                    id: r.id,
-                                    status: "ACTIVE",
-                                  })
-                                }
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() =>
-                                  tenant.mutate({
-                                    id: r.id,
-                                    status: "SUSPENDED",
-                                    reason: prompt("Reason") || undefined,
-                                  })
-                                }
-                              >
-                                Suspend
-                              </button>
-                            </>
-                          )}
+                          {mode === "admin" &&
+                            ["registrations", "tenants"].includes(slug) && (
+                              <>
+                                <button
+                                  className="approve"
+                                  onClick={() =>
+                                    tenant.mutate({
+                                      id: r.id,
+                                      status: "ACTIVE",
+                                    })
+                                  }
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    tenant.mutate({
+                                      id: r.id,
+                                      status: "SUSPENDED",
+                                      reason: prompt("Reason") || undefined,
+                                    })
+                                  }
+                                >
+                                  Suspend
+                                </button>
+                              </>
+                            )}
                           {!c.readOnly && slug !== "doctor-schedules" && (
-                            <button className="danger" onClick={() => confirm("Delete permanently?") && del.mutate(r.id)}>
+                            <button
+                              className="danger"
+                              onClick={() =>
+                                confirm("Delete permanently?") &&
+                                del.mutate(r.id)
+                              }
+                            >
                               <Trash2 />
                             </button>
                           )}
@@ -510,13 +1353,19 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             <div className="pagination">
               <span>{all.length} records</span>
               <div>
-                <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                <button
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
                   <ChevronLeft />
                 </button>
                 <b>
                   Page {Math.min(page, pages)} of {pages}
                 </b>
-                <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+                <button
+                  disabled={page >= pages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
                   <ChevronRight />
                 </button>
               </div>
@@ -542,31 +1391,69 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 <X />
               </button>
             </div>
-            {slug === "appointments" ? <AppointmentFields appointment={edit} /> : <div className="modal-grid">
-              {c.fields.map((x) => (
-                <label key={x.name} className={x.type === "textarea" ? "wide" : ""}>
-                  {x.label}
-                  {x.type === "textarea" ? (
-                    <textarea name={x.name} required={x.required} defaultValue={val(edit || {}, x.name) || ""} />
-                  ) : x.type === "select" ? (
-                    <select name={x.name} required={x.required} defaultValue={String(val(edit || {}, x.name) ?? x.options?.[0] ?? "")}>
-                      {x.options?.map((o) => (
-                        <option key={o} value={o}>
-                          {label(o)}
-                        </option>
-                      ))}
-                    </select>
+            {slug === "appointments" ? (
+              <AppointmentFields appointment={edit} />
+            ) : (
+              <div className="modal-grid">
+                {c.fields.map((x) => (
+                  <label
+                    key={x.name}
+                    className={x.type === "textarea" ? "wide" : ""}
+                  >
+                    {x.label}
+                    {x.type === "textarea" ? (
+                      <textarea
+                        name={x.name}
+                        required={x.required}
+                        defaultValue={val(edit || {}, x.name) || ""}
+                      />
+                    ) : x.type === "select" ? (
+                      <select
+                        name={x.name}
+                        required={x.required}
+                        defaultValue={String(
+                          val(edit || {}, x.name) ?? x.options?.[0] ?? "",
+                        )}
+                      >
+                        {x.options?.map((o) => (
+                          <option key={o} value={o}>
+                            {label(o)}
+                          </option>
+                        ))}
+                      </select>
                     ) : x.type === "reference" ? (
-                      x.name === "patientId" ? <PatientSearchRef field={x} value={val(edit || {}, x.name)} /> : <Ref field={x} value={val(edit || {}, x.name)} />
-                  ) : x.type === "checkbox" ? (
-                    <input name={x.name} type="checkbox" defaultChecked={!!val(edit || {}, x.name)} />
-                  ) : (
-                    <input name={x.name} type={x.type} required={x.required} defaultValue={val(edit || {}, x.name) || ""} />
-                  )}
-                </label>
-              ))}
-            </div>}
-            {save.error && <div className="alert error">{(save.error as any).response?.data?.message || "Unable to save"}</div>}
+                      x.name === "patientId" ? (
+                        <PatientSearchRef
+                          field={x}
+                          value={val(edit || {}, x.name)}
+                        />
+                      ) : (
+                        <Ref field={x} value={val(edit || {}, x.name)} />
+                      )
+                    ) : x.type === "checkbox" ? (
+                      <input
+                        name={x.name}
+                        type="checkbox"
+                        defaultChecked={!!val(edit || {}, x.name)}
+                      />
+                    ) : (
+                      <input
+                        name={x.name}
+                        type={x.type}
+                        required={x.required}
+                        defaultValue={val(edit || {}, x.name) || ""}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+            {save.error && (
+              <div className="alert error">
+                {(save.error as any).response?.data?.message ||
+                  "Unable to save"}
+              </div>
+            )}
             <div className="modal-actions">
               <button
                 type="button"
@@ -581,6 +1468,65 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               <button className="btn">Save record</button>
             </div>
           </form>
+        </div>
+      )}
+      {bulkOpen && (
+        <div className="modal-bg">
+          <div className="modal bulk-modal">
+            <div className="modal-head">
+              <div>
+                <h2>Bulk {c.title} entry</h2>
+                <p>Upload a CSV file or paste CSV data below.</p>
+              </div>
+              <button className="icon" onClick={() => setBulkOpen(false)}>
+                <X />
+              </button>
+            </div>
+            <div className="bulk-template">
+              <b>Required headers</b>
+              <code>
+                {slug === "leads"
+                  ? "name,mobile,email,city,priority,status,remarks"
+                  : "name,mobile,email,city,gender,dob,address,state,pin,status"}
+              </code>
+            </div>
+            <label className="bulk-file">
+              <Upload /> Choose CSV file
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) file.text().then(setBulkCsv);
+                }}
+              />
+            </label>
+            <textarea
+              value={bulkCsv}
+              onChange={(event) => setBulkCsv(event.target.value)}
+              rows={11}
+              placeholder={
+                slug === "leads"
+                  ? "name,mobile,email,city,priority,status,remarks\nRavi Kumar,9876543210,ravi@example.com,Kolkata,HIGH,NEW,Website enquiry"
+                  : "name,mobile,email,city,gender,dob,address,state,pin,status\nRavi Kumar,9876543210,ravi@example.com,Kolkata,MALE,1990-01-15,Park Street,West Bengal,700016,ACTIVE"
+              }
+            />
+            {bulk.error && (
+              <div className="alert error">{(bulk.error as Error).message}</div>
+            )}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => setBulkOpen(false)}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulk.isPending || !bulkCsv.trim()}
+                onClick={() => bulk.mutate()}
+              >
+                {bulk.isPending ? "Importing…" : "Import records"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {view && (

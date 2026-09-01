@@ -514,6 +514,45 @@ crmRouter.post(
   }),
 );
 crmRouter.post(
+  "/bulk/:resource",
+  asyncRoute(async (req, res) => {
+    const resource = req.params.resource;
+    if (!["leads", "patients"].includes(resource))
+      throw new AppError(
+        404,
+        "Bulk import is not available for this resource",
+        "NOT_FOUND",
+      );
+    const records = z
+      .array(z.record(z.string(), z.any()))
+      .min(1)
+      .max(500)
+      .parse(req.body.records);
+    const tid = tenantId(req),
+      stamp = Date.now().toString(36).toUpperCase();
+    const created = await prisma.$transaction(async (tx) => {
+      const model = resource === "leads" ? tx.lead : tx.patient;
+      const output = [];
+      for (let index = 0; index < records.length; index += 1) {
+        const data = {
+          ...prepared(resource, records[index], req.user!.id, true),
+          tenantId: tid,
+        } as any;
+        if (resource === "leads")
+          data.leadNumber = `LD-${stamp}-${String(index + 1).padStart(3, "0")}`;
+        else
+          data.patientNumber = `PT-${stamp}-${String(index + 1).padStart(3, "0")}`;
+        output.push(await (model as any).create({ data }));
+      }
+      return output;
+    });
+    await audit(req, `${resource}.bulk_imported`, resource, undefined, {
+      count: created.length,
+    });
+    return ok(res, { count: created.length }, "Bulk import completed", 201);
+  }),
+);
+crmRouter.post(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];
