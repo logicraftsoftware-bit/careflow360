@@ -1,0 +1,48 @@
+name: Deploy CareFlow360 to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script_stop: true
+
+          script: |
+            set -e
+
+            cd /var/www/careflow360
+
+            echo "Pulling latest code..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "Installing dependencies..."
+            npm ci
+
+            echo "Generating Prisma Client..."
+            npm run db:generate
+
+            echo "Building application..."
+            npm run build
+
+            echo "Restarting API..."
+            pm2 restart careflow360-api || pm2 start apps/api/dist/server.js --name careflow360-api
+
+            pm2 save
+
+            echo "Deployment completed successfully"
