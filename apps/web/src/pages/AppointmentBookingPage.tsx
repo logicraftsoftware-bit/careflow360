@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueries } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -13,7 +13,9 @@ import { useNavigate } from "react-router-dom";
 import { api, unwrap } from "../api";
 import { Option, SearchSelect } from "./AppointmentFields";
 const list = (data: any) => (Array.isArray(data) ? data : data?.items || []);
-export function AppointmentBookingPage() {
+export function AppointmentBookingPage({
+  appointment: existingAppointment,
+}: { appointment?: any } = {}) {
   const navigate = useNavigate(),
     endpoints = [
       "patients",
@@ -47,6 +49,23 @@ export function AppointmentBookingPage() {
     [paymentRemarks, setPaymentRemarks] = useState(""),
     patient = patients.find((item: any) => item.id === patientId),
     doctor = doctors.find((item: any) => item.id === doctorId);
+  useEffect(() => {
+    if (!existingAppointment || patientId || !schedules.length) return;
+    setPatientId(existingAppointment.patientId || "");
+    setBranchId(existingAppointment.branchId || "");
+    setDepartmentId(existingAppointment.departmentId || "");
+    setDoctorId(existingAppointment.doctorId || "");
+    setStatus(existingAppointment.status || "CONFIRMED");
+    setPaymentStatus(existingAppointment.paymentStatus || "PENDING");
+    const date = existingAppointment.startsAt?.slice(0, 10);
+    const schedule = schedules.find(
+      (item: any) =>
+        item.doctorId === existingAppointment.doctorId &&
+        item.branchId === existingAppointment.branchId &&
+        item.scheduleDate?.slice(0, 10) === date,
+    );
+    if (schedule) setScheduleId(schedule.id);
+  }, [existingAppointment, schedules, patientId]);
   const patientOptions: Option[] = patients.map((item: any) => ({
       id: item.id,
       label: `${item.name} · ${item.mobile || "No phone"} · ${item.patientNumber}`,
@@ -100,6 +119,7 @@ export function AppointmentBookingPage() {
         const date = item.scheduleDate.slice(0, 10),
           used = appointments.filter(
             (appointment: any) =>
+              appointment.id !== existingAppointment?.id &&
               appointment.doctorId === doctorId &&
               appointment.branchId === branchId &&
               appointment.status !== "CANCELLED" &&
@@ -118,8 +138,42 @@ export function AppointmentBookingPage() {
         a.raw.scheduleDate.localeCompare(b.raw.scheduleDate),
       );
   const book = useMutation({
-      mutationFn: () =>
-        api.post("/crm/appointments/book", {
+      mutationFn: () => {
+        if (existingAppointment) {
+          const schedule = schedules.find(
+              (item: any) => item.id === scheduleId,
+            ),
+            date = schedule?.scheduleDate?.slice(0, 10),
+            sameDate = existingAppointment.startsAt?.slice(0, 10) === date;
+          const used = appointments.filter(
+            (item: any) =>
+              item.id !== existingAppointment.id &&
+              item.doctorId === doctorId &&
+              item.branchId === branchId &&
+              item.status !== "CANCELLED" &&
+              item.startsAt?.slice(0, 10) === date,
+          ).length;
+          const startDate = sameDate
+            ? new Date(existingAppointment.startsAt)
+            : new Date(
+                new Date(`${date}T${schedule.startTime}:00+05:30`).getTime() +
+                  used * schedule.slotMinutes * 60000,
+              );
+          return api.patch(`/crm/appointments/${existingAppointment.id}`, {
+            patientId,
+            branchId,
+            departmentId,
+            doctorId,
+            startsAt: startDate.toISOString(),
+            endsAt: new Date(
+              startDate.getTime() + Number(schedule.slotMinutes || 30) * 60000,
+            ).toISOString(),
+            amount: doctor?.consultationFee || 0,
+            status,
+            paymentStatus,
+          });
+        }
+        return api.post("/crm/appointments/book", {
           patientId,
           branchId,
           departmentId,
@@ -130,10 +184,13 @@ export function AppointmentBookingPage() {
           paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
           utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
           paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
-        }),
+        });
+      },
       onSuccess: (response: any) => {
         window.alert(
-          `Appointment booked successfully\nToken: ${response.data.data.token}\nTime: ${new Date(response.data.data.startsAt).toLocaleString("en-IN")}`,
+          existingAppointment
+            ? "Appointment updated successfully"
+            : `Appointment booked successfully\nToken: ${response.data.data.token}\nTime: ${new Date(response.data.data.startsAt).toLocaleString("en-IN")}`,
         );
         navigate("/app/appointments");
       },
@@ -152,12 +209,17 @@ export function AppointmentBookingPage() {
         );
         return;
       }
-      if (paymentStatus === "PAID" && !paymentMethod) {
+      if (
+        paymentStatus === "PAID" &&
+        !paymentMethod &&
+        existingAppointment?.paymentStatus !== "PAID"
+      ) {
         window.alert("Please select a payment method");
         return;
       }
       if (
         paymentStatus === "PAID" &&
+        paymentMethod &&
         paymentMethod !== "CASH" &&
         !utrNumber.trim()
       ) {
@@ -176,9 +238,17 @@ export function AppointmentBookingPage() {
       </button>
       <div className="booking-head">
         <div>
-          <span>NEW APPOINTMENT</span>
-          <h1>Book appointment</h1>
-          <p>The next time slot and token are generated automatically.</p>
+          <span>
+            {existingAppointment ? "EDIT APPOINTMENT" : "NEW APPOINTMENT"}
+          </span>
+          <h1>
+            {existingAppointment ? "Edit appointment" : "Book appointment"}
+          </h1>
+          <p>
+            {existingAppointment
+              ? "Update the appointment using the same booking workflow."
+              : "The next time slot and token are generated automatically."}
+          </p>
         </div>
         <CalendarCheck />
       </div>
@@ -284,7 +354,7 @@ export function AppointmentBookingPage() {
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value)}
-                    required
+                    required={existingAppointment?.paymentStatus !== "PAID"}
                   >
                     <option value="">Select payment method</option>
                     <option value="CASH">Cash</option>
@@ -304,7 +374,7 @@ export function AppointmentBookingPage() {
                         ? "Optional for cash"
                         : "Enter payment reference"
                     }
-                    required={paymentMethod !== "CASH"}
+                    required={!!paymentMethod && paymentMethod !== "CASH"}
                   />
                 </label>
                 <label className="wide payment-remarks">
@@ -322,7 +392,9 @@ export function AppointmentBookingPage() {
           {book.error && (
             <div className="alert error">
               {(book.error as any).response?.data?.message ||
-                "Unable to book appointment"}
+                (existingAppointment
+                  ? "Unable to update appointment"
+                  : "Unable to book appointment")}
             </div>
           )}
           <div className="booking-actions">
@@ -334,7 +406,11 @@ export function AppointmentBookingPage() {
               Cancel
             </button>
             <button className="btn" disabled={book.isPending}>
-              {book.isPending ? "Booking…" : "Book appointment"}
+              {book.isPending
+                ? "Saving…"
+                : existingAppointment
+                  ? "Save changes"
+                  : "Book appointment"}
             </button>
           </div>
         </section>
