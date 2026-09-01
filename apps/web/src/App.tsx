@@ -5,6 +5,7 @@ import { AppLayout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { ResourcePage } from "./pages/Resource";
 import { AppointmentBookingPage } from "./pages/AppointmentBookingPage";
+import { AppointmentEditPage } from "./pages/AppointmentEditPage";
 const menus = [
   "leads",
   "interested-leads",
@@ -71,6 +72,7 @@ export default function App() {
       >
         <Route index element={<Dashboard mode="tenant" />} />
         <Route path="appointments/new" element={<AppointmentBookingPage />} />
+        <Route path="appointments/:id/edit" element={<AppointmentEditPage />} />
         {menus.map((x) => (
           <Route
             key={x}

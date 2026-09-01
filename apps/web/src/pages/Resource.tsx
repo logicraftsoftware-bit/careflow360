@@ -1378,7 +1378,13 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                             <Eye />
                           </button>
                           {!c.readOnly && (
-                            <button onClick={() => setEdit(r)}>
+                            <button
+                              onClick={() =>
+                                slug === "appointments"
+                                  ? navigate(`/app/appointments/${r.id}/edit`)
+                                  : setEdit(r)
+                              }
+                            >
                               <SquarePen />
                             </button>
                           )}
