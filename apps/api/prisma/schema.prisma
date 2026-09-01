@@ -75,6 +75,21 @@ enum RecordStatus {
   INACTIVE
 }
 
+enum CallDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  RINGING
+  ANSWERED
+  COMPLETED
+  MISSED
+  ABANDONED
+  FAILED
+  UNKNOWN
+}
+
 model Tenant {
   id              String         @id @default(auto()) @map("_id") @db.ObjectId
   name            String
@@ -104,6 +119,7 @@ model Tenant {
   patients        Patient[]
   appointments    Appointment[]
   auditLogs       AuditLog[]
+  calls           CallRecord[]
 }
 
 model User {
@@ -125,6 +141,7 @@ model User {
   createdLeads  Lead[]         @relation("LeadCreator")
   assignedLeads Lead[]         @relation("LeadAssignee")
   auditLogs     AuditLog[]
+  handledCalls  CallRecord[]   @relation("CallAgent")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -402,6 +419,7 @@ model Lead {
   followups      FollowUp[]
   patient        Patient?
   appointments   Appointment[]
+  calls          CallRecord[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -445,6 +463,7 @@ model Patient {
   pin           String?
   status        RecordStatus  @default(ACTIVE)
   appointments  Appointment[]
+  calls         CallRecord[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -513,6 +532,43 @@ model WebhookEvent {
   createdAt   DateTime  @default(now())
 
   @@unique([provider, externalId])
+}
+
+model CallRecord {
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId       String        @db.ObjectId
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+  provider       String        @default("KNOWLARITY")
+  externalId     String
+  direction      CallDirection @default(INBOUND)
+  status         CallStatus    @default(UNKNOWN)
+  callerNumber   String
+  destinationNumber String?
+  virtualNumber  String?
+  agentId        String?       @db.ObjectId
+  agent          User?         @relation("CallAgent", fields: [agentId], references: [id])
+  agentExternalId String?
+  agentName      String?
+  leadId         String?       @db.ObjectId
+  lead           Lead?         @relation(fields: [leadId], references: [id])
+  patientId      String?       @db.ObjectId
+  patient        Patient?      @relation(fields: [patientId], references: [id])
+  ivrSelection   String?
+  disposition    String?
+  notes          String?
+  recordingUrl   String?
+  startedAt      DateTime?
+  answeredAt     DateTime?
+  endedAt        DateTime?
+  durationSeconds Int?
+  rawPayload     Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([provider, externalId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, callerNumber])
+  @@index([tenantId, status])
 }
 
 model AuditLog {

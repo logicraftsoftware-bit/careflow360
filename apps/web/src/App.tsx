@@ -6,6 +6,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { ResourcePage } from "./pages/Resource";
 import { AppointmentBookingPage } from "./pages/AppointmentBookingPage";
 import { AppointmentEditPage } from "./pages/AppointmentEditPage";
+import { CallLogsPage } from "./pages/CallLogs";
 const menus = [
   "leads",
   "interested-leads",
@@ -73,6 +74,7 @@ export default function App() {
         <Route index element={<Dashboard mode="tenant" />} />
         <Route path="appointments/new" element={<AppointmentBookingPage />} />
         <Route path="appointments/:id/edit" element={<AppointmentEditPage />} />
+        <Route path="call-logs" element={<CallLogsPage />} />
         {menus.map((x) => (
           <Route
             key={x}
