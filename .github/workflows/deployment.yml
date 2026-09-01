@@ -25,11 +25,31 @@ jobs:
           script: |
             set -e
 
+            echo "Loading Node.js from NVM..."
+            export NVM_DIR="$HOME/.nvm"
+
+            if [ -s "$NVM_DIR/nvm.sh" ]; then
+              . "$NVM_DIR/nvm.sh"
+            else
+              echo "NVM was not found at $NVM_DIR"
+              exit 1
+            fi
+
+            nvm use 22
+            node --version
+            npm --version
+            pm2 --version
+
             cd /var/www/careflow360
 
             echo "Pulling latest code..."
             git fetch origin main
             git reset --hard origin/main
+
+            if [ ! -f .env ]; then
+              echo "Missing /var/www/careflow360/.env"
+              exit 1
+            fi
 
             echo "Installing dependencies..."
             npm ci
@@ -37,11 +57,16 @@ jobs:
             echo "Generating Prisma Client..."
             npm run db:generate
 
+            echo "Updating database schema..."
+            npm run db:push
+
             echo "Building application..."
             npm run build
 
             echo "Restarting API..."
-            pm2 restart careflow360-api || pm2 start apps/api/dist/server.js --name careflow360-api
+            pm2 restart careflow360-api || pm2 start apps/api/dist/server.js \
+              --name careflow360-api \
+              --cwd /var/www/careflow360
 
             pm2 save
 
