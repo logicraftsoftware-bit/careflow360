@@ -51,6 +51,9 @@ jobs:
               exit 1
             fi
 
+            echo "Linking the API workspace to the production environment..."
+            ln -sfn ../../.env apps/api/.env
+
             echo "Installing dependencies..."
             npm ci
 
