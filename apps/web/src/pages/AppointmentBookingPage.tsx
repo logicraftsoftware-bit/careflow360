@@ -183,6 +183,9 @@ export function AppointmentBookingPage({
             amount: doctor?.consultationFee || 0,
             status,
             paymentStatus,
+            paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
+            utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
+            paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
           });
         }
         return api.post("/crm/appointments/book", {
@@ -199,10 +202,13 @@ export function AppointmentBookingPage({
         });
       },
       onSuccess: (response: any) => {
+        const saved = response.data.data;
         window.alert(
           existingAppointment
             ? "Appointment updated successfully"
-            : `Appointment booked successfully\nToken: ${response.data.data.token}\nTime: ${new Date(response.data.data.startsAt).toLocaleString("en-IN")}`,
+            : saved.token
+              ? `Appointment booked successfully\nToken: ${saved.token}\nTime: ${new Date(saved.startsAt).toLocaleString("en-IN")}`
+              : `Appointment slot held pending payment\nToken will be generated after payment.\nTime: ${new Date(saved.startsAt).toLocaleString("en-IN")}`,
         );
         navigate("/app/appointments");
       },
@@ -277,7 +283,7 @@ export function AppointmentBookingPage({
           <p>
             {existingAppointment
               ? "Update the appointment using the same booking workflow."
-              : "The next time slot and token are generated automatically."}
+              : "The slot is held immediately. The token is generated after payment is completed."}
           </p>
         </div>
         <CalendarCheck />
@@ -371,6 +377,10 @@ export function AppointmentBookingPage({
                 value={paymentStatus}
                 onChange={(e) => {
                   setPaymentStatus(e.target.value);
+                  if (e.target.value === "PENDING")
+                    setStatus("PAYMENT_PENDING");
+                  else if (status === "PAYMENT_PENDING")
+                    setStatus("CONFIRMED");
                   if (e.target.value !== "PAID") {
                     setPaymentMethod("");
                     setUtrNumber("");

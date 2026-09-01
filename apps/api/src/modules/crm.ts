@@ -101,8 +101,6 @@ const allowedFields: Record<string, string[]> = {
     "status",
     "paymentStatus",
     "amount",
-    "serialNumber",
-    "token",
     "paymentConfirmedAt",
   ],
   followups: [
@@ -181,6 +179,21 @@ function prepared(
     data.staffId = userId;
   if (creating && resource === "supportTickets") data.requesterId = userId;
   return data;
+}
+
+function appointmentToken(
+  doctorName: string,
+  departmentName: string,
+  departmentCode: string,
+  startsAt: Date,
+  serialNumber: number,
+) {
+  const name = doctorName.replace(/^dr\.?\s*/i, "").trim().split(/\s+/);
+  const initials = `${name[0]?.[0] || "D"}${name.length > 1 ? name[name.length - 1][0] : "R"}`.toUpperCase();
+  const localDate = startsAt.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+  const datePart = `${Number(localDate.slice(8, 10))}-${localDate.slice(5, 7)}`;
+  const specialty = departmentName.replace(/[^a-z]/gi, "").slice(0, 5).toUpperCase() || departmentCode.toUpperCase();
+  return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2, "0")}`;
 }
 crmRouter.get(
   "/dashboard",
@@ -474,19 +487,10 @@ crmRouter.post(
           "No appointment slots remain within the doctor's schedule",
           "SCHEDULE_FULL",
         );
-      const name = doctor.name
-          .replace(/^dr\.?\s*/i, "")
-          .trim()
-          .split(/\s+/),
-        initials =
-          `${name[0]?.[0] || "D"}${name.length > 1 ? name[name.length - 1][0] : "R"}`.toUpperCase(),
-        datePart = `${Number(date.slice(8, 10))}-${date.slice(5, 7)}`,
-        specialty =
-          department.name
-            .replace(/[^a-z]/gi, "")
-            .slice(0, 5)
-            .toUpperCase() || department.code.toUpperCase(),
-        token = `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2, "0")}`;
+      const paymentComplete = body.paymentStatus === "PAID" || body.paymentStatus === "NOT_REQUIRED";
+      const token = paymentComplete
+        ? appointmentToken(doctor.name, department.name, department.code, slotStart, serialNumber)
+        : null;
       return tx.appointment.create({
         data: {
           tenantId: tid,
@@ -498,7 +502,7 @@ crmRouter.post(
           startsAt: slotStart,
           endsAt: new Date(slotStart.getTime() + schedule.slotMinutes * 60000),
           amount: doctor.consultationFee,
-          status: body.status,
+          status: body.paymentStatus === "PENDING" ? "PAYMENT_PENDING" : body.status,
           paymentStatus: body.paymentStatus,
           paymentConfirmedAt: body.paymentStatus === "PAID" ? new Date() : null,
           serialNumber,
@@ -525,7 +529,14 @@ crmRouter.post(
       token: result.token,
       serialNumber: result.serialNumber,
     });
-    return ok(res, result, "Appointment booked successfully", 201);
+    return ok(
+      res,
+      result,
+      result.paymentStatus === "PENDING"
+        ? "Appointment slot held pending payment"
+        : "Appointment booked successfully",
+      201,
+    );
   }),
 );
 crmRouter.post(
@@ -681,6 +692,64 @@ crmRouter.patch(
           "This patient already has an appointment with this doctor on this date",
           "DUPLICATE_APPOINTMENT",
         );
+    }
+    if (req.params.resource === "appointments") {
+      const appointment = found as any;
+      if (data.paymentStatus === "PENDING") {
+        data.status = "PAYMENT_PENDING";
+        data.token = null;
+        data.paymentConfirmedAt = null;
+      } else if (["PAID", "NOT_REQUIRED"].includes(data.paymentStatus)) {
+        const [doctor, department] = await Promise.all([
+          prisma.doctor.findFirst({
+            where: { id: data.doctorId || appointment.doctorId, tenantId: tid },
+          }),
+          prisma.department.findFirst({
+            where: {
+              id: data.departmentId || appointment.departmentId,
+              tenantId: tid,
+            },
+          }),
+        ]);
+        if (!doctor || !department)
+          throw new AppError(400, "Doctor or department is invalid", "INVALID_APPOINTMENT");
+        if (!appointment.token)
+          data.token = appointmentToken(
+            doctor.name,
+            department.name,
+            department.code,
+            data.startsAt || appointment.startsAt,
+            appointment.serialNumber || 1,
+          );
+        data.status = "CONFIRMED";
+        if (data.paymentStatus === "PAID") {
+          data.paymentConfirmedAt = new Date();
+          if (appointment.paymentStatus !== "PAID") {
+            const paymentMethod = z
+              .enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"])
+              .parse(req.body.paymentMethod);
+            const utrNumber = z.string().trim().max(100).optional().parse(req.body.utrNumber);
+            if (paymentMethod !== "CASH" && !utrNumber)
+              throw new AppError(
+                400,
+                "UTR or transaction number is required",
+                "PAYMENT_REFERENCE_REQUIRED",
+              );
+            data.payments = {
+              create: {
+                tenantId: tid,
+                provider: paymentMethod,
+                providerTransactionId: utrNumber || null,
+                remarks: z.string().trim().max(500).optional().parse(req.body.paymentRemarks) || null,
+                amount: Number(data.amount ?? appointment.amount),
+                status: "PAID",
+                secureToken: randomUUID(),
+                confirmedAt: new Date(),
+              },
+            };
+          }
+        }
+      }
     }
     const row = await model.update({ where: { id: found.id }, data });
     await audit(
