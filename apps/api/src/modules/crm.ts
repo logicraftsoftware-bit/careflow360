@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   asyncRoute,
@@ -374,6 +375,26 @@ crmRouter.post(
         paymentStatus: z
           .enum(["NOT_REQUIRED", "PENDING", "PAID"])
           .default("PENDING"),
+        paymentMethod: z
+          .enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"])
+          .optional(),
+        utrNumber: z.string().trim().max(100).optional(),
+        paymentRemarks: z.string().trim().max(500).optional(),
+      })
+      .superRefine((value, context) => {
+        if (value.paymentStatus !== "PAID") return;
+        if (!value.paymentMethod)
+          context.addIssue({
+            code: "custom",
+            path: ["paymentMethod"],
+            message: "Payment method is required for a paid appointment",
+          });
+        if (value.paymentMethod !== "CASH" && !value.utrNumber)
+          context.addIssue({
+            code: "custom",
+            path: ["utrNumber"],
+            message: "UTR or transaction number is required",
+          });
       })
       .parse(req.body);
     const [patient, branch, department, doctor, schedule] = await Promise.all([
@@ -464,8 +485,24 @@ crmRouter.post(
           amount: doctor.consultationFee,
           status: body.status,
           paymentStatus: body.paymentStatus,
+          paymentConfirmedAt: body.paymentStatus === "PAID" ? new Date() : null,
           serialNumber,
           token,
+          payments:
+            body.paymentStatus === "PAID" && body.paymentMethod
+              ? {
+                  create: {
+                    tenantId: tid,
+                    provider: body.paymentMethod,
+                    providerTransactionId: body.utrNumber || null,
+                    remarks: body.paymentRemarks || null,
+                    amount: doctor.consultationFee,
+                    status: "PAID",
+                    secureToken: randomUUID(),
+                    confirmedAt: new Date(),
+                  },
+                }
+              : undefined,
         },
       });
     });

@@ -42,6 +42,9 @@ export function AppointmentBookingPage() {
     [scheduleId, setScheduleId] = useState(""),
     [status, setStatus] = useState("CONFIRMED"),
     [paymentStatus, setPaymentStatus] = useState("PENDING"),
+    [paymentMethod, setPaymentMethod] = useState(""),
+    [utrNumber, setUtrNumber] = useState(""),
+    [paymentRemarks, setPaymentRemarks] = useState(""),
     patient = patients.find((item: any) => item.id === patientId),
     doctor = doctors.find((item: any) => item.id === doctorId);
   const patientOptions: Option[] = patients.map((item: any) => ({
@@ -111,9 +114,9 @@ export function AppointmentBookingPage() {
         };
       })
       .filter((item: Option) => item.raw.remaining > 0)
-    .sort((a: Option, b: Option) =>
-      a.raw.scheduleDate.localeCompare(b.raw.scheduleDate),
-    );
+      .sort((a: Option, b: Option) =>
+        a.raw.scheduleDate.localeCompare(b.raw.scheduleDate),
+      );
   const book = useMutation({
       mutationFn: () =>
         api.post("/crm/appointments/book", {
@@ -124,6 +127,9 @@ export function AppointmentBookingPage() {
           scheduleId,
           status,
           paymentStatus,
+          paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
+          utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
+          paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
         }),
       onSuccess: (response: any) => {
         window.alert(
@@ -144,6 +150,18 @@ export function AppointmentBookingPage() {
         window.alert(
           "Please select patient, branch, department, doctor and appointment date",
         );
+        return;
+      }
+      if (paymentStatus === "PAID" && !paymentMethod) {
+        window.alert("Please select a payment method");
+        return;
+      }
+      if (
+        paymentStatus === "PAID" &&
+        paymentMethod !== "CASH" &&
+        !utrNumber.trim()
+      ) {
+        window.alert("Please enter the UTR or transaction number");
         return;
       }
       book.mutate();
@@ -245,13 +263,61 @@ export function AppointmentBookingPage() {
               Payment status
               <select
                 value={paymentStatus}
-                onChange={(e) => setPaymentStatus(e.target.value)}
+                onChange={(e) => {
+                  setPaymentStatus(e.target.value);
+                  if (e.target.value !== "PAID") {
+                    setPaymentMethod("");
+                    setUtrNumber("");
+                    setPaymentRemarks("");
+                  }
+                }}
               >
                 <option value="PENDING">Pending</option>
                 <option value="NOT_REQUIRED">Not required</option>
                 <option value="PAID">Paid</option>
               </select>
             </label>
+            {paymentStatus === "PAID" && (
+              <>
+                <label>
+                  Payment method
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    required
+                  >
+                    <option value="">Select payment method</option>
+                    <option value="CASH">Cash</option>
+                    <option value="UPI">UPI</option>
+                    <option value="CARD">Card</option>
+                    <option value="BANK_TRANSFER">Bank transfer</option>
+                    <option value="CHEQUE">Cheque</option>
+                  </select>
+                </label>
+                <label>
+                  UTR / transaction number
+                  <input
+                    value={utrNumber}
+                    onChange={(e) => setUtrNumber(e.target.value)}
+                    placeholder={
+                      paymentMethod === "CASH"
+                        ? "Optional for cash"
+                        : "Enter payment reference"
+                    }
+                    required={paymentMethod !== "CASH"}
+                  />
+                </label>
+                <label className="wide payment-remarks">
+                  Payment remarks
+                  <textarea
+                    value={paymentRemarks}
+                    onChange={(e) => setPaymentRemarks(e.target.value)}
+                    placeholder="Add payment notes (optional)"
+                    rows={3}
+                  />
+                </label>
+              </>
+            )}
           </div>
           {book.error && (
             <div className="alert error">
@@ -300,10 +366,6 @@ export function AppointmentBookingPage() {
                       <MapPin /> City
                     </dt>
                     <dd>{patient.city || "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>Database ID</dt>
-                    <dd>{patient.id}</dd>
                   </div>
                 </dl>
               </>
