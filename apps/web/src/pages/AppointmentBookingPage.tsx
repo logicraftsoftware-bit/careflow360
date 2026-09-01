@@ -134,6 +134,18 @@ export function AppointmentBookingPage({
         };
       })
       .filter((item: Option) => item.raw.remaining > 0)
+      .filter(
+        (item: Option) =>
+          !appointments.some(
+            (appointment: any) =>
+              appointment.id !== existingAppointment?.id &&
+              appointment.patientId === patientId &&
+              appointment.doctorId === doctorId &&
+              appointment.status !== "CANCELLED" &&
+              appointment.startsAt?.slice(0, 10) ===
+                item.raw.scheduleDate.slice(0, 10),
+          ),
+      )
       .sort((a: Option, b: Option) =>
         a.raw.scheduleDate.localeCompare(b.raw.scheduleDate),
       );
@@ -206,6 +218,24 @@ export function AppointmentBookingPage({
       ) {
         window.alert(
           "Please select patient, branch, department, doctor and appointment date",
+        );
+        return;
+      }
+      const selectedSchedule = schedules.find(
+          (item: any) => item.id === scheduleId,
+        ),
+        selectedDate = selectedSchedule?.scheduleDate?.slice(0, 10),
+        duplicate = appointments.some(
+          (appointment: any) =>
+            appointment.id !== existingAppointment?.id &&
+            appointment.patientId === patientId &&
+            appointment.doctorId === doctorId &&
+            appointment.status !== "CANCELLED" &&
+            appointment.startsAt?.slice(0, 10) === selectedDate,
+        );
+      if (duplicate) {
+        window.alert(
+          "This patient already has an appointment with this doctor on this date.",
         );
         return;
       }
@@ -316,6 +346,12 @@ export function AppointmentBookingPage({
                 }
                 disabled={!doctorId}
               />
+              {patientId && doctorId && !slotDateOptions.length && (
+                <div className="alert error">
+                  No date is available. This patient may already be booked with
+                  this doctor, or all slots are full.
+                </div>
+              )}
             </div>
             <label>
               Status

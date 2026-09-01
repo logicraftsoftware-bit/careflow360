@@ -432,6 +432,21 @@ crmRouter.post(
       dayStart = new Date(`${date}T00:00:00+05:30`),
       dayEnd = new Date(dayStart.getTime() + 86400000);
     const result = await prisma.$transaction(async (tx) => {
+      const duplicate = await tx.appointment.findFirst({
+        where: {
+          tenantId: tid,
+          patientId: patient.id,
+          doctorId: doctor.id,
+          startsAt: { gte: dayStart, lt: dayEnd },
+          status: { not: "CANCELLED" },
+        },
+      });
+      if (duplicate)
+        throw new AppError(
+          409,
+          "This patient already has an appointment with this doctor on this date",
+          "DUPLICATE_APPOINTMENT",
+        );
       const booked = await tx.appointment.count({
         where: {
           tenantId: tid,
@@ -641,6 +656,32 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
+    if (req.params.resource === "appointments" && data.startsAt) {
+      const appointment = found as any,
+        patientId = data.patientId || appointment.patientId,
+        doctorId = data.doctorId || appointment.doctorId,
+        date = data.startsAt.toLocaleDateString("en-CA", {
+          timeZone: "Asia/Kolkata",
+        }),
+        dayStart = new Date(`${date}T00:00:00+05:30`),
+        dayEnd = new Date(dayStart.getTime() + 86400000),
+        duplicate = await prisma.appointment.findFirst({
+          where: {
+            tenantId: tid,
+            id: { not: appointment.id },
+            patientId,
+            doctorId,
+            startsAt: { gte: dayStart, lt: dayEnd },
+            status: { not: "CANCELLED" },
+          },
+        });
+      if (duplicate)
+        throw new AppError(
+          409,
+          "This patient already has an appointment with this doctor on this date",
+          "DUPLICATE_APPOINTMENT",
+        );
+    }
     const row = await model.update({ where: { id: found.id }, data });
     await audit(
       req,
