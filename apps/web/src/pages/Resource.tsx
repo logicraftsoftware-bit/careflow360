@@ -176,7 +176,7 @@ const configs: Record<string, Config> = {
     title: "Doctor Schedules",
     description: "Configure date-wise doctor availability and patient slots.",
     fields: [f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"), f("branchId", "Branch", "reference", true, undefined, "/crm/branches"), f("scheduleDate", "Schedule date", "date", true), f("startTime", "Start time", "text", true), f("endTime", "End time", "text", true), f("slotMinutes", "Slot minutes", "number", true), f("maxPatients", "Maximum patients", "number", true), stat],
-    columns: ["doctorId", "branchId", "scheduleDate", "startTime", "endTime", "slotMinutes", "maxPatients", "status"],
+    columns: ["doctorId", "branchId", "scheduleCount", "nextSchedule"],
   },
   departments: {
     title: "Departments",
@@ -326,8 +326,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   };
   const all = useMemo(() => {
     const x = (Array.isArray(data) ? data : data?.items || []).map((r: any) => (r.data ? { ...r, ...r.data } : r));
-    return x.filter((r: any) => (filter === "ALL" || r.status === filter) && JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
-  }, [data, search, filter]);
+    const filtered = x.filter((r: any) => (filter === "ALL" || r.status === filter) && JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
+    if (slug !== "doctor-schedules") return filtered;
+    const groups = new Map<string, any[]>();
+    for (const row of filtered) { const key = `${row.doctorId}:${row.branchId}`; groups.set(key, [...(groups.get(key) || []), row]); }
+    return [...groups.values()].map(group => { const dated = group.filter(item => item.scheduleDate).sort((a,b) => a.scheduleDate.localeCompare(b.scheduleDate)); return { ...group[0], scheduleCount: dated.length, nextSchedule: dated.find(item => new Date(item.scheduleDate) >= new Date())?.scheduleDate || dated[0]?.scheduleDate }; });
+  }, [data, search, filter, slug]);
   const pages = Math.max(1, Math.ceil(all.length / 10)),
     rows = all.slice((Math.min(page, pages) - 1) * 10, Math.min(page, pages) * 10);
   const save = useMutation({
@@ -347,7 +351,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }),
     });
   const leadStatuses = ["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP_REQUIRED", "APPOINTMENT_PENDING", "CONVERTED", "NOT_INTERESTED", "CALLBACK_LATER", "INVALID", "LOST"];
-  const statusOptions = mode === "tenant" ? (["leads", "interested-leads", "converted-leads"].includes(slug) ? leadStatuses : c.fields.find((field) => field.name === "status")?.options || []) : [];
+  const statusOptions = mode === "tenant" && slug !== "doctor-schedules" ? (["leads", "interested-leads", "converted-leads"].includes(slug) ? leadStatuses : c.fields.find((field) => field.name === "status")?.options || []) : [];
   const changeStatus = useMutation({
     mutationFn: ({ row, status }: { row: any; status: string }) => (["leads", "interested-leads", "converted-leads"].includes(slug) ? api.patch(`/crm/leads/${row.id}/status`, { status }) : api.patch(`${base}/${row.id}`, { status })),
     onSuccess: () => qc.invalidateQueries(),
@@ -489,7 +493,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                               </button>
                             </>
                           )}
-                          {!c.readOnly && (
+                          {!c.readOnly && slug !== "doctor-schedules" && (
                             <button className="danger" onClick={() => confirm("Delete permanently?") && del.mutate(r.id)}>
                               <Trash2 />
                             </button>

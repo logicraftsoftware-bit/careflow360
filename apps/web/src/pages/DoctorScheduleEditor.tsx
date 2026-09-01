@@ -15,9 +15,13 @@ export function DoctorScheduleEditor({ schedule, onBack }: { schedule: any; onBa
   const { data: schedulesData } = useQuery({ queryKey: ["doctor-schedule-calendar", schedule.doctorId, schedule.branchId], queryFn: () => api.get("/crm/doctorSchedules?limit=100").then(unwrap) });
   const { data: doctorsData } = useQuery({ queryKey: ["schedule-doctors"], queryFn: () => api.get("/crm/doctors?limit=100").then(unwrap) });
   const { data: branchesData } = useQuery({ queryKey: ["schedule-branches"], queryFn: () => api.get("/crm/branches?limit=100").then(unwrap) });
+  const { data: appointmentsData } = useQuery({ queryKey: ["schedule-appointments", schedule.doctorId, schedule.branchId], queryFn: () => api.get("/crm/appointments?limit=100").then(unwrap) });
+  const { data: patientsData } = useQuery({ queryKey: ["schedule-patients"], queryFn: () => api.get("/crm/patients?limit=100").then(unwrap) });
   const schedules = (schedulesData?.items || []).filter((item: any) => item.doctorId === schedule.doctorId && item.branchId === schedule.branchId);
   const doctor = (doctorsData?.items || []).find((item: any) => item.id === schedule.doctorId);
   const branch = (branchesData?.items || []).find((item: any) => item.id === schedule.branchId);
+  const patients = patientsData?.items || [];
+  const bookedAppointments = (appointmentsData?.items || []).filter((item: any) => item.doctorId === schedule.doctorId && item.branchId === schedule.branchId).sort((a: any, b: any) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime());
   const cells = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1), start = new Date(first);
     start.setDate(1 - first.getDay());
@@ -69,6 +73,7 @@ export function DoctorScheduleEditor({ schedule, onBack }: { schedule: any; onBa
           <div className="schedule-actions"><button className="btn" disabled={save.isPending} onClick={() => save.mutate()}><Save/> {save.isPending ? "Saving…" : "Save schedule"}</button>{selectedSchedule && <button className="btn delete-schedule" disabled={remove.isPending} onClick={() => window.confirm(`Delete the schedule for ${selected.toLocaleDateString("en-IN")}?`) && remove.mutate()}><Trash2/> Delete</button>}</div>
         </>}
         <div className="scheduled-list"><h3>Scheduled dates</h3>{schedules.filter((item:any)=>item.scheduleDate).sort((a:any,b:any)=>a.scheduleDate.localeCompare(b.scheduleDate)).map((item:any)=><button key={item.id} onClick={()=>{const date=new Date(`${item.scheduleDate.slice(0,10)}T00:00:00`);setMonth(new Date(date.getFullYear(),date.getMonth(),1));selectDate(date)}}><b>{new Date(item.scheduleDate).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}</b><span>{item.startTime}–{item.endTime} · {item.slotMinutes} min · {item.maxPatients} patients</span></button>)}</div>
+        <div className="doctor-appointments"><h3>Booked appointments <span>{bookedAppointments.length}</span></h3>{bookedAppointments.length ? bookedAppointments.map((item:any)=>{const patient=patients.find((entry:any)=>entry.id===item.patientId);return <article key={item.id}><div><b>{patient?.name||"Patient"}</b><span>{patient?.mobile||patient?.patientNumber||""}</span></div><div><strong>{new Date(item.startsAt).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</strong><span>{new Date(item.startsAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · {item.status.replaceAll("_"," ")}</span></div></article>}) : <p>No appointments booked for this doctor and branch.</p>}</div>
       </aside>
     </div>
   </div>;
