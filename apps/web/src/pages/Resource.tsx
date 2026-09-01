@@ -458,6 +458,7 @@ const configs: Record<string, Config> = {
     ],
     columns: [
       "appointmentNumber",
+      "token",
       "patientId",
       "doctorId",
       "startsAt",
@@ -829,6 +830,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [cityFilter, setCityFilter] = useState("ALL"),
     [priorityFilter, setPriorityFilter] = useState("ALL"),
     [actionFilter, setActionFilter] = useState("ALL"),
+    [doctorFilter, setDoctorFilter] = useState("ALL"),
+    [slotFilter, setSlotFilter] = useState("ALL"),
+    [paymentFilter, setPaymentFilter] = useState("ALL"),
     [page, setPage] = useState(1);
   const base =
       mode === "admin"
@@ -906,6 +910,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         (filter === "ALL" || r.status === filter) &&
         (cityFilter === "ALL" || r.city === cityFilter) &&
         (priorityFilter === "ALL" || r.priority === priorityFilter) &&
+        (doctorFilter === "ALL" || r.doctorId === doctorFilter) &&
+        (slotFilter === "ALL" || r.startsAt === slotFilter) &&
+        (paymentFilter === "ALL" || r.paymentStatus === paymentFilter) &&
         actionMatches(r.status) &&
         JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
     );
@@ -934,6 +941,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     cityFilter,
     priorityFilter,
     actionFilter,
+    doctorFilter,
+    slotFilter,
+    paymentFilter,
     slug,
   ]);
   const pages = Math.max(1, Math.ceil(all.length / 10)),
@@ -1038,6 +1048,15 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     ].sort() as string[],
     priorities = [
       ...new Set(sourceRows.map((r: any) => r.priority).filter(Boolean)),
+    ] as string[],
+    appointmentDoctors = [
+      ...new Set(sourceRows.map((r: any) => r.doctorId).filter(Boolean)),
+    ] as string[],
+    appointmentSlots = [
+      ...new Set(sourceRows.map((r: any) => r.startsAt).filter(Boolean)),
+    ].sort() as string[],
+    paymentStatuses = [
+      ...new Set(sourceRows.map((r: any) => r.paymentStatus).filter(Boolean)),
     ] as string[],
     supportsBulk = mode === "tenant" && ["leads", "patients"].includes(slug);
   const csv = () => {
@@ -1176,7 +1195,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           <div className="filter-select">
             <Filter />
             <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-              <option value="ALL">All statuses</option>
+              <option value="ALL">
+                {slug === "appointments"
+                  ? "All booking statuses"
+                  : "All statuses"}
+              </option>
               {statuses.map((s) => (
                 <option key={s}>{s}</option>
               ))}
@@ -1213,6 +1236,60 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 {priorities.map((priority) => (
                   <option key={priority} value={priority}>
                     {label(priority)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slug === "appointments" && (
+            <div className="filter-select">
+              <select
+                value={doctorFilter}
+                onChange={(event) => {
+                  setDoctorFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All doctors</option>
+                {appointmentDoctors.map((doctorId) => (
+                  <option key={doctorId} value={doctorId}>
+                    {display({ doctorId }, "doctorId")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slug === "appointments" && (
+            <div className="filter-select">
+              <select
+                value={slotFilter}
+                onChange={(event) => {
+                  setSlotFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All appointment slots</option>
+                {appointmentSlots.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {show(slot)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slug === "appointments" && (
+            <div className="filter-select">
+              <select
+                value={paymentFilter}
+                onChange={(event) => {
+                  setPaymentFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All payment statuses</option>
+                {paymentStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {label(status)}
                   </option>
                 ))}
               </select>
