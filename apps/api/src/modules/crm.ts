@@ -1,6 +1,14 @@
 import { Router } from "express";
 import { z } from "zod";
-import { asyncRoute, audit, auth, ok, prisma, tenantId, AppError } from "../lib.js";
+import {
+  asyncRoute,
+  audit,
+  auth,
+  ok,
+  prisma,
+  tenantId,
+  AppError,
+} from "../lib.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
 const resources: any = {
@@ -18,38 +26,158 @@ const resources: any = {
   supportTickets: prisma.supportTicket,
 };
 const allowedFields: Record<string, string[]> = {
-  branches: ["name", "address", "city", "state", "country", "pin", "phone", "email", "status"],
+  branches: [
+    "name",
+    "address",
+    "city",
+    "state",
+    "country",
+    "pin",
+    "phone",
+    "email",
+    "status",
+  ],
   departments: ["name", "code", "description", "status"],
-  doctors: ["departmentId", "name", "qualification", "specialization", "registrationNumber", "mobile", "email", "experience", "consultationFee", "status"],
-  doctorSchedules: ["doctorId", "branchId", "dayOfWeek", "scheduleDate", "startTime", "endTime", "slotMinutes", "maxPatients", "status"],
+  doctors: [
+    "departmentId",
+    "name",
+    "qualification",
+    "specialization",
+    "registrationNumber",
+    "mobile",
+    "email",
+    "experience",
+    "consultationFee",
+    "status",
+  ],
+  doctorSchedules: [
+    "doctorId",
+    "branchId",
+    "dayOfWeek",
+    "scheduleDate",
+    "startTime",
+    "endTime",
+    "slotMinutes",
+    "maxPatients",
+    "status",
+  ],
   leadSources: ["name", "code", "status"],
-  leads: ["name", "mobile", "email", "city", "departmentId", "doctorId", "sourceId", "status", "priority", "remarks", "nextFollowUpAt", "assignedToId"],
-  patients: ["leadId", "name", "gender", "dob", "mobile", "email", "address", "city", "state", "pin", "status"],
-  appointments: ["patientId", "leadId", "branchId", "departmentId", "doctorId", "startsAt", "endsAt", "status", "paymentStatus", "amount", "serialNumber", "token", "paymentConfirmedAt"],
-  followups: ["leadId", "staffId", "scheduledAt", "type", "remarks", "outcome", "status", "nextFollowUpAt"],
+  leads: [
+    "name",
+    "mobile",
+    "email",
+    "city",
+    "departmentId",
+    "doctorId",
+    "sourceId",
+    "status",
+    "priority",
+    "remarks",
+    "nextFollowUpAt",
+    "assignedToId",
+  ],
+  patients: [
+    "leadId",
+    "name",
+    "gender",
+    "dob",
+    "mobile",
+    "email",
+    "address",
+    "city",
+    "state",
+    "pin",
+    "status",
+  ],
+  appointments: [
+    "patientId",
+    "leadId",
+    "branchId",
+    "departmentId",
+    "doctorId",
+    "startsAt",
+    "endsAt",
+    "status",
+    "paymentStatus",
+    "amount",
+    "serialNumber",
+    "token",
+    "paymentConfirmedAt",
+  ],
+  followups: [
+    "leadId",
+    "staffId",
+    "scheduledAt",
+    "type",
+    "remarks",
+    "outcome",
+    "status",
+    "nextFollowUpAt",
+  ],
   notifications: ["userId", "type", "title", "body", "readAt"],
-  supportTickets: ["requesterId", "subject", "description", "priority", "status", "assignedToId", "internalNotes"],
+  supportTickets: [
+    "requesterId",
+    "subject",
+    "description",
+    "priority",
+    "status",
+    "assignedToId",
+    "internalNotes",
+  ],
 };
-function prepared(resource: string, body: any, userId: string, creating = false) {
+function prepared(
+  resource: string,
+  body: any,
+  userId: string,
+  creating = false,
+) {
   const allowed = allowedFields[resource] ?? [];
-  const data: any = Object.fromEntries(Object.entries(body).filter(([key]) => allowed.includes(key)));
+  const data: any = Object.fromEntries(
+    Object.entries(body).filter(([key]) => allowed.includes(key)),
+  );
   for (const key of Object.keys(data)) {
     if (key.endsWith("Id") && data[key] === "") delete data[key];
   }
-  for (const key of ["startsAt", "endsAt", "scheduledAt", "scheduleDate", "nextFollowUpAt", "dob"]) if (data[key]) data[key] = new Date(data[key]);
-  for (const key of ["experience", "dayOfWeek", "slotMinutes", "maxPatients", "serialNumber"]) if (data[key] !== undefined && data[key] !== "") data[key] = Number(data[key]);
-  for (const key of ["consultationFee", "amount"]) if (data[key] !== undefined && data[key] !== "") data[key] = Number(data[key]);
-  if (resource === "doctorSchedules" && data.scheduleDate && data.dayOfWeek === undefined) data.dayOfWeek = data.scheduleDate.getUTCDay();
+  for (const key of [
+    "startsAt",
+    "endsAt",
+    "scheduledAt",
+    "scheduleDate",
+    "nextFollowUpAt",
+    "dob",
+  ])
+    if (data[key]) data[key] = new Date(data[key]);
+  for (const key of [
+    "experience",
+    "dayOfWeek",
+    "slotMinutes",
+    "maxPatients",
+    "serialNumber",
+  ])
+    if (data[key] !== undefined && data[key] !== "")
+      data[key] = Number(data[key]);
+  for (const key of ["consultationFee", "amount"])
+    if (data[key] !== undefined && data[key] !== "")
+      data[key] = Number(data[key]);
+  if (
+    resource === "doctorSchedules" &&
+    data.scheduleDate &&
+    data.dayOfWeek === undefined
+  )
+    data.dayOfWeek = data.scheduleDate.getUTCDay();
   if (creating && resource === "leads") {
     data.leadNumber = `LD-${Date.now().toString(36).toUpperCase()}`;
     data.createdById = userId;
   }
-  if (creating && resource === "patients") data.patientNumber = `PT-${Date.now().toString(36).toUpperCase()}`;
+  if (creating && resource === "patients")
+    data.patientNumber = `PT-${Date.now().toString(36).toUpperCase()}`;
   if (creating && resource === "appointments") {
     data.appointmentNumber = `AP-${Date.now().toString(36).toUpperCase()}`;
-    if (data.startsAt && !data.endsAt) data.endsAt = new Date(data.startsAt.getTime() + 30 * 60000);
+    if (data.startsAt && !data.endsAt)
+      data.endsAt = new Date(data.startsAt.getTime() + 30 * 60000);
   }
-  if (creating && resource === "followups" && !data.staffId) data.staffId = userId;
+  if (creating && resource === "followups" && !data.staffId)
+    data.staffId = userId;
   if (creating && resource === "supportTickets") data.requesterId = userId;
   return data;
 }
@@ -61,7 +189,21 @@ crmRouter.get(
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
-    const [leads, patients, appointments, doctors, branches, pendingFollowups, pipeline, todayFollowups, upcomingAppointments, recentPayments, timeline, todayCalls, todayAppointments] = await Promise.all([
+    const [
+      leads,
+      patients,
+      appointments,
+      doctors,
+      branches,
+      pendingFollowups,
+      pipeline,
+      todayFollowups,
+      upcomingAppointments,
+      recentPayments,
+      timeline,
+      todayCalls,
+      todayAppointments,
+    ] = await Promise.all([
       prisma.lead.count({ where: { tenantId: tid } }),
       prisma.patient.count({ where: { tenantId: tid } }),
       prisma.appointment.count({ where: { tenantId: tid } }),
@@ -120,7 +262,9 @@ crmRouter.get(
       pendingFollowups,
       todayCalls,
       todayAppointments,
-      pipeline: Object.fromEntries(pipeline.map((x) => [x.status, x._count._all])),
+      pipeline: Object.fromEntries(
+        pipeline.map((x) => [x.status, x._count._all]),
+      ),
       todayFollowups,
       upcomingAppointments,
       recentPayments,
@@ -214,6 +358,125 @@ crmRouter.get(
   }),
 );
 crmRouter.post(
+  "/appointments/book",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const body = z
+      .object({
+        patientId: z.string(),
+        branchId: z.string(),
+        departmentId: z.string(),
+        doctorId: z.string(),
+        scheduleId: z.string(),
+        status: z
+          .enum(["DRAFT", "BOOKING_PENDING", "PAYMENT_PENDING", "CONFIRMED"])
+          .default("CONFIRMED"),
+        paymentStatus: z
+          .enum(["NOT_REQUIRED", "PENDING", "PAID"])
+          .default("PENDING"),
+      })
+      .parse(req.body);
+    const [patient, branch, department, doctor, schedule] = await Promise.all([
+      prisma.patient.findFirst({
+        where: { id: body.patientId, tenantId: tid },
+      }),
+      prisma.branch.findFirst({ where: { id: body.branchId, tenantId: tid } }),
+      prisma.department.findFirst({
+        where: { id: body.departmentId, tenantId: tid },
+      }),
+      prisma.doctor.findFirst({ where: { id: body.doctorId, tenantId: tid } }),
+      prisma.doctorSchedule.findFirst({
+        where: {
+          id: body.scheduleId,
+          tenantId: tid,
+          doctorId: body.doctorId,
+          branchId: body.branchId,
+          status: "ACTIVE",
+        },
+      }),
+    ]);
+    if (
+      !patient ||
+      !branch ||
+      !department ||
+      !doctor ||
+      !schedule?.scheduleDate
+    )
+      throw new AppError(
+        400,
+        "Patient, doctor, branch, department or schedule is invalid",
+        "INVALID_BOOKING",
+      );
+    const date = schedule.scheduleDate.toISOString().slice(0, 10),
+      dayStart = new Date(`${date}T00:00:00+05:30`),
+      dayEnd = new Date(dayStart.getTime() + 86400000);
+    const result = await prisma.$transaction(async (tx) => {
+      const booked = await tx.appointment.count({
+        where: {
+          tenantId: tid,
+          doctorId: doctor.id,
+          branchId: branch.id,
+          startsAt: { gte: dayStart, lt: dayEnd },
+          status: { not: "CANCELLED" },
+        },
+      });
+      if (booked >= schedule.maxPatients)
+        throw new AppError(
+          409,
+          "No appointment slots remain for this date",
+          "SCHEDULE_FULL",
+        );
+      const serialNumber = booked + 1,
+        startsAt = new Date(`${date}T${schedule.startTime}:00+05:30`),
+        slotStart = new Date(
+          startsAt.getTime() + booked * schedule.slotMinutes * 60000,
+        ),
+        scheduleEnd = new Date(`${date}T${schedule.endTime}:00+05:30`);
+      if (slotStart >= scheduleEnd)
+        throw new AppError(
+          409,
+          "No appointment slots remain within the doctor's schedule",
+          "SCHEDULE_FULL",
+        );
+      const name = doctor.name
+          .replace(/^dr\.?\s*/i, "")
+          .trim()
+          .split(/\s+/),
+        initials =
+          `${name[0]?.[0] || "D"}${name.length > 1 ? name[name.length - 1][0] : "R"}`.toUpperCase(),
+        datePart = `${Number(date.slice(8, 10))}-${date.slice(5, 7)}`,
+        specialty =
+          department.name
+            .replace(/[^a-z]/gi, "")
+            .slice(0, 5)
+            .toUpperCase() || department.code.toUpperCase(),
+        token = `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2, "0")}`;
+      return tx.appointment.create({
+        data: {
+          tenantId: tid,
+          appointmentNumber: `AP-${Date.now().toString(36).toUpperCase()}`,
+          patientId: patient.id,
+          branchId: branch.id,
+          departmentId: department.id,
+          doctorId: doctor.id,
+          startsAt: slotStart,
+          endsAt: new Date(slotStart.getTime() + schedule.slotMinutes * 60000),
+          amount: doctor.consultationFee,
+          status: body.status,
+          paymentStatus: body.paymentStatus,
+          serialNumber,
+          token,
+        },
+      });
+    });
+    await audit(req, "appointment.booked", "Appointment", result.id, {
+      token: result.token,
+      serialNumber: result.serialNumber,
+    });
+    return ok(res, result, "Appointment booked successfully", 201);
+  }),
+);
+crmRouter.post(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];
@@ -224,7 +487,12 @@ crmRouter.post(
       tenantId: tid,
     };
     const row = await model.create({ data });
-    await audit(req, `${req.params.resource}.created`, req.params.resource, row.id);
+    await audit(
+      req,
+      `${req.params.resource}.created`,
+      req.params.resource,
+      row.id,
+    );
     return ok(res, row, "Created successfully", 201);
   }),
 );
@@ -232,19 +500,58 @@ crmRouter.patch(
   "/leads/:id/status",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
-    const { status } = z.object({ status: z.enum(["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP_REQUIRED", "APPOINTMENT_PENDING", "CONVERTED", "NOT_INTERESTED", "CALLBACK_LATER", "INVALID", "LOST"]) }).parse(req.body);
-    const lead = await prisma.lead.findFirst({ where: { id: req.params.id, tenantId: tid } });
+    const { status } = z
+      .object({
+        status: z.enum([
+          "NEW",
+          "CONTACTED",
+          "INTERESTED",
+          "FOLLOW_UP_REQUIRED",
+          "APPOINTMENT_PENDING",
+          "CONVERTED",
+          "NOT_INTERESTED",
+          "CALLBACK_LATER",
+          "INVALID",
+          "LOST",
+        ]),
+      })
+      .parse(req.body);
+    const lead = await prisma.lead.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+    });
     if (!lead) throw new AppError(404, "Lead not found", "NOT_FOUND");
     const result = await prisma.$transaction(async (tx) => {
-      const updated = await tx.lead.update({ where: { id: lead.id }, data: { status } });
+      const updated = await tx.lead.update({
+        where: { id: lead.id },
+        data: { status },
+      });
       let patient = await tx.patient.findUnique({ where: { leadId: lead.id } });
       if (status === "CONVERTED" && !patient) {
-        patient = await tx.patient.create({ data: { tenantId: tid, leadId: lead.id, patientNumber: `PT-${Date.now().toString(36).toUpperCase()}`, name: lead.name, mobile: lead.mobile, email: lead.email, city: lead.city } });
+        patient = await tx.patient.create({
+          data: {
+            tenantId: tid,
+            leadId: lead.id,
+            patientNumber: `PT-${Date.now().toString(36).toUpperCase()}`,
+            name: lead.name,
+            mobile: lead.mobile,
+            email: lead.email,
+            city: lead.city,
+          },
+        });
       }
       return { lead: updated, patient };
     });
-    await audit(req, `lead.status.${status.toLowerCase()}`, "Lead", lead.id, { status, patientId: result.patient?.id });
-    return ok(res, result, status === "CONVERTED" ? "Lead converted and patient created" : "Lead status updated");
+    await audit(req, `lead.status.${status.toLowerCase()}`, "Lead", lead.id, {
+      status,
+      patientId: result.patient?.id,
+    });
+    return ok(
+      res,
+      result,
+      status === "CONVERTED"
+        ? "Lead converted and patient created"
+        : "Lead status updated",
+    );
   }),
 );
 crmRouter.patch(
@@ -259,7 +566,12 @@ crmRouter.patch(
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
     const row = await model.update({ where: { id: found.id }, data });
-    await audit(req, `${req.params.resource}.updated`, req.params.resource, row.id);
+    await audit(
+      req,
+      `${req.params.resource}.updated`,
+      req.params.resource,
+      row.id,
+    );
     return ok(res, row, "Updated successfully");
   }),
 );
@@ -274,7 +586,12 @@ crmRouter.delete(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     await model.delete({ where: { id: found.id } });
-    await audit(req, `${req.params.resource}.deleted`, req.params.resource, found.id);
+    await audit(
+      req,
+      `${req.params.resource}.deleted`,
+      req.params.resource,
+      found.id,
+    );
     return ok(res, null, "Deleted successfully");
   }),
 );

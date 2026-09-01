@@ -4,6 +4,7 @@ import { api, unwrap } from "../api";
 import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
 import { AppointmentFields } from "./AppointmentFields";
 import { CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, Filter, Plus, Search, SquarePen, Trash2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 type Mode = "tenant" | "admin";
 type Field = {
   name: string;
@@ -292,6 +293,7 @@ function PatientSearchRef({ field, value }: { field: Field; value?: string }) {
   </div>;
 }
 export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
+  const navigate = useNavigate();
   const c = configs[slug] || {
     title: label(slug),
     description: `Manage ${slug}.`,
@@ -396,7 +398,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           <p>{c.description}</p>
         </div>
         {!c.noCreate && (
-          <button className="btn" onClick={() => setOpen(true)}>
+          <button className="btn" onClick={() => slug === "appointments" ? navigate("/app/appointments/new") : setOpen(true)}>
             <Plus /> Add record
           </button>
         )}

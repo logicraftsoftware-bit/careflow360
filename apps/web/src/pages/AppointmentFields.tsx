@@ -3,8 +3,8 @@ import { useQueries } from "@tanstack/react-query";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { api, unwrap } from "../api";
 
-type Option = { id: string; label: string; search: string; raw: any };
-function SearchSelect({ name, label, options, value, onChange, placeholder, disabled = false }: { name: string; label: string; options: Option[]; value: string; onChange: (id: string, raw?: any) => void; placeholder: string; disabled?: boolean }) {
+export type Option = { id: string; label: string; search: string; raw: any };
+export function SearchSelect({ name, label, options, value, onChange, placeholder, disabled = false }: { name: string; label: string; options: Option[]; value: string; onChange: (id: string, raw?: any) => void; placeholder: string; disabled?: boolean }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const selected = options.find(option => option.id === value);
