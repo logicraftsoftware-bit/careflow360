@@ -4,7 +4,8 @@ export const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || "/api
 
 api.interceptors.request.use((request) => {
   const token = localStorage.getItem("accessToken");
-  if (token) request.headers.Authorization = `Bearer ${token}`;
+  const isAuthenticationRequest = String(request.url || "").includes("/auth/login") || String(request.url || "").includes("/auth/refresh");
+  if (token && !isAuthenticationRequest) request.headers.Authorization = `Bearer ${token}`;
   return request;
 });
 
@@ -30,6 +31,12 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const request = error.config;
+    const responseBody = typeof error.response?.data === "string" ? error.response.data : "";
+    if (error.response?.status === 400 && /request header or cookie too large/i.test(responseBody)) {
+      localStorage.clear();
+      location.href = "/login?reason=session-reset";
+      return Promise.reject(error);
+    }
     if (error.response?.status === 401 && request && !request._retry) {
       request._retry = true;
       try {
