@@ -963,6 +963,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     del = useMutation({
       mutationFn: (id: string) => api.delete(`${base}/${id}`),
       onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }),
+      onError: (error: any) => {
+        window.alert(
+          error?.response?.data?.message ||
+            "Unable to delete this record. Please try again.",
+        );
+      },
     }),
     tenant = useMutation({
       mutationFn: ({

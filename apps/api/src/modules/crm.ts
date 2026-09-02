@@ -771,7 +771,18 @@ crmRouter.delete(
       where: { id: req.params.id, tenantId: tid },
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
-    await model.delete({ where: { id: found.id } });
+    if (req.params.resource === "appointments") {
+      // Payments reference an appointment without a database-level cascade.
+      // Remove those dependent rows first so paid appointments can be deleted.
+      await prisma.$transaction(async (tx) => {
+        await tx.payment.deleteMany({
+          where: { appointmentId: found.id, tenantId: tid },
+        });
+        await tx.appointment.delete({ where: { id: found.id } });
+      });
+    } else {
+      await model.delete({ where: { id: found.id } });
+    }
     await audit(
       req,
       `${req.params.resource}.deleted`,
