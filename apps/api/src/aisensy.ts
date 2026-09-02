@@ -25,6 +25,7 @@ async function sendCampaign(campaign:(settings:AiSensySettings)=>string, appoint
   return {sent:true,status:response.status,response:responseText.slice(0,500)};
 }
 export const paymentLinkFor=(appointmentNumber:string)=>`${config.APP_URL.replace(/\/$/,"")}/payment/${encodeURIComponent(appointmentNumber)}`;
+export function appointmentToken(doctorName:string,departmentName:string,departmentCode:string,startsAt:Date,serialNumber:number){const name=doctorName.replace(/^dr\.?\s*/i,"").trim().split(/\s+/),initials=`${name[0]?.[0]||"D"}${name.length>1?name[name.length-1][0]:"R"}`.toUpperCase(),localDate=startsAt.toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}),datePart=`${Number(localDate.slice(8,10))}-${localDate.slice(5,7)}`,specialty=departmentName.replace(/[^a-z]/gi,"").slice(0,5).toUpperCase()||departmentCode.toUpperCase();return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2,"0")}`;}
 export const tokenImageSignature=(appointmentId:string)=>createHmac("sha256",config.JWT_SECRET).update(`appointment-token:${appointmentId}`).digest("hex");
 export function validTokenImageSignature(appointmentId:string,signature:string){const expected=Buffer.from(tokenImageSignature(appointmentId),"hex"),supplied=Buffer.from(signature,"hex");return expected.length===supplied.length&&timingSafeEqual(expected,supplied);}
 export const tokenImageUrlFor=(appointmentId:string)=>`${config.APP_URL.replace(/\/$/,"")}/api/public/appointment-token/${appointmentId}.png?signature=${tokenImageSignature(appointmentId)}`;

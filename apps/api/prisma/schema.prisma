@@ -542,6 +542,8 @@ model Payment {
   appointment           Appointment   @relation(fields: [appointmentId], references: [id])
   provider              String
   providerTransactionId String?       @unique
+  providerPaymentId     String?
+  paymentUrl            String?
   remarks               String?
   amount                Float
   currency              String        @default("INR")

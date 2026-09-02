@@ -12,11 +12,13 @@ import {
 } from "../lib.js";
 import {
   type AppointmentMessage,
+  appointmentToken,
   sendCancelledMessage,
   sendPaymentPendingMessage,
   sendPaymentSuccessMessage,
   sendRescheduledMessage,
 } from "../aisensy.js";
+import { ensureRazorpayPaymentLink } from "../razorpay.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
 const resources: any = {
@@ -189,20 +191,6 @@ function prepared(
   return data;
 }
 
-function appointmentToken(
-  doctorName: string,
-  departmentName: string,
-  departmentCode: string,
-  startsAt: Date,
-  serialNumber: number,
-) {
-  const name = doctorName.replace(/^dr\.?\s*/i, "").trim().split(/\s+/);
-  const initials = `${name[0]?.[0] || "D"}${name.length > 1 ? name[name.length - 1][0] : "R"}`.toUpperCase();
-  const localDate = startsAt.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-  const datePart = `${Number(localDate.slice(8, 10))}-${localDate.slice(5, 7)}`;
-  const specialty = departmentName.replace(/[^a-z]/gi, "").slice(0, 5).toUpperCase() || departmentCode.toUpperCase();
-  return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2, "0")}`;
-}
 async function notifyAppointment(
   req: Parameters<typeof audit>[0],
   kind: "payment_pending" | "payment_success" | "cancelled" | "rescheduled",
@@ -609,6 +597,26 @@ crmRouter.post(
       token: result.token,
       serialNumber: result.serialNumber,
     });
+    if (result.paymentStatus === "PENDING") {
+      try {
+        const paymentLink = await ensureRazorpayPaymentLink({
+          id: result.id,
+          tenantId: result.tenantId,
+          appointmentNumber: result.appointmentNumber,
+          amount: result.amount,
+          patientName: patient.name,
+          patientMobile: patient.mobile,
+          patientEmail: patient.email,
+        });
+        await audit(req, "appointment.razorpay_link.created", "Appointment", result.id, {
+          paymentLinkId: paymentLink.id,
+        });
+      } catch (error) {
+        await audit(req, "appointment.razorpay_link.failed", "Appointment", result.id, {
+          error: error instanceof Error ? error.message : "Unknown Razorpay error",
+        });
+      }
+    }
     const message: AppointmentMessage = {
       appointmentId: result.id,
       tenantId: result.tenantId,
