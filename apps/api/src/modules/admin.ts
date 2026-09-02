@@ -17,7 +17,7 @@ adminRouter.delete('/modules/:module/:id',asyncRoute(async(req,res)=>{const foun
 
 adminRouter.get('/aisensy-integrations',asyncRoute(async(_req,res)=>{
   const tenants=await prisma.tenant.findMany({
-    where:{deletedAt:null},
+    where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},
     select:{id:true,name:true,email:true,status:true,aisensyIntegration:true},
     orderBy:{name:'asc'},
   });
@@ -43,7 +43,7 @@ adminRouter.put('/tenants/:id/aisensy',asyncRoute(async(req,res)=>{
     isActive:z.boolean().default(true),
   }).parse(req.body);
   const [tenant,existing]=await Promise.all([
-    prisma.tenant.findFirst({where:{id:req.params.id,deletedAt:null}}),
+    prisma.tenant.findFirst({where:{id:req.params.id,OR:[{deletedAt:null},{deletedAt:{isSet:false}}]}}),
     prisma.aiSensyIntegration.findUnique({where:{tenantId:req.params.id}}),
   ]);
   if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
