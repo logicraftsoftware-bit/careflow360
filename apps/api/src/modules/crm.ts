@@ -416,6 +416,26 @@ crmRouter.get(
   }),
 );
 crmRouter.get(
+  "/appointments/calendar",
+  asyncRoute(async (req, res) => {
+    const from = z.coerce.date().parse(req.query.from),
+      to = z.coerce.date().parse(req.query.to);
+    if (to <= from || to.getTime() - from.getTime() > 370 * 86400000)
+      throw new AppError(400, "Invalid calendar date range", "INVALID_DATE_RANGE");
+    const appointments = await prisma.appointment.findMany({
+      where: { tenantId: tenantId(req), startsAt: { gte: from, lt: to } },
+      include: {
+        patient: { select: { id: true, name: true, patientNumber: true } },
+        doctor: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true } },
+      },
+      orderBy: { startsAt: "asc" },
+    });
+    return ok(res, appointments);
+  }),
+);
+crmRouter.get(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];

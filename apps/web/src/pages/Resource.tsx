@@ -809,6 +809,32 @@ function PatientSearchRef({ field, value }: { field: Field; value?: string }) {
     </div>
   );
 }
+
+const clinicDateKey=(value:string|Date)=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(value));
+function ClinicAppointmentCalendar(){
+  const today=new Date(),[month,setMonth]=useState(()=>new Date(today.getFullYear(),today.getMonth(),1)),[selectedDate,setSelectedDate]=useState<string>();
+  const year=month.getFullYear(),monthIndex=month.getMonth();
+  const first=new Date(Date.UTC(year,monthIndex,1)),gridStart=new Date(first);gridStart.setUTCDate(1-first.getUTCDay());
+  const days=Array.from({length:42},(_,index)=>{const date=new Date(gridStart);date.setUTCDate(gridStart.getUTCDate()+index);return date;});
+  const rangeEnd=new Date(days[days.length-1]);rangeEnd.setUTCDate(rangeEnd.getUTCDate()+1);
+  const {data:appointments=[],isLoading,error}=useQuery({queryKey:["clinic-appointment-calendar",year,monthIndex],queryFn:()=>api.get(`/crm/appointments/calendar?from=${gridStart.toISOString()}&to=${rangeEnd.toISOString()}`).then(unwrap)});
+  const grouped=useMemo(()=>(appointments as any[]).reduce((map:Map<string,any[]>,appointment:any)=>{if(appointment.startsAt){const key=clinicDateKey(appointment.startsAt);map.set(key,[...(map.get(key)||[]),appointment]);}return map;},new Map<string,any[]>()),[appointments]);
+  const selected=selectedDate?(grouped.get(selectedDate)||[]).sort((a,b)=>new Date(a.startsAt).getTime()-new Date(b.startsAt).getTime()):[];
+  const monthTitle=month.toLocaleDateString("en-IN",{month:"long",year:"numeric"});
+  const statusClass=(items:any[])=>items.some(x=>x.status==="CONFIRMED"||x.status==="CHECKED_IN"||x.status==="IN_CONSULTATION")?"has-confirmed":items.some(x=>x.status==="PAYMENT_PENDING"||x.status==="BOOKING_PENDING")?"has-pending":items.length?"has-other":"";
+  return <>
+    <div className="page-head"><div><span>CLINIC MANAGEMENT</span><h1>Clinic Appointment Calendar</h1><p>See every doctor appointment across the clinic by date.</p></div></div>
+    <section className="panel clinic-calendar">
+      <div className="clinic-calendar-head"><button aria-label="Previous month" onClick={()=>setMonth(new Date(year,monthIndex-1,1))}><ChevronLeft/></button><h2>{monthTitle}</h2><button aria-label="Next month" onClick={()=>setMonth(new Date(year,monthIndex+1,1))}><ChevronRight/></button></div>
+      <div className="clinic-calendar-legend"><span><i className="confirmed"/>Confirmed</span><span><i className="pending"/>Payment pending</span><span><i className="other"/>Other status</span></div>
+      {isLoading?<div className="state">Loading appointments...</div>:error?<div className="state error">{(error as any)?.response?.data?.message||"Unable to load appointments"}</div>:<>
+        <div className="clinic-calendar-week">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day=><b key={day}>{day}</b>)}</div>
+        <div className="clinic-calendar-grid">{days.map(date=>{const key=`${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,"0")}-${String(date.getUTCDate()).padStart(2,"0")}`,items=grouped.get(key)||[],outside=date.getUTCMonth()!==monthIndex,isToday=key===clinicDateKey(new Date());return <button key={key} className={`${outside?"outside":""} ${isToday?"today":""} ${statusClass(items)}`} onClick={()=>items.length&&setSelectedDate(key)} disabled={!items.length}><span>{date.getUTCDate()}</span>{items.length>0&&<div><strong>{items.length}</strong><small>{items.length===1?"appointment":"appointments"}</small></div>}</button>})}</div>
+      </>}
+    </section>
+    {selectedDate&&<div className="modal-bg"><div className="modal calendar-modal"><div className="modal-head"><div><h2>{new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</h2><p>{selected.length} clinic appointment{selected.length===1?"":"s"}</p></div><button className="icon" onClick={()=>setSelectedDate(undefined)}><X/></button></div><div className="calendar-appointment-list">{selected.map(item=><article key={item.id}><time>{new Date(item.startsAt).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata",hour:"2-digit",minute:"2-digit",hour12:true})}</time><div><h3>{item.doctor?.name||"Doctor"}</h3><p>{item.patient?.name||"Patient"}{item.department?.name?` · ${item.department.name}`:""}</p><span className={`calendar-status ${String(item.status).toLowerCase()}`}>{label(item.status)}</span><span className={`calendar-payment ${String(item.paymentStatus).toLowerCase()}`}>{label(item.paymentStatus)}</span></div></article>)}</div><button className="btn full" onClick={()=>setSelectedDate(undefined)}>Close</button></div></div>}
+  </>;
+}
 export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const navigate = useNavigate();
   const c = configs[slug] || {
@@ -1218,6 +1244,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     return (
       <DoctorScheduleEditor schedule={edit} onBack={() => setEdit(undefined)} />
     );
+  if (slug === "calendar")
+    return <ClinicAppointmentCalendar/>;
   return (
     <>
       <div className="page-head">
