@@ -12,6 +12,7 @@ export function SearchSelect({
   onChange,
   placeholder,
   disabled = false,
+  maxVisible = 12,
 }: {
   name: string;
   label: string;
@@ -20,6 +21,7 @@ export function SearchSelect({
   onChange: (id: string, raw?: any) => void;
   placeholder: string;
   disabled?: boolean;
+  maxVisible?: number;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -29,7 +31,7 @@ export function SearchSelect({
       (option) =>
         !query || option.search.toLowerCase().includes(query.toLowerCase()),
     )
-    .slice(0, 12);
+    .slice(0, maxVisible);
   return (
     <label>
       {label}
@@ -276,6 +278,7 @@ export function AppointmentFields({ appointment }: { appointment?: any }) {
               : "Select doctor first"
           }
           disabled={!doctorId}
+          maxVisible={200}
         />
         <input type="hidden" name="endsAt" value={endsAt} />
         {doctorId && !slotOptions.length && (
