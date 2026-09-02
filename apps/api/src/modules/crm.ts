@@ -10,6 +10,11 @@ import {
   tenantId,
   AppError,
 } from "../lib.js";
+import {
+  type AppointmentMessage,
+  sendPaymentPendingMessage,
+  sendPaymentSuccessMessage,
+} from "../aisensy.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
 const resources: any = {
@@ -194,6 +199,22 @@ function appointmentToken(
   const datePart = `${Number(localDate.slice(8, 10))}-${localDate.slice(5, 7)}`;
   const specialty = departmentName.replace(/[^a-z]/gi, "").slice(0, 5).toUpperCase() || departmentCode.toUpperCase();
   return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2, "0")}`;
+}
+async function notifyAppointment(
+  req: Parameters<typeof audit>[0],
+  kind: "payment_pending" | "payment_success",
+  appointment: AppointmentMessage,
+) {
+  try {
+    const delivery = kind === "payment_pending"
+      ? await sendPaymentPendingMessage(appointment)
+      : await sendPaymentSuccessMessage(appointment);
+    await audit(req, `appointment.whatsapp.${kind}.${delivery.sent ? "sent" : "skipped"}`, "Appointment", appointment.appointmentId, delivery);
+  } catch (error) {
+    await audit(req, `appointment.whatsapp.${kind}.failed`, "Appointment", appointment.appointmentId, {
+      error: error instanceof Error ? error.message : "Unknown AiSensy error",
+    });
+  }
 }
 crmRouter.get(
   "/dashboard",
@@ -428,7 +449,7 @@ crmRouter.post(
           });
       })
       .parse(req.body);
-    const [patient, branch, department, doctor, schedule] = await Promise.all([
+    const [patient, branch, department, doctor, schedule, tenant] = await Promise.all([
       prisma.patient.findFirst({
         where: { id: body.patientId, tenantId: tid },
       }),
@@ -446,13 +467,15 @@ crmRouter.post(
           status: "ACTIVE",
         },
       }),
+      prisma.tenant.findUnique({ where: { id: tid } }),
     ]);
     if (
       !patient ||
       !branch ||
       !department ||
       !doctor ||
-      !schedule?.scheduleDate
+      !schedule?.scheduleDate ||
+      !tenant
     )
       throw new AppError(
         400,
@@ -547,6 +570,24 @@ crmRouter.post(
       token: result.token,
       serialNumber: result.serialNumber,
     });
+    const message: AppointmentMessage = {
+      appointmentId: result.id,
+      appointmentNumber: result.appointmentNumber,
+      patientName: patient.name,
+      patientMobile: patient.mobile,
+      patientNumber: patient.patientNumber,
+      clinicName: tenant.name,
+      doctorName: doctor.name,
+      departmentName: department.name,
+      branchName: branch.name,
+      startsAt: result.startsAt,
+      amount: result.amount,
+      token: result.token,
+    };
+    if (result.paymentStatus === "PENDING")
+      await notifyAppointment(req, "payment_pending", message);
+    else if (result.paymentStatus === "PAID")
+      await notifyAppointment(req, "payment_success", message);
     return ok(
       res,
       result,
@@ -825,6 +866,31 @@ crmRouter.patch(
       row.id,
       { changes },
     );
+    if (
+      req.params.resource === "appointments" &&
+      (found as any).paymentStatus !== "PAID" &&
+      (row as any).paymentStatus === "PAID"
+    ) {
+      const full = await prisma.appointment.findUnique({
+        where: { id: row.id },
+        include: { tenant: true, patient: true, doctor: true, department: true, branch: true },
+      });
+      if (full)
+        await notifyAppointment(req, "payment_success", {
+          appointmentId: full.id,
+          appointmentNumber: full.appointmentNumber,
+          patientName: full.patient.name,
+          patientMobile: full.patient.mobile,
+          patientNumber: full.patient.patientNumber,
+          clinicName: full.tenant.name,
+          doctorName: full.doctor.name,
+          departmentName: full.department.name,
+          branchName: full.branch.name,
+          startsAt: full.startsAt,
+          amount: full.amount,
+          token: full.token,
+        });
+    }
     return ok(res, row, "Updated successfully");
   }),
 );

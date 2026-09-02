@@ -7,6 +7,7 @@ import { ResourcePage } from "./pages/Resource";
 import { AppointmentBookingPage } from "./pages/AppointmentBookingPage";
 import { AppointmentEditPage } from "./pages/AppointmentEditPage";
 import { CallLogsPage } from "./pages/CallLogs";
+import { PaymentPendingPage } from "./pages/PaymentPending";
 const menus = [
   "leads",
   "interested-leads",
@@ -63,6 +64,7 @@ export default function App() {
       <Route path="/privacy" element={<Legal type="Privacy" />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/payment/:appointmentNumber" element={<PaymentPendingPage />} />
       <Route
         path="/app"
         element={
