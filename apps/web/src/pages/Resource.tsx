@@ -1585,10 +1585,28 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     ) : (
                       <input
                         name={x.name}
-                        type={x.type}
+                        type={x.name === "mobile" ? "tel" : x.type}
                         required={x.required}
+                        inputMode={x.name === "mobile" ? "numeric" : undefined}
+                        pattern={
+                          x.name === "mobile"
+                            ? "(?:[+]91|91)?[6-9][0-9]{9}"
+                            : undefined
+                        }
+                        maxLength={x.name === "mobile" ? 13 : undefined}
+                        title={
+                          x.name === "mobile"
+                            ? "Enter a valid 10-digit Indian mobile number, optionally prefixed with 91 or +91"
+                            : undefined
+                        }
                         defaultValue={val(edit || {}, x.name) || ""}
                       />
+                    )}
+                    {x.name === "mobile" && (
+                      <small className="field-help">
+                        Enter the 10-digit mobile number only (for example,
+                        7908937137). +91 is added automatically for WhatsApp.
+                      </small>
                     )}
                   </label>
                 ))}
