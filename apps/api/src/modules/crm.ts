@@ -687,13 +687,26 @@ crmRouter.post(
         : appointment.paymentStatus === "PENDING"
           ? "payment_pending"
           : "payment_success";
+      if (kind === "payment_success" && !appointment.token)
+        throw new Error("Paid appointment does not have a token yet");
+      const paymentLink = kind === "payment_pending"
+        ? await ensureRazorpayPaymentLink({
+            id: appointment.id,
+            tenantId: appointment.tenantId,
+            appointmentNumber: appointment.appointmentNumber,
+            amount: appointment.amount,
+            patientName: appointment.patient.name,
+            patientMobile: appointment.patient.mobile,
+            patientEmail: appointment.patient.email,
+          })
+        : null;
       const delivery = kind === "cancelled"
         ? await sendCancelledMessage(
             message,
             appointment.cancellationReason || "Cancelled by clinic",
           )
         : kind === "payment_pending"
-          ? await sendPaymentPendingMessage(message)
+          ? await sendPaymentPendingMessage(message, paymentLink!.short_url)
           : await sendPaymentSuccessMessage(message);
       if (!delivery.sent)
         throw new Error(delivery.reason || "AiSensy did not send the message");
