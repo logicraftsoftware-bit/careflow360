@@ -867,12 +867,16 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     appointmentId: "/crm/appointments",
   };
   const referenceKeys = Object.keys(referenceEndpoints);
+  const usedReferenceKeys = new Set([
+    ...c.fields.map((field) => field.name),
+    ...c.columns,
+  ]);
   const referenceQueries = useQueries({
     queries: referenceKeys.map((key) => ({
       queryKey: ["table-ref", referenceEndpoints[key]],
       queryFn: () =>
         api.get(`${referenceEndpoints[key]}?limit=100`).then(unwrap),
-      enabled: mode === "tenant",
+      enabled: mode === "tenant" && usedReferenceKeys.has(key),
     })),
   });
   const display = (record: any, key: string) => {
