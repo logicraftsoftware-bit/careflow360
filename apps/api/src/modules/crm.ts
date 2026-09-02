@@ -371,6 +371,40 @@ crmRouter.delete(
   }),
 );
 crmRouter.get(
+  "/clinic-profile",
+  asyncRoute(async (req, res) => {
+    const profile = await prisma.tenant.findUnique({
+      where: { id: tenantId(req) },
+      select: { id: true, name: true, logoUrl: true, mobile: true, address: true },
+    });
+    if (!profile) throw new AppError(404, "Clinic not found", "NOT_FOUND");
+    return ok(res, profile);
+  }),
+);
+crmRouter.patch(
+  "/clinic-profile",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const data = z.object({
+      name: z.string().trim().min(2).max(120),
+      logoUrl: z.string().max(1_500_000).nullable().optional(),
+      mobile: z.string().trim().min(8).max(20),
+      address: z.string().trim().min(3).max(500),
+    }).parse(req.body);
+    if (data.logoUrl && !/^data:image\/(png|jpeg|webp);base64,/i.test(data.logoUrl))
+      throw new AppError(400, "Logo must be a PNG, JPEG, or WebP image", "INVALID_LOGO");
+    const before = await prisma.tenant.findUnique({ where: { id: tid } });
+    if (!before) throw new AppError(404, "Clinic not found", "NOT_FOUND");
+    const profile = await prisma.tenant.update({ where: { id: tid }, data });
+    const changes = Object.fromEntries(
+      Object.keys(data).filter((key) => JSON.stringify((before as any)[key]) !== JSON.stringify((profile as any)[key]))
+        .map((key) => [key, { from: key === "logoUrl" ? Boolean((before as any)[key]) : (before as any)[key] ?? null, to: key === "logoUrl" ? Boolean((profile as any)[key]) : (profile as any)[key] ?? null }]),
+    );
+    await audit(req, "clinic.profile.updated", "Tenant", tid, { changes });
+    return ok(res, { id: profile.id, name: profile.name, logoUrl: profile.logoUrl, mobile: profile.mobile, address: profile.address }, "Clinic settings saved");
+  }),
+);
+crmRouter.get(
   "/appointments/:id/logs",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);

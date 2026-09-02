@@ -97,6 +97,7 @@ model Tenant {
   ownerName       String
   email           String
   mobile          String
+  logoUrl         String?
   address         String?
   city            String?
   state           String?

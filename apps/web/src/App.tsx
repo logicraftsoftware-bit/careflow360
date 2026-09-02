@@ -8,6 +8,7 @@ import { AppointmentBookingPage } from "./pages/AppointmentBookingPage";
 import { AppointmentEditPage } from "./pages/AppointmentEditPage";
 import { CallLogsPage } from "./pages/CallLogs";
 import { PaymentPendingPage } from "./pages/PaymentPending";
+import { ClinicSettingsPage } from "./pages/ClinicSettings";
 const menus = [
   "leads",
   "interested-leads",
@@ -77,7 +78,8 @@ export default function App() {
         <Route path="appointments/new" element={<AppointmentBookingPage />} />
         <Route path="appointments/:id/edit" element={<AppointmentEditPage />} />
         <Route path="call-logs" element={<CallLogsPage />} />
-        {menus.map((x) => (
+        <Route path="settings" element={<ClinicSettingsPage />} />
+        {menus.filter((x) => x !== "settings").map((x) => (
           <Route
             key={x}
             path={x}
