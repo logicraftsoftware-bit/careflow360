@@ -3,7 +3,7 @@ import { config } from "./config.js";
 
 export type AppointmentMessage = {
   appointmentId: string; patientName: string; patientMobile: string; patientNumber: string;
-  clinicName: string; doctorName: string; departmentName: string; branchName: string;
+  clinicName: string; clinicPhone: string; doctorName: string; departmentName: string; branchName: string;
   appointmentNumber: string; startsAt: Date; amount: number; token?: string | null;
 };
 const indiaDate = (value: Date) => value.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "long", year: "numeric" });
@@ -23,3 +23,5 @@ export function validTokenImageSignature(appointmentId:string,signature:string){
 export const tokenImageUrlFor=(appointmentId:string)=>`${config.APP_URL.replace(/\/$/,"")}/api/public/appointment-token/${appointmentId}.png?signature=${tokenImageSignature(appointmentId)}`;
 export const sendPaymentPendingMessage=(a:AppointmentMessage)=>sendCampaign(config.AISENSY_CAMPAIGN_PAYMENT_PENDING,a,[a.patientName,a.clinicName,a.doctorName,a.departmentName,indiaDate(a.startsAt),indiaTime(a.startsAt),String(a.amount),paymentLinkFor(a.appointmentNumber)]);
 export const sendPaymentSuccessMessage=(a:AppointmentMessage)=>sendCampaign(config.AISENSY_CAMPAIGN_PAYMENT_SUCCESS,a,[a.patientName,a.clinicName,a.doctorName,a.departmentName,indiaDate(a.startsAt),indiaTime(a.startsAt),a.token||"Not generated",String(a.amount)],{url:tokenImageUrlFor(a.appointmentId),filename:`${a.token||a.appointmentNumber}.png`});
+export const sendCancelledMessage=(a:AppointmentMessage,cancellationReason:string)=>sendCampaign(config.AISENSY_CAMPAIGN_CANCELLED,a,[a.patientName,a.clinicName,a.doctorName,a.departmentName,indiaDate(a.startsAt),indiaTime(a.startsAt),a.token||"Not generated",cancellationReason,a.clinicPhone]);
+export const sendRescheduledMessage=(a:AppointmentMessage,previousStartsAt:Date)=>sendCampaign(config.AISENSY_CAMPAIGN_RESCHEDULED,a,[a.patientName,a.clinicName,a.doctorName,a.departmentName,indiaDate(previousStartsAt),indiaTime(previousStartsAt),indiaDate(a.startsAt),indiaTime(a.startsAt),a.token||"Pending payment",a.clinicPhone]);

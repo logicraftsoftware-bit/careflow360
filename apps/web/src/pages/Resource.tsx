@@ -1010,10 +1010,10 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         : c.fields.find((field) => field.name === "status")?.options || []
       : [];
   const changeStatus = useMutation({
-    mutationFn: ({ row, status }: { row: any; status: string }) =>
+    mutationFn: ({ row, status, cancellationReason }: { row: any; status: string; cancellationReason?: string }): Promise<any> =>
       ["leads", "interested-leads", "converted-leads"].includes(slug)
         ? api.patch(`/crm/leads/${row.id}/status`, { status })
-        : api.patch(`${base}/${row.id}`, { status }),
+        : api.patch(`${base}/${row.id}`, { status, cancellationReason }),
     onSuccess: () => qc.invalidateQueries(),
     onError: (statusError: any) =>
       window.alert(
@@ -1032,6 +1032,13 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     if (status === row.status) return;
     if (slug === "appointments" && status === "RESCHEDULED") {
       setReschedule(row);
+      return;
+    }
+    if (slug === "appointments" && status === "CANCELLED") {
+      const cancellationReason = window.prompt("Enter the cancellation reason");
+      if (!cancellationReason?.trim()) return;
+      if (window.confirm(`Cancel this appointment? The reserved slot will be released.`))
+        changeStatus.mutate({ row, status, cancellationReason: cancellationReason.trim() });
       return;
     }
     const conversion =

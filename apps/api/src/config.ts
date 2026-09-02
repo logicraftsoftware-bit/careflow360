@@ -8,5 +8,6 @@ export const config = z.object({
   KNOWLARITY_AUTHORIZATION:z.string().optional(), KNOWLARITY_API_KEY:z.string().optional(), KNOWLARITY_API_BASE_URL:z.string().url().default('https://kpi.knowlarity.com')
   ,KNOWLARITY_CHANNEL:z.enum(['Basic','Advance','Premium','Enterprise']).default('Basic'), KNOWLARITY_NUMBER:z.string().optional(),
   AISENSY_API_KEY:z.string().optional(), AISENSY_API_URL:z.string().url().default('https://backend.aisensy.com/campaign/t1/api/v2'),
-  AISENSY_CAMPAIGN_PAYMENT_PENDING:z.string().optional(), AISENSY_CAMPAIGN_PAYMENT_SUCCESS:z.string().optional()
+  AISENSY_CAMPAIGN_PAYMENT_PENDING:z.string().optional(), AISENSY_CAMPAIGN_PAYMENT_SUCCESS:z.string().optional(),
+  AISENSY_CAMPAIGN_CANCELLED:z.string().optional(), AISENSY_CAMPAIGN_RESCHEDULED:z.string().optional()
 }).parse(process.env);

@@ -12,8 +12,10 @@ import {
 } from "../lib.js";
 import {
   type AppointmentMessage,
+  sendCancelledMessage,
   sendPaymentPendingMessage,
   sendPaymentSuccessMessage,
+  sendRescheduledMessage,
 } from "../aisensy.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
@@ -106,6 +108,7 @@ const allowedFields: Record<string, string[]> = {
     "status",
     "paymentStatus",
     "amount",
+    "cancellationReason",
     "paymentConfirmedAt",
   ],
   followups: [
@@ -202,13 +205,15 @@ function appointmentToken(
 }
 async function notifyAppointment(
   req: Parameters<typeof audit>[0],
-  kind: "payment_pending" | "payment_success",
+  kind: "payment_pending" | "payment_success" | "cancelled" | "rescheduled",
   appointment: AppointmentMessage,
+  details?: { cancellationReason?: string; previousStartsAt?: Date },
 ) {
   try {
-    const delivery = kind === "payment_pending"
-      ? await sendPaymentPendingMessage(appointment)
-      : await sendPaymentSuccessMessage(appointment);
+    const delivery = kind === "payment_pending" ? await sendPaymentPendingMessage(appointment)
+      : kind === "payment_success" ? await sendPaymentSuccessMessage(appointment)
+      : kind === "cancelled" ? await sendCancelledMessage(appointment, details?.cancellationReason || "Cancelled by clinic")
+      : await sendRescheduledMessage(appointment, details?.previousStartsAt || appointment.startsAt);
     await audit(req, `appointment.whatsapp.${kind}.${delivery.sent ? "sent" : "skipped"}`, "Appointment", appointment.appointmentId, delivery);
   } catch (error) {
     await audit(req, `appointment.whatsapp.${kind}.failed`, "Appointment", appointment.appointmentId, {
@@ -611,6 +616,7 @@ crmRouter.post(
       patientMobile: patient.mobile,
       patientNumber: patient.patientNumber,
       clinicName: tenant.name,
+      clinicPhone: tenant.mobile,
       doctorName: doctor.name,
       departmentName: department.name,
       branchName: branch.name,
@@ -827,6 +833,8 @@ crmRouter.patch(
     }
     if (req.params.resource === "appointments") {
       const appointment = found as any;
+      if (data.status === "CANCELLED")
+        data.cancellationReason = z.string().trim().min(3).max(250).parse(req.body.cancellationReason || "Cancelled by clinic");
       if (data.paymentStatus === "PENDING") {
         data.status = "PAYMENT_PENDING";
         data.token = null;
@@ -900,30 +908,41 @@ crmRouter.patch(
       row.id,
       { changes },
     );
-    if (
-      req.params.resource === "appointments" &&
-      (found as any).paymentStatus !== "PAID" &&
-      (row as any).paymentStatus === "PAID"
-    ) {
-      const full = await prisma.appointment.findUnique({
-        where: { id: row.id },
-        include: { tenant: true, patient: true, doctor: true, department: true, branch: true },
-      });
-      if (full)
-        await notifyAppointment(req, "payment_success", {
-          appointmentId: full.id,
-          appointmentNumber: full.appointmentNumber,
-          patientName: full.patient.name,
-          patientMobile: full.patient.mobile,
-          patientNumber: full.patient.patientNumber,
-          clinicName: full.tenant.name,
-          doctorName: full.doctor.name,
-          departmentName: full.department.name,
-          branchName: full.branch.name,
-          startsAt: full.startsAt,
-          amount: full.amount,
-          token: full.token,
+    if (req.params.resource === "appointments") {
+      const becamePaid = (found as any).paymentStatus !== "PAID" && (row as any).paymentStatus === "PAID";
+      const becameCancelled = (found as any).status !== "CANCELLED" && (row as any).status === "CANCELLED";
+      const wasRescheduled = (row as any).status === "RESCHEDULED" && new Date((found as any).startsAt).getTime() !== new Date((row as any).startsAt).getTime();
+      if (becamePaid || becameCancelled || wasRescheduled) {
+        const full = await prisma.appointment.findUnique({
+          where: { id: row.id },
+          include: { tenant: true, patient: true, doctor: true, department: true, branch: true },
         });
+        if (full)
+          await notifyAppointment(
+            req,
+            becamePaid ? "payment_success" : becameCancelled ? "cancelled" : "rescheduled",
+            {
+              appointmentId: full.id,
+              appointmentNumber: full.appointmentNumber,
+              patientName: full.patient.name,
+              patientMobile: full.patient.mobile,
+              patientNumber: full.patient.patientNumber,
+              clinicName: full.tenant.name,
+              clinicPhone: full.tenant.mobile,
+              doctorName: full.doctor.name,
+              departmentName: full.department.name,
+              branchName: full.branch.name,
+              startsAt: full.startsAt,
+              amount: full.amount,
+              token: full.token,
+            },
+            becameCancelled
+              ? { cancellationReason: full.cancellationReason || "Cancelled by clinic" }
+              : wasRescheduled
+                ? { previousStartsAt: new Date((found as any).startsAt) }
+                : undefined,
+          );
+      }
     }
     return ok(res, row, "Updated successfully");
   }),

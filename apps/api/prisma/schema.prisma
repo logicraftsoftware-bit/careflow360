@@ -494,6 +494,7 @@ model Appointment {
   amount             Float             @default(0)
   serialNumber       Int?
   token              String?
+  cancellationReason String?
   paymentConfirmedAt DateTime?
   payments           Payment[]
   createdAt          DateTime          @default(now())
