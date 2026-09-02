@@ -17,6 +17,7 @@ import {
   FileText,
   Filter,
   History,
+  MessageCircle,
   Plus,
   Search,
   SquarePen,
@@ -983,6 +984,16 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         );
       },
     }),
+    resendWhatsApp = useMutation({
+      mutationFn: (id: string) =>
+        api.post(`/crm/appointments/${id}/whatsapp/retry`),
+      onSuccess: () => window.alert("WhatsApp message sent successfully."),
+      onError: (error: any) =>
+        window.alert(
+          error?.response?.data?.message ||
+            "Unable to send the WhatsApp message. Please try again.",
+        ),
+    }),
     tenant = useMutation({
       mutationFn: ({
         id,
@@ -1432,6 +1443,15 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           <button onClick={() => setView(r)}>
                             <Eye />
                           </button>
+                          {slug === "appointments" && (
+                            <button
+                              title="Resend WhatsApp message"
+                              disabled={resendWhatsApp.isPending}
+                              onClick={() => resendWhatsApp.mutate(r.id)}
+                            >
+                              <MessageCircle />
+                            </button>
+                          )}
                           {slug === "appointments" && (
                             <button
                               title="View activity logs"

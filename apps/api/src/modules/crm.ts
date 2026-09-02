@@ -640,6 +640,83 @@ crmRouter.post(
   }),
 );
 crmRouter.post(
+  "/appointments/:id/whatsapp/retry",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      include: {
+        tenant: true,
+        patient: true,
+        doctor: true,
+        department: true,
+        branch: true,
+      },
+    });
+    if (!appointment)
+      throw new AppError(404, "Appointment not found", "NOT_FOUND");
+
+    const message: AppointmentMessage = {
+      appointmentId: appointment.id,
+      tenantId: appointment.tenantId,
+      appointmentNumber: appointment.appointmentNumber,
+      patientName: appointment.patient.name,
+      patientMobile: appointment.patient.mobile,
+      patientNumber: appointment.patient.patientNumber,
+      clinicName: appointment.tenant.name,
+      clinicPhone: appointment.tenant.mobile,
+      doctorName: appointment.doctor.name,
+      departmentName: appointment.department.name,
+      branchName: appointment.branch.name,
+      startsAt: appointment.startsAt,
+      amount: appointment.amount,
+      token: appointment.token,
+    };
+
+    try {
+      const kind = appointment.status === "CANCELLED"
+        ? "cancelled"
+        : appointment.paymentStatus === "PENDING"
+          ? "payment_pending"
+          : "payment_success";
+      const delivery = kind === "cancelled"
+        ? await sendCancelledMessage(
+            message,
+            appointment.cancellationReason || "Cancelled by clinic",
+          )
+        : kind === "payment_pending"
+          ? await sendPaymentPendingMessage(message)
+          : await sendPaymentSuccessMessage(message);
+      if (!delivery.sent)
+        throw new Error(delivery.reason || "AiSensy did not send the message");
+      await audit(
+        req,
+        `appointment.whatsapp.${kind}.resent`,
+        "Appointment",
+        appointment.id,
+        delivery,
+      );
+      return ok(res, delivery, "WhatsApp message sent successfully");
+    } catch (error) {
+      const reason = error instanceof Error
+        ? error.message
+        : "Unknown AiSensy error";
+      await audit(
+        req,
+        "appointment.whatsapp.retry.failed",
+        "Appointment",
+        appointment.id,
+        { error: reason },
+      );
+      throw new AppError(
+        502,
+        `WhatsApp message failed: ${reason}`,
+        "AISENSY_SEND_FAILED",
+      );
+    }
+  }),
+);
+crmRouter.post(
   "/bulk/:resource",
   asyncRoute(async (req, res) => {
     const resource = req.params.resource;
