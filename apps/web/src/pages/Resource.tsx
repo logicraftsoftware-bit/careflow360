@@ -1752,7 +1752,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 <X />
               </button>
             </div>
-            <AppointmentFields appointment={reschedule} />
+            <AppointmentFields appointment={reschedule} dateOnly />
             {rescheduleAppointment.error && (
               <div className="alert error">
                 {(rescheduleAppointment.error as any).response?.data?.message ||

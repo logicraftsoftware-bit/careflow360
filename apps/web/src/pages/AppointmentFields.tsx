@@ -84,7 +84,13 @@ export function SearchSelect({
 const rows = (data: any) => (Array.isArray(data) ? data : data?.items || []);
 const dateKey = (value: string | Date) =>
   new Date(value).toISOString().slice(0, 10);
-export function AppointmentFields({ appointment }: { appointment?: any }) {
+export function AppointmentFields({
+  appointment,
+  dateOnly = false,
+}: {
+  appointment?: any;
+  dateOnly?: boolean;
+}) {
   const endpoints = [
     "patients",
     "branches",
@@ -165,7 +171,7 @@ export function AppointmentFields({ appointment }: { appointment?: any }) {
         .map((item: any) => new Date(item.startsAt).toISOString().slice(0, 16)),
     );
     const now = new Date();
-    return schedules
+    const availableSlots = schedules
       .filter(
         (schedule: any) =>
           schedule.doctorId === doctorId &&
@@ -195,6 +201,7 @@ export function AppointmentFields({ appointment }: { appointment?: any }) {
           const id = cursor.toISOString();
           if (
             (cursor > now || id === appointment?.startsAt) &&
+            (!dateOnly || id !== appointment?.startsAt) &&
             !booked.has(id.slice(0, 16))
           )
             result.push({
@@ -207,7 +214,32 @@ export function AppointmentFields({ appointment }: { appointment?: any }) {
         return result;
       })
       .sort((a: Option, b: Option) => a.id.localeCompare(b.id));
-  }, [schedules, appointments, doctorId, branchId, appointment?.id]);
+    if (!dateOnly) return availableSlots;
+
+    const dates = new Map<string, Option[]>();
+    for (const slot of availableSlots) {
+      const day = dateKey(slot.id);
+      dates.set(day, [...(dates.get(day) || []), slot]);
+    }
+    return [...dates.entries()].map(([day, slots]) => ({
+      id: slots[0].id,
+      label: `${new Date(`${day}T00:00:00`).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })} (${slots.length} slot${slots.length === 1 ? "" : "s"} left)`,
+      search: `${day} ${new Date(`${day}T00:00:00`).toLocaleDateString("en-IN")}`,
+      raw: slots[0].raw,
+    }));
+  }, [
+    schedules,
+    appointments,
+    doctorId,
+    branchId,
+    appointment?.id,
+    appointment?.startsAt,
+    dateOnly,
+  ]);
   return (
     <div className="modal-grid appointment-grid">
       <SearchSelect
@@ -260,7 +292,7 @@ export function AppointmentFields({ appointment }: { appointment?: any }) {
       <div className="wide">
         <SearchSelect
           name="startsAt"
-          label="Available appointment slot"
+          label={dateOnly ? "Available appointment date" : "Available appointment slot"}
           options={slotOptions}
           value={startsAt}
           onChange={(id, schedule) => {
@@ -274,11 +306,13 @@ export function AppointmentFields({ appointment }: { appointment?: any }) {
           }}
           placeholder={
             doctorId
-              ? "Search and select available date/time slot"
+              ? dateOnly
+                ? "Search date and remaining slots"
+                : "Search and select available date/time slot"
               : "Select doctor first"
           }
           disabled={!doctorId}
-          maxVisible={200}
+          maxVisible={dateOnly ? 50 : 200}
         />
         <input type="hidden" name="endsAt" value={endsAt} />
         {doctorId && !slotOptions.length && (
