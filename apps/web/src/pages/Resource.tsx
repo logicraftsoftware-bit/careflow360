@@ -16,6 +16,7 @@ import {
   Eye,
   FileText,
   Filter,
+  History,
   Plus,
   Search,
   SquarePen,
@@ -822,6 +823,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const qc = useQueryClient(),
     [edit, setEdit] = useState<any>(),
     [view, setView] = useState<any>(),
+    [reschedule, setReschedule] = useState<any>(),
+    [logRecord, setLogRecord] = useState<any>(),
     [open, setOpen] = useState(false),
     [bulkOpen, setBulkOpen] = useState(false),
     [bulkCsv, setBulkCsv] = useState(""),
@@ -848,6 +851,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const { data, isLoading, error } = useQuery({
     queryKey: [endpoint],
     queryFn: () => api.get(endpoint).then(unwrap),
+  });
+  const { data: appointmentLogs = [], isLoading: logsLoading } = useQuery({
+    queryKey: ["appointment-logs", logRecord?.id],
+    queryFn: () =>
+      api.get(`/crm/appointments/${logRecord.id}/logs`).then(unwrap),
+    enabled: slug === "appointments" && !!logRecord?.id,
   });
   const referenceEndpoints: Record<string, string> = {
     doctorId: "/crm/doctors",
@@ -1011,8 +1020,20 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         statusError.response?.data?.message || "Unable to change status",
       ),
   });
+  const rescheduleAppointment = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: any }) =>
+      api.patch(`/crm/appointments/${id}`, body),
+    onSuccess: () => {
+      setReschedule(undefined);
+      qc.invalidateQueries();
+    },
+  });
   const requestStatusChange = (row: any, status: string) => {
     if (status === row.status) return;
+    if (slug === "appointments" && status === "RESCHEDULED") {
+      setReschedule(row);
+      return;
+    }
     const conversion =
       status === "CONVERTED"
         ? " This will also create a patient record automatically."
@@ -1023,6 +1044,23 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       )
     )
       changeStatus.mutate({ row, status });
+  };
+  const submitReschedule = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const startsAt = String(form.get("startsAt") || "");
+    if (!startsAt || startsAt === reschedule.startsAt) {
+      window.alert("Please select a different available slot");
+      return;
+    }
+    rescheduleAppointment.mutate({
+      id: reschedule.id,
+      body: {
+        startsAt,
+        endsAt: String(form.get("endsAt") || ""),
+        status: "RESCHEDULED",
+      },
+    });
   };
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -1383,6 +1421,14 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           <button onClick={() => setView(r)}>
                             <Eye />
                           </button>
+                          {slug === "appointments" && (
+                            <button
+                              title="View activity logs"
+                              onClick={() => setLogRecord(r)}
+                            >
+                              <History />
+                            </button>
+                          )}
                           {!c.readOnly && (
                             <button
                               onClick={() =>
@@ -1638,6 +1684,92 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             <button className="btn full" onClick={() => setView(undefined)}>
               Close
             </button>
+          </div>
+        </div>
+      )}
+      {reschedule && (
+        <div className="modal-bg">
+          <form className="modal" onSubmit={submitReschedule}>
+            <div className="modal-head">
+              <div>
+                <h2>Reschedule appointment</h2>
+                <p>Select another remaining slot for this doctor.</p>
+              </div>
+              <button
+                type="button"
+                className="icon"
+                onClick={() => setReschedule(undefined)}
+              >
+                <X />
+              </button>
+            </div>
+            <AppointmentFields appointment={reschedule} />
+            {rescheduleAppointment.error && (
+              <div className="alert error">
+                {(rescheduleAppointment.error as any).response?.data?.message ||
+                  "Unable to reschedule appointment"}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setReschedule(undefined)}
+              >
+                Cancel
+              </button>
+              <button className="btn" disabled={rescheduleAppointment.isPending}>
+                {rescheduleAppointment.isPending ? "Saving…" : "Save new slot"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {logRecord && (
+        <div className="modal-bg">
+          <div className="modal activity-modal">
+            <div className="modal-head">
+              <div>
+                <h2>Appointment activity</h2>
+                <p>{logRecord.appointmentNumber}</p>
+              </div>
+              <button className="icon" onClick={() => setLogRecord(undefined)}>
+                <X />
+              </button>
+            </div>
+            {logsLoading ? (
+              <div className="state">Loading activity…</div>
+            ) : !(appointmentLogs as any[]).length ? (
+              <div className="empty">No activity recorded yet.</div>
+            ) : (
+              <div className="activity-list">
+                {(appointmentLogs as any[]).map((log) => (
+                  <article key={log.id}>
+                    <div>
+                      <b>{label(log.action)}</b>
+                      <time>{new Date(log.createdAt).toLocaleString()}</time>
+                    </div>
+                    <p>
+                      By {log.actor?.name || log.actor?.email || "System"}
+                    </p>
+                    {log.metadata?.changes && (
+                      <dl>
+                        {Object.entries(log.metadata.changes).map(
+                          ([field, change]: [string, any]) => (
+                            <div key={field}>
+                              <dt>{label(field)}</dt>
+                              <dd>
+                                {show(change.from)} → {show(change.to)}
+                              </dd>
+                            </div>
+                          ),
+                        )}
+                      </dl>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

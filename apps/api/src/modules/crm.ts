@@ -350,6 +350,24 @@ crmRouter.delete(
   }),
 );
 crmRouter.get(
+  "/appointments/:id/logs",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+      select: { id: true },
+    });
+    if (!appointment)
+      throw new AppError(404, "Appointment not found", "NOT_FOUND");
+    const logs = await prisma.auditLog.findMany({
+      where: { tenantId: tid, entityId: appointment.id },
+      include: { actor: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return ok(res, logs);
+  }),
+);
+crmRouter.get(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];
@@ -692,6 +710,45 @@ crmRouter.patch(
           "This patient already has an appointment with this doctor on this date",
           "DUPLICATE_APPOINTMENT",
         );
+
+      const schedules = await prisma.doctorSchedule.findMany({
+        where: {
+          tenantId: tid,
+          doctorId,
+          branchId: data.branchId || appointment.branchId,
+          status: "ACTIVE",
+          scheduleDate: { gte: dayStart, lt: dayEnd },
+        },
+      });
+      const selectedMinutes = Number(
+        data.startsAt.toLocaleTimeString("en-GB", {
+          timeZone: "Asia/Kolkata",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).replace(":", ""),
+      );
+      const schedule = schedules.find((item) => {
+        const [sh, sm] = item.startTime.split(":").map(Number);
+        const [eh, em] = item.endTime.split(":").map(Number);
+        const startMinutes = sh * 60 + sm;
+        const endMinutes = eh * 60 + em;
+        const chosenMinutes = Math.floor(selectedMinutes / 100) * 60 + selectedMinutes % 100;
+        return (
+          chosenMinutes >= startMinutes &&
+          chosenMinutes < endMinutes &&
+          (chosenMinutes - startMinutes) % item.slotMinutes === 0
+        );
+      });
+      if (!schedule)
+        throw new AppError(
+          409,
+          "The selected slot is not available in this doctor's schedule",
+          "SLOT_NOT_AVAILABLE",
+        );
+      data.endsAt = new Date(data.startsAt.getTime() + schedule.slotMinutes * 60000);
+      if (data.status === "RESCHEDULED" && data.startsAt.getTime() === appointment.startsAt.getTime())
+        throw new AppError(400, "Please select a different slot", "SAME_SLOT");
     }
     if (req.params.resource === "appointments") {
       const appointment = found as any;
@@ -752,11 +809,21 @@ crmRouter.patch(
       }
     }
     const row = await model.update({ where: { id: found.id }, data });
+    const before = JSON.parse(JSON.stringify(found));
+    const after = JSON.parse(JSON.stringify(row));
+    const changes = Object.fromEntries(
+      Object.keys(data)
+        .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+        .map((key) => [key, { from: before[key] ?? null, to: after[key] ?? null }]),
+    );
     await audit(
       req,
-      `${req.params.resource}.updated`,
+      req.params.resource === "appointments" && data.status === "RESCHEDULED"
+        ? "appointment.rescheduled"
+        : `${req.params.resource}.updated`,
       req.params.resource,
       row.id,
+      { changes },
     );
     return ok(res, row, "Updated successfully");
   }),
@@ -788,6 +855,7 @@ crmRouter.delete(
       `${req.params.resource}.deleted`,
       req.params.resource,
       found.id,
+      { deletedRecord: JSON.parse(JSON.stringify(found)) },
     );
     return ok(res, null, "Deleted successfully");
   }),
