@@ -73,3 +73,68 @@ adminRouter.put('/tenants/:id/aisensy',asyncRoute(async(req,res)=>{
   });
   return ok(res,{hasApiKey:true,updatedAt:row.updatedAt},'AiSensy integration saved');
 }));
+
+adminRouter.get('/razorpay-integrations',asyncRoute(async(_req,res)=>{
+  const tenants=await prisma.tenant.findMany({
+    where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},
+    select:{id:true,name:true,email:true,status:true,razorpayIntegration:true},
+    orderBy:{name:'asc'},
+  });
+  return ok(res,tenants.map(({razorpayIntegration:stored,...tenant})=>({
+    ...tenant,
+    integration:stored?{
+      keyId:stored.keyId,
+      hasKeySecret:Boolean(stored.keySecretEncrypted),
+      hasWebhookSecret:Boolean(stored.webhookSecretEncrypted),
+      isTestMode:stored.isTestMode,
+      isActive:stored.isActive,
+      updatedAt:stored.updatedAt,
+    }:null,
+  })));
+}));
+
+adminRouter.put('/tenants/:id/razorpay',asyncRoute(async(req,res)=>{
+  const body=z.object({
+    keyId:z.string().trim().min(5),
+    keySecret:z.string().trim().optional().default(''),
+    webhookSecret:z.string().trim().optional().default(''),
+    isTestMode:z.boolean().default(true),
+    isActive:z.boolean().default(true),
+  }).parse(req.body);
+  const [tenant,existing]=await Promise.all([
+    prisma.tenant.findFirst({where:{id:req.params.id,OR:[{deletedAt:null},{deletedAt:{isSet:false}}]}}),
+    prisma.razorpayIntegration.findUnique({where:{tenantId:req.params.id}}),
+  ]);
+  if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
+  if(!existing&&!body.keySecret)
+    throw new AppError(400,'Razorpay Key Secret is required','KEY_SECRET_REQUIRED');
+  const data={
+    keyId:body.keyId,
+    isTestMode:body.isTestMode,
+    isActive:body.isActive,
+    ...(body.keySecret?{keySecretEncrypted:encryptIntegrationSecret(body.keySecret)}:{}),
+    ...(body.webhookSecret?{webhookSecretEncrypted:encryptIntegrationSecret(body.webhookSecret)}:{}),
+  };
+  const row=await prisma.razorpayIntegration.upsert({
+    where:{tenantId:tenant.id},
+    create:{
+      tenantId:tenant.id,
+      ...data,
+      keySecretEncrypted:encryptIntegrationSecret(body.keySecret),
+    },
+    update:data,
+  });
+  await audit(req,'tenant.razorpay.updated','Tenant',tenant.id,{
+    clinicName:tenant.name,
+    keyId:row.keyId,
+    isTestMode:row.isTestMode,
+    isActive:row.isActive,
+    keySecretChanged:Boolean(body.keySecret),
+    webhookSecretChanged:Boolean(body.webhookSecret),
+  });
+  return ok(res,{
+    hasKeySecret:true,
+    hasWebhookSecret:Boolean(row.webhookSecretEncrypted),
+    updatedAt:row.updatedAt,
+  },'Razorpay integration saved');
+}));
