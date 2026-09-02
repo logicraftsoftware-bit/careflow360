@@ -9,6 +9,7 @@ import { AppointmentEditPage } from "./pages/AppointmentEditPage";
 import { CallLogsPage } from "./pages/CallLogs";
 import { PaymentPendingPage } from "./pages/PaymentPending";
 import { ClinicSettingsPage } from "./pages/ClinicSettings";
+import { AiSensyIntegrationsPage } from "./pages/AiSensyIntegrations";
 const menus = [
   "leads",
   "interested-leads",
@@ -96,7 +97,8 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard mode="admin" />} />
-        {admin.map((x) => (
+        <Route path="integrations" element={<AiSensyIntegrationsPage />} />
+        {admin.filter((x) => x !== "integrations").map((x) => (
           <Route
             key={x}
             path={x}

@@ -611,6 +611,7 @@ crmRouter.post(
     });
     const message: AppointmentMessage = {
       appointmentId: result.id,
+      tenantId: result.tenantId,
       appointmentNumber: result.appointmentNumber,
       patientName: patient.name,
       patientMobile: patient.mobile,
@@ -923,6 +924,7 @@ crmRouter.patch(
             becamePaid ? "payment_success" : becameCancelled ? "cancelled" : "rescheduled",
             {
               appointmentId: full.id,
+              tenantId: full.tenantId,
               appointmentNumber: full.appointmentNumber,
               patientName: full.patient.name,
               patientMobile: full.patient.mobile,

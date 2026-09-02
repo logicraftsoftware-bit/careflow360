@@ -1,4 +1,6 @@
 import { Router } from 'express'; import { z } from 'zod'; import { asyncRoute, audit, ok, platformOnly, prisma, auth, AppError } from '../lib.js';
+import { encryptIntegrationSecret } from '../aisensy.js';
+import { config } from '../config.js';
 export const adminRouter=Router(); adminRouter.use(auth,platformOnly);
 adminRouter.get('/dashboard',asyncRoute(async(_req,res)=>{const [total,active,pending,suspended,leads,appointments]=await Promise.all([prisma.tenant.count(),prisma.tenant.count({where:{status:'ACTIVE'}}),prisma.tenant.count({where:{status:'PENDING_APPROVAL'}}),prisma.tenant.count({where:{status:'SUSPENDED'}}),prisma.lead.count(),prisma.appointment.count()]);return ok(res,{totalTenants:total,activeTenants:active,pendingApprovals:pending,suspendedTenants:suspended,totalLeads:leads,totalAppointments:appointments})}));
 adminRouter.get('/tenants',asyncRoute(async(req,res)=>ok(res,await prisma.tenant.findMany({include:{subscriptions:{include:{plan:true}}},orderBy:{createdAt:'desc'}}))));
@@ -12,3 +14,62 @@ adminRouter.get('/modules/:module',asyncRoute(async(req,res)=>{const items=await
 adminRouter.post('/modules/:module',asyncRoute(async(req,res)=>{const {title,status='ACTIVE',...data}=req.body;const row=await prisma.moduleRecord.create({data:{tenantId:null,module:req.params.module,title:title||data.name||'Untitled record',status,data}});await audit(req,`${req.params.module}.created`,'ModuleRecord',row.id);return ok(res,row,'Created successfully',201)}));
 adminRouter.patch('/modules/:module/:id',asyncRoute(async(req,res)=>{const found=await prisma.moduleRecord.findFirst({where:{id:req.params.id,module:req.params.module,...platformRecordScope}});if(!found)throw new AppError(404,'Record not found','NOT_FOUND');const {title,status,...data}=req.body;const row=await prisma.moduleRecord.update({where:{id:found.id},data:{title:title||found.title,status:status||found.status,data:{...(found.data as object),...data}}});await audit(req,`${req.params.module}.updated`,'ModuleRecord',row.id);return ok(res,row,'Updated successfully')}));
 adminRouter.delete('/modules/:module/:id',asyncRoute(async(req,res)=>{const found=await prisma.moduleRecord.findFirst({where:{id:req.params.id,module:req.params.module,...platformRecordScope}});if(!found)throw new AppError(404,'Record not found','NOT_FOUND');await prisma.moduleRecord.delete({where:{id:found.id}});await audit(req,`${req.params.module}.deleted`,'ModuleRecord',found.id);return ok(res,null,'Deleted successfully')}));
+
+adminRouter.get('/aisensy-integrations',asyncRoute(async(_req,res)=>{
+  const tenants=await prisma.tenant.findMany({
+    where:{deletedAt:null},
+    select:{id:true,name:true,email:true,status:true,aisensyIntegration:true},
+    orderBy:{name:'asc'},
+  });
+  return ok(res,tenants.map(({aisensyIntegration:stored,...tenant})=>{
+    const usesDemoFallback=!stored&&tenant.name.toLowerCase().includes('demo clinic')&&Boolean(config.AISENSY_API_KEY);
+    const integration=stored?{
+      apiUrl:stored.apiUrl,hasApiKey:Boolean(stored.apiKeyEncrypted),campaignPaymentPending:stored.campaignPaymentPending,campaignPaymentSuccess:stored.campaignPaymentSuccess,campaignCancelled:stored.campaignCancelled,campaignRescheduled:stored.campaignRescheduled,isActive:stored.isActive,updatedAt:stored.updatedAt,
+    }:usesDemoFallback?{
+      apiUrl:config.AISENSY_API_URL,hasApiKey:true,campaignPaymentPending:config.AISENSY_CAMPAIGN_PAYMENT_PENDING||'',campaignPaymentSuccess:config.AISENSY_CAMPAIGN_PAYMENT_SUCCESS||'',campaignCancelled:config.AISENSY_CAMPAIGN_CANCELLED||'',campaignRescheduled:config.AISENSY_CAMPAIGN_RESCHEDULED||'',isActive:true,fromEnvironment:true,
+    }:null;
+    return {...tenant,integration};
+  }));
+}));
+
+adminRouter.put('/tenants/:id/aisensy',asyncRoute(async(req,res)=>{
+  const body=z.object({
+    apiUrl:z.string().url(),
+    apiKey:z.string().trim().optional().default(''),
+    campaignPaymentPending:z.string().trim().min(2),
+    campaignPaymentSuccess:z.string().trim().min(2),
+    campaignCancelled:z.string().trim().min(2),
+    campaignRescheduled:z.string().trim().min(2),
+    isActive:z.boolean().default(true),
+  }).parse(req.body);
+  const [tenant,existing]=await Promise.all([
+    prisma.tenant.findFirst({where:{id:req.params.id,deletedAt:null}}),
+    prisma.aiSensyIntegration.findUnique({where:{tenantId:req.params.id}}),
+  ]);
+  if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
+  const migratableApiKey=!existing&&tenant.name.toLowerCase().includes('demo clinic')?config.AISENSY_API_KEY:'';
+  const apiKey=body.apiKey||migratableApiKey;
+  if(!existing&&!apiKey)throw new AppError(400,'AiSensy API key is required','API_KEY_REQUIRED');
+  const data={
+    apiUrl:body.apiUrl,
+    campaignPaymentPending:body.campaignPaymentPending,
+    campaignPaymentSuccess:body.campaignPaymentSuccess,
+    campaignCancelled:body.campaignCancelled,
+    campaignRescheduled:body.campaignRescheduled,
+    isActive:body.isActive,
+    ...(body.apiKey?{apiKeyEncrypted:encryptIntegrationSecret(body.apiKey)}:{}),
+  };
+  const row=await prisma.aiSensyIntegration.upsert({
+    where:{tenantId:tenant.id},
+    create:{tenantId:tenant.id,...data,apiKeyEncrypted:encryptIntegrationSecret(apiKey!)},
+    update:data,
+  });
+  await audit(req,'tenant.aisensy.updated','Tenant',tenant.id,{
+    clinicName:tenant.name,
+    apiUrl:row.apiUrl,
+    campaigns:[row.campaignPaymentPending,row.campaignPaymentSuccess,row.campaignCancelled,row.campaignRescheduled],
+    isActive:row.isActive,
+    apiKeyChanged:Boolean(body.apiKey),
+  });
+  return ok(res,{hasApiKey:true,updatedAt:row.updatedAt},'AiSensy integration saved');
+}));
