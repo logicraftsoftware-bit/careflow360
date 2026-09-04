@@ -11,6 +11,7 @@ import { PaymentPendingPage } from "./pages/PaymentPending";
 import { ClinicSettingsPage } from "./pages/ClinicSettings";
 import { AiSensyIntegrationsPage } from "./pages/AiSensyIntegrations";
 import { RazorpayIntegrationsPage } from "./pages/RazorpayIntegrations";
+import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
 const menus = [
   "leads",
   "interested-leads",
@@ -48,6 +49,7 @@ const admin = [
   "announcements",
   "integrations",
   "razorpay",
+  "exotel",
   "audit-logs",
   "settings",
 ];
@@ -101,7 +103,8 @@ export default function App() {
         <Route index element={<Dashboard mode="admin" />} />
         <Route path="integrations" element={<AiSensyIntegrationsPage />} />
         <Route path="razorpay" element={<RazorpayIntegrationsPage />} />
-        {admin.filter((x) => !["integrations", "razorpay"].includes(x)).map((x) => (
+        <Route path="exotel" element={<ExotelIntegrationsPage />} />
+        {admin.filter((x) => !["integrations", "razorpay", "exotel"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}

@@ -138,3 +138,20 @@ adminRouter.put('/tenants/:id/razorpay',asyncRoute(async(req,res)=>{
     updatedAt:row.updatedAt,
   },'Razorpay integration saved');
 }));
+
+adminRouter.get('/exotel-integrations',asyncRoute(async(_req,res)=>{
+  const tenants=await prisma.tenant.findMany({where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},select:{id:true,name:true,email:true,status:true,exotelIntegration:true},orderBy:{name:'asc'}});
+  return ok(res,tenants.map(({exotelIntegration:stored,...tenant})=>({...tenant,integration:stored?{accountSid:stored.accountSid,exophone:stored.exophone,region:stored.region,hasApiKey:Boolean(stored.apiKeyEncrypted),hasApiToken:Boolean(stored.apiTokenEncrypted),isActive:stored.isActive,updatedAt:stored.updatedAt}:null})));
+}));
+
+adminRouter.put('/tenants/:id/exotel',asyncRoute(async(req,res)=>{
+  const body=z.object({accountSid:z.string().trim().min(2).max(160),apiKey:z.string().trim().max(500).optional().default(''),apiToken:z.string().trim().max(500).optional().default(''),exophone:z.string().trim().min(5).max(40),region:z.enum(['MUMBAI','SINGAPORE']).default('MUMBAI'),isActive:z.boolean().default(true)}).parse(req.body);
+  const [tenant,existing]=await Promise.all([prisma.tenant.findFirst({where:{id:req.params.id,OR:[{deletedAt:null},{deletedAt:{isSet:false}}]}}),prisma.exotelIntegration.findUnique({where:{tenantId:req.params.id}})]);
+  if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
+  if(!existing&&!body.apiKey)throw new AppError(400,'Exotel API key is required','API_KEY_REQUIRED');
+  if(!existing&&!body.apiToken)throw new AppError(400,'Exotel API token is required','API_TOKEN_REQUIRED');
+  const data={accountSid:body.accountSid,exophone:body.exophone,region:body.region,isActive:body.isActive,...(body.apiKey?{apiKeyEncrypted:encryptIntegrationSecret(body.apiKey)}:{}),...(body.apiToken?{apiTokenEncrypted:encryptIntegrationSecret(body.apiToken)}:{})};
+  const row=await prisma.exotelIntegration.upsert({where:{tenantId:tenant.id},create:{tenantId:tenant.id,...data,apiKeyEncrypted:encryptIntegrationSecret(body.apiKey),apiTokenEncrypted:encryptIntegrationSecret(body.apiToken)},update:data});
+  await audit(req,'tenant.exotel.updated','Tenant',tenant.id,{clinicName:tenant.name,accountSid:row.accountSid,exophone:row.exophone,region:row.region,isActive:row.isActive,apiKeyChanged:Boolean(body.apiKey),apiTokenChanged:Boolean(body.apiToken)});
+  return ok(res,{hasApiKey:true,hasApiToken:true,updatedAt:row.updatedAt},'Exotel integration saved');
+}));
