@@ -11,6 +11,7 @@ import { PaymentPendingPage } from "./pages/PaymentPending";
 import { ClinicSettingsPage } from "./pages/ClinicSettings";
 import { AiSensyIntegrationsPage } from "./pages/AiSensyIntegrations";
 import { RazorpayIntegrationsPage } from "./pages/RazorpayIntegrations";
+import { LabMasterDataPage } from "./pages/LabMasterData";
 import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
 const menus = [
   "leads",
@@ -86,7 +87,8 @@ export default function App() {
         <Route path="appointments/:id/edit" element={<AppointmentEditPage />} />
         <Route path="call-logs" element={<CallLogsPage />} />
         <Route path="settings" element={<ClinicSettingsPage />} />
-        {menus.filter((x) => x !== "settings").map((x) => (
+        <Route path="lab" element={<LabMasterDataPage />} />
+        {menus.filter((x) => !["settings", "lab"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}
