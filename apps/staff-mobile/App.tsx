@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {ActivityIndicator,Alert,FlatList,KeyboardAvoidingView,Platform,Pressable,SafeAreaView,ScrollView,StatusBar,StyleSheet,Text,TextInput,View} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {Ionicons} from "@expo/vector-icons";
+import Ionicons from "react-native-vector-icons/Ionicons";
 import {clearSession,login,request} from "./src/api";import {Card,Empty,Row,Title} from "./src/ui";import {colors} from "./src/theme";
 type User={id:string;name:string;email:string;portal:"ADMIN"|"STAFF";roleCodes?:string[];permissions?:string[]};type Tab="home"|"work"|"patients"|"payments"|"more";
 const tabs:[Tab,string,any][]=[["home","Home","home"],["work","Work","calendar"],["patients","Patients","people"],["payments","Payments","wallet"],["more","More","grid"]];

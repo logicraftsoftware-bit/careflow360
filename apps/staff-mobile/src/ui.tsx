@@ -1,4 +1,4 @@
-import {ReactNode} from "react";import {Pressable,StyleSheet,Text,View} from "react-native";import {Ionicons} from "@expo/vector-icons";import {colors} from "./theme";
+import {ReactNode} from "react";import {Pressable,StyleSheet,Text,View} from "react-native";import Ionicons from "react-native-vector-icons/Ionicons";import {colors} from "./theme";
 export function Card({children,style}:{children:ReactNode;style?:object}){return <View style={[s.card,style]}>{children}</View>}
 export function Title({eyebrow,title,subtitle}:{eyebrow?:string;title:string;subtitle?:string}){return <View style={s.title}>{eyebrow&&<Text style={s.eyebrow}>{eyebrow}</Text>}<Text style={s.h1}>{title}</Text>{subtitle&&<Text style={s.sub}>{subtitle}</Text>}</View>}
 export function Empty({icon="file-tray-outline",text}:{icon?:any;text:string}){return <View style={s.empty}><Ionicons name={icon} size={32} color={colors.primary}/><Text style={s.sub}>{text}</Text></View>}
