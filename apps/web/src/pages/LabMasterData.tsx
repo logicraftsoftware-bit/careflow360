@@ -44,7 +44,24 @@ const defaultLabTests = [
   ["Vitamin B12", "VIT-B12", "Vitamins", "Serum", "CLIA", 24, 900], ["Serum Electrolytes", "ELECTROLYTES", "Biochemistry", "Serum", "Ion-selective electrode", 6, 550],
 ] as const;
 const defaultCategories = ["Hematology", "Biochemistry", "Diabetes", "Hormones", "Clinical Pathology", "Immunology", "Serology", "Parasitology", "Vitamins"];
-const defaultUnits = [["Percentage", "%"], ["Grams per decilitre", "g/dL"], ["Milligrams per decilitre", "mg/dL"], ["Units per litre", "U/L"], ["International units per litre", "IU/L"], ["Millimoles per litre", "mmol/L"], ["Micro-international units per millilitre", "µIU/mL"], ["Cells per cubic millimetre", "cells/mm³"], ["Millimetres per hour", "mm/hr"], ["Picograms per millilitre", "pg/mL"]];
+const defaultUnits = [["Percentage", "%"], ["Grams per decilitre", "g/dL"], ["Milligrams per decilitre", "mg/dL"], ["Nanograms per decilitre", "ng/dL"], ["Micrograms per decilitre", "µg/dL"], ["Milligrams per litre", "mg/L"], ["Nanograms per millilitre", "ng/mL"], ["Units per litre", "U/L"], ["International units per litre", "IU/L"], ["Millimoles per litre", "mmol/L"], ["Micro-international units per millilitre", "µIU/mL"], ["Cells per cubic millimetre", "cells/mm³"], ["Millimetres per hour", "mm/hr"], ["Picograms per millilitre", "pg/mL"], ["pH scale", "pH"]];
+const defaultParameters = [
+  ["Hemoglobin", "Complete Blood Count (CBC)", "12", "17", "g/dL"], ["Total WBC Count", "Complete Blood Count (CBC)", "4000", "11000", "cells/mm³"],
+  ["Platelet Count", "Complete Blood Count (CBC)", "150000", "450000", "cells/mm³"], ["RBC Count", "Complete Blood Count (CBC)", "4.0", "6.0", "cells/mm³"],
+  ["Hemoglobin", "Hemoglobin (Hb)", "12", "17", "g/dL"], ["ESR", "Erythrocyte Sedimentation Rate", "0", "20", "mm/hr"],
+  ["Fasting Glucose", "Fasting Blood Sugar", "70", "100", "mg/dL"], ["Postprandial Glucose", "Postprandial Blood Sugar", "70", "140", "mg/dL"],
+  ["Glycated Hemoglobin", "HbA1c", "4", "5.6", "%"], ["Total Cholesterol", "Lipid Profile", "0", "200", "mg/dL"],
+  ["HDL Cholesterol", "Lipid Profile", "40", "60", "mg/dL"], ["LDL Cholesterol", "Lipid Profile", "0", "100", "mg/dL"],
+  ["Triglycerides", "Lipid Profile", "0", "150", "mg/dL"], ["Total Bilirubin", "Liver Function Test", "0.3", "1.2", "mg/dL"],
+  ["ALT (SGPT)", "Liver Function Test", "7", "56", "U/L"], ["AST (SGOT)", "Liver Function Test", "10", "40", "U/L"],
+  ["Alkaline Phosphatase", "Liver Function Test", "44", "147", "U/L"], ["Serum Creatinine", "Kidney Function Test", "0.6", "1.3", "mg/dL"],
+  ["Blood Urea Nitrogen", "Kidney Function Test", "7", "20", "mg/dL"], ["Uric Acid", "Kidney Function Test", "3.5", "7.2", "mg/dL"],
+  ["T3", "Thyroid Profile (T3, T4, TSH)", "80", "200", "ng/dL"], ["T4", "Thyroid Profile (T3, T4, TSH)", "5", "12", "µg/dL"],
+  ["TSH", "Thyroid Profile (T3, T4, TSH)", "0.4", "4.0", "µIU/mL"], ["C-Reactive Protein", "C-Reactive Protein", "0", "5", "mg/L"],
+  ["Vitamin D", "Vitamin D (25-OH)", "30", "100", "ng/mL"], ["Vitamin B12", "Vitamin B12", "200", "900", "pg/mL"],
+  ["Sodium", "Serum Electrolytes", "135", "145", "mmol/L"], ["Potassium", "Serum Electrolytes", "3.5", "5.1", "mmol/L"],
+  ["Chloride", "Serum Electrolytes", "98", "107", "mmol/L"], ["Urine pH", "Urine Routine & Microscopy", "4.5", "8.0", "pH"],
+] as const;
 
 const value = (row: Row, key: string) => key in row ? row[key] : row.data?.[key];
 const pretty = (text: string) => text.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
@@ -59,7 +76,8 @@ export function LabMasterDataPage() {
   const { data: categoryData } = useQuery({ queryKey: ["/crm/modules/lab-categories"], queryFn: () => api.get("/crm/modules/lab-categories").then(unwrap) });
   const { data: unitData } = useQuery({ queryKey: ["/crm/modules/lab-units"], queryFn: () => api.get("/crm/modules/lab-units").then(unwrap) });
   const { data: testData } = useQuery({ queryKey: ["/crm/modules/lab-tests"], queryFn: () => api.get("/crm/modules/lab-tests").then(unwrap) });
-  const categories: Row[] = categoryData?.items || [], units: Row[] = unitData?.items || [], tests: Row[] = testData?.items || [];
+  const { data: parameterData } = useQuery({ queryKey: ["/crm/modules/lab-parameters"], queryFn: () => api.get("/crm/modules/lab-parameters").then(unwrap) });
+  const categories: Row[] = categoryData?.items || [], units: Row[] = unitData?.items || [], tests: Row[] = testData?.items || [], parameters: Row[] = parameterData?.items || [];
   useEffect(() => {
     if (!testData || tests.length || seeded.current.has("lab-tests")) return;
     seeded.current.add("lab-tests");
@@ -68,15 +86,26 @@ export function LabMasterDataPage() {
       .catch(() => { seeded.current.delete("lab-tests"); });
   }, [qc, testData, tests.length]);
   useEffect(() => {
-    if (!categoryData || categories.length || seeded.current.has("lab-categories")) return;
+    if (!categoryData || seeded.current.has("lab-categories")) return;
+    const existing = new Set(categories.map((row) => row.title));
+    const missing = defaultCategories.filter((title) => !existing.has(title));
+    if (!missing.length) return;
     seeded.current.add("lab-categories");
-    Promise.all(defaultCategories.map((title) => api.post("/crm/modules/lab-categories", { title, code: title.toUpperCase().replace(/[^A-Z]+/g, "_"), status: "ACTIVE" }))).then(() => qc.invalidateQueries({ queryKey: ["/crm/modules/lab-categories"] })).catch(() => seeded.current.delete("lab-categories"));
+    Promise.all(missing.map((title) => api.post("/crm/modules/lab-categories", { title, code: title.toUpperCase().replace(/[^A-Z]+/g, "_"), status: "ACTIVE" }))).then(() => qc.invalidateQueries({ queryKey: ["/crm/modules/lab-categories"] })).catch(() => seeded.current.delete("lab-categories"));
   }, [categories.length, categoryData, qc]);
   useEffect(() => {
-    if (!unitData || units.length || seeded.current.has("lab-units")) return;
+    if (!unitData || seeded.current.has("lab-units")) return;
+    const existing = new Set(units.map((row) => String(value(row, "symbol"))));
+    const missing = defaultUnits.filter(([, symbol]) => !existing.has(symbol));
+    if (!missing.length) return;
     seeded.current.add("lab-units");
-    Promise.all(defaultUnits.map(([title, symbol]) => api.post("/crm/modules/lab-units", { title, symbol, status: "ACTIVE" }))).then(() => qc.invalidateQueries({ queryKey: ["/crm/modules/lab-units"] })).catch(() => seeded.current.delete("lab-units"));
+    Promise.all(missing.map(([title, symbol]) => api.post("/crm/modules/lab-units", { title, symbol, status: "ACTIVE" }))).then(() => qc.invalidateQueries({ queryKey: ["/crm/modules/lab-units"] })).catch(() => seeded.current.delete("lab-units"));
   }, [qc, unitData, units.length]);
+  useEffect(() => {
+    if (!parameterData || parameters.length || !tests.length || !units.length || seeded.current.has("lab-parameters")) return;
+    seeded.current.add("lab-parameters");
+    Promise.all(defaultParameters.map(([title, testName, referenceFrom, referenceTo, unit]) => api.post("/crm/modules/lab-parameters", { title, testName, referenceFrom, referenceTo, unit, gender: "ALL", description: `${title} reference range`, status: "ACTIVE" }))).then(() => qc.invalidateQueries({ queryKey: ["/crm/modules/lab-parameters"] })).catch(() => seeded.current.delete("lab-parameters"));
+  }, [parameterData, parameters.length, qc, tests.length, units.length]);
   const filtered = useMemo(() => rows.filter((row) => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())), [rows, search]);
   const save = useMutation({
     mutationFn: (payload: Record<string, FormDataEntryValue>) => editing ? api.patch(`${endpoint}/${editing.id}`, payload) : api.post(endpoint, payload),
