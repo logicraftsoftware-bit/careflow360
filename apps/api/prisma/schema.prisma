@@ -136,6 +136,10 @@ model AiSensyIntegration {
   campaignPaymentSuccess     String
   campaignCancelled          String
   campaignRescheduled        String
+  campaignDiagnosticPending   String   @default("careflow_diagnostic_payment_pending")
+  campaignDiagnosticSuccess   String   @default("careflow_diagnostic_payment_success")
+  campaignDiagnosticCancelled String   @default("careflow_diagnostic_cancelled")
+  campaignDiagnosticRescheduled String @default("careflow_diagnostic_rescheduled")
   isActive                   Boolean  @default(true)
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
