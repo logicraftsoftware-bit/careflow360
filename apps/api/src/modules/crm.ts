@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
+import argon2 from "argon2";
 import { z } from "zod";
 import {
   asyncRoute,
@@ -300,6 +301,38 @@ crmRouter.get(
     });
   }),
 );
+crmRouter.get(
+  "/staff-accounts",
+  asyncRoute(async (req, res) => {
+    const users = await prisma.user.findMany({ where: { tenantId: tenantId(req), isPlatform: false }, include: { roles: { include: { role: true } } }, orderBy: { createdAt: "desc" } });
+    return ok(res, { items: users.map((user) => ({ id: user.id, name: user.name, email: user.email, mobile: user.mobile, status: user.status, role: user.roles[0]?.role.code || "STAFF", lastLoginAt: user.lastLoginAt, createdAt: user.createdAt })), total: users.length });
+  }),
+);
+crmRouter.post(
+  "/staff-accounts",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req), body = z.object({ name: z.string().trim().min(2), email: z.string().email(), mobile: z.string().trim().optional(), password: z.string().min(8), role: z.string().trim().min(2), status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE") }).parse(req.body);
+    const roleRecords = await prisma.moduleRecord.findMany({ where: { tenantId: tid, module: "roles-permissions" } }), roleRecord = roleRecords.find((item) => (item.data as any)?.code === body.role);
+    const role = await prisma.role.upsert({ where: { tenantId_code: { tenantId: tid, code: body.role } }, update: { name: roleRecord?.title || body.role.replaceAll("_", " ") }, create: { tenantId: tid, code: body.role, name: roleRecord?.title || body.role.replaceAll("_", " ") } });
+    const permissions = Array.isArray((roleRecord?.data as any)?.permissions) ? (roleRecord!.data as any).permissions as string[] : [];
+    for (const key of permissions) { const permission = await prisma.permission.upsert({ where: { key }, update: {}, create: { key } }); await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } }, update: {}, create: { roleId: role.id, permissionId: permission.id } }); }
+    const user = await prisma.user.create({ data: { tenantId: tid, name: body.name, email: body.email.toLowerCase(), mobile: body.mobile || null, passwordHash: await argon2.hash(body.password), status: body.status, roles: { create: { roleId: role.id } } } });
+    await audit(req, "staff.created", "Staff", user.id, { name: user.name, email: user.email, role: body.role });
+    return ok(res, { id: user.id }, "Staff account created", 201);
+  }),
+);
+crmRouter.patch(
+  "/staff-accounts/:id",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req), body = z.object({ name: z.string().trim().min(2), email: z.string().email(), mobile: z.string().trim().optional(), password: z.string().min(8).optional().or(z.literal("")), role: z.string().trim().min(2), status: z.enum(["ACTIVE", "INACTIVE"]) }).parse(req.body);
+    const found = await prisma.user.findFirst({ where: { id: req.params.id, tenantId: tid, isPlatform: false } }); if (!found) throw new AppError(404, "Staff account not found", "NOT_FOUND");
+    const role = await prisma.role.upsert({ where: { tenantId_code: { tenantId: tid, code: body.role } }, update: {}, create: { tenantId: tid, code: body.role, name: body.role.replaceAll("_", " ") } });
+    await prisma.$transaction([prisma.user.update({ where: { id: found.id }, data: { name: body.name, email: body.email.toLowerCase(), mobile: body.mobile || null, status: body.status, ...(body.password ? { passwordHash: await argon2.hash(body.password) } : {}) } }), prisma.userRole.deleteMany({ where: { userId: found.id } }), prisma.userRole.create({ data: { userId: found.id, roleId: role.id } })]);
+    await audit(req, body.password ? "staff.password_reset" : "staff.updated", "Staff", found.id, { role: body.role }); return ok(res, { id: found.id }, "Staff account updated");
+  }),
+);
+crmRouter.get("/staff-accounts/:id/activity", asyncRoute(async (req, res) => { const tid = tenantId(req); const user = await prisma.user.findFirst({ where: { id: req.params.id, tenantId: tid } }); if (!user) throw new AppError(404, "Staff account not found", "NOT_FOUND"); const items = await prisma.auditLog.findMany({ where: { tenantId: tid, actorId: user.id }, orderBy: { createdAt: "desc" }, take: 100 }); return ok(res, { user: { id: user.id, name: user.name }, items }); }));
+crmRouter.delete("/staff-accounts/:id", asyncRoute(async (req, res) => { const tid = tenantId(req); if (req.params.id === req.user!.id) throw new AppError(400, "You cannot delete your own account", "SELF_DELETE"); const user = await prisma.user.findFirst({ where: { id: req.params.id, tenantId: tid, isPlatform: false } }); if (!user) throw new AppError(404, "Staff account not found", "NOT_FOUND"); await prisma.user.delete({ where: { id: user.id } }); await audit(req, "staff.deleted", "Staff", user.id, { name: user.name }); return ok(res, null, "Staff account deleted"); }));
 crmRouter.get(
   "/payment-logs",
   asyncRoute(async (req, res) => {

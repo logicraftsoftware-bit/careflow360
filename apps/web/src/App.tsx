@@ -16,6 +16,7 @@ import { RadiologyMasterDataPage } from "./pages/RadiologyMasterData";
 import { PaymentLogsPage } from "./pages/PaymentLogs";
 import { DiagnosticAppointmentBookingPage } from "./pages/DiagnosticAppointmentBooking";
 import { RolePermissionEditorPage, RolesPermissionsPage } from "./pages/RolesPermissions";
+import { StaffPage } from "./pages/Staff";
 import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
 const menus = [
   "leads",
@@ -95,12 +96,13 @@ export default function App() {
         <Route path="radiology-appointments/new" element={<DiagnosticAppointmentBookingPage kind="radiology" />} />
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
         <Route path="roles-permissions/:id" element={<RolePermissionEditorPage />} />
+        <Route path="staff" element={<StaffPage />} />
         <Route path="call-logs" element={<CallLogsPage />} />
         <Route path="settings" element={<ClinicSettingsPage />} />
         <Route path="lab" element={<LabMasterDataPage />} />
         <Route path="radiology" element={<RadiologyMasterDataPage />} />
         <Route path="payments" element={<PaymentLogsPage />} />
-        {menus.filter((x) => !["settings", "lab", "radiology", "payments", "roles-permissions"].includes(x)).map((x) => (
+        {menus.filter((x) => !["settings", "lab", "radiology", "payments", "roles-permissions", "staff"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}
