@@ -22,6 +22,7 @@ import {
   Search,
   SquarePen,
   Trash2,
+  UserPlus,
   Upload,
   X,
 } from "lucide-react";
@@ -479,7 +480,7 @@ const configs: Record<string, Config> = {
       f("priority", "Priority", "select", true, ["ROUTINE", "URGENT", "STAT"]),
       f("amount", "Amount", "number", true),
       f("paymentStatus", "Payment status", "select", true, ["PENDING", "PAID", "PARTIALLY_PAID", "REFUNDED"]),
-      f("status", "Status", "select", true, ["BOOKED", "SAMPLE_PENDING", "SAMPLE_COLLECTED", "PROCESSING", "COMPLETED", "CANCELLED"]),
+      f("status", "Status", "select", true, ["BOOKED", "ASSIGNED", "SAMPLE_PENDING", "SAMPLE_COLLECTED", "PROCESSING", "COMPLETED", "CANCELLED"]),
       f("instructions", "Instructions", "textarea"),
     ],
     columns: ["patientId", "testNames", "appointmentAt", "priority", "subtotal", "discountAmount", "amount", "paymentStatus", "status"],
@@ -898,6 +899,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [view, setView] = useState<any>(),
     [reschedule, setReschedule] = useState<any>(),
     [logRecord, setLogRecord] = useState<any>(),
+    [assignRecord,setAssignRecord]=useState<any>(),
     [open, setOpen] = useState(false),
     [bulkOpen, setBulkOpen] = useState(false),
     [bulkCsv, setBulkCsv] = useState(""),
@@ -930,6 +932,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     queryFn: () => api.get(slug === "appointments"?`/crm/appointments/${logRecord.id}/logs`:`/crm/modules/${slug}/${logRecord.id}/logs`).then(unwrap),
     enabled: ["appointments","lab-appointments","radiology-appointments"].includes(slug) && !!logRecord?.id,
   });
+  const {data:labTechnicians=[]}=useQuery({queryKey:["lab-technicians"],queryFn:()=>api.get("/crm/lab-technicians").then(unwrap),enabled:slug==="lab-appointments"});
   const referenceEndpoints: Record<string, string> = {
     doctorId: "/crm/doctors",
     branchId: "/crm/branches",
@@ -1066,6 +1069,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             "Unable to send the WhatsApp message. Please try again.",
         ),
     }),
+    assignLab=useMutation({mutationFn:({id,technicianId}:{id:string;technicianId:string})=>api.patch(`/crm/lab-appointments/${id}/assign`,{technicianId}),onSuccess:()=>{setAssignRecord(undefined);qc.invalidateQueries({queryKey:[endpoint]})}}),
     tenant = useMutation({
       mutationFn: ({
         id,
@@ -1520,6 +1524,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           <button onClick={() => setView(r)}>
                             <Eye />
                           </button>
+                          {slug==="lab-appointments"&&<button title="Assign lab technician" onClick={()=>setAssignRecord(r)}><UserPlus/></button>}
                           {["appointments","lab-appointments","radiology-appointments"].includes(slug) && (
                             <button
                               title="Resend WhatsApp message"
@@ -1853,6 +1858,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           </form>
         </div>
       )}
+      {assignRecord&&<div className="modal-bg"><form className="modal" onSubmit={event=>{event.preventDefault();const technicianId=String(new FormData(event.currentTarget).get("technicianId")||"");if(technicianId)assignLab.mutate({id:assignRecord.id,technicianId})}}><div className="modal-head"><div><h2>Assign Lab Technician</h2><p>{assignRecord.title} · {assignRecord.testNames}</p></div><button type="button" className="icon" onClick={()=>setAssignRecord(undefined)}><X/></button></div><label>Lab technician<select name="technicianId" required defaultValue=""><option value="" disabled>Select technician</option>{(labTechnicians as any[]).map(technician=><option key={technician.id} value={technician.id}>{technician.name} · {technician.email}</option>)}</select></label>{!(labTechnicians as any[]).length&&<div className="alert error">No active Lab Technician staff account found.</div>}<div className="modal-actions"><button type="button" className="btn ghost" onClick={()=>setAssignRecord(undefined)}>Cancel</button><button className="btn" disabled={assignLab.isPending||!(labTechnicians as any[]).length}>{assignLab.isPending?"Assigning…":"Assign Technician"}</button></div></form></div>}
       {logRecord && (
         <div className="modal-bg">
           <div className="modal activity-modal">

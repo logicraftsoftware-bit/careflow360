@@ -18,6 +18,7 @@ import { DiagnosticAppointmentBookingPage } from "./pages/DiagnosticAppointmentB
 import { RolePermissionEditorPage, RolesPermissionsPage } from "./pages/RolesPermissions";
 import { StaffPage } from "./pages/Staff";
 import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
+import { LabCollectionPage } from "./pages/LabCollection";
 const menus = [
   "leads",
   "interested-leads",
@@ -97,6 +98,8 @@ export default function App() {
         <Route path="roles-permissions" element={<RolesPermissionsPage />} />
         <Route path="roles-permissions/:id" element={<RolePermissionEditorPage />} />
         <Route path="staff" element={<StaffPage />} />
+        <Route path="lab-collection/assigned" element={<LabCollectionPage state="assigned" />} />
+        <Route path="lab-collection/collected" element={<LabCollectionPage state="collected" />} />
         <Route path="call-logs" element={<CallLogsPage />} />
         <Route path="settings" element={<ClinicSettingsPage />} />
         <Route path="lab" element={<LabMasterDataPage />} />
