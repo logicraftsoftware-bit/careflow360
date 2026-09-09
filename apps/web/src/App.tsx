@@ -21,6 +21,8 @@ const menus = [
   "followups",
   "patients",
   "appointments",
+  "lab-appointments",
+  "radiology-appointments",
   "calendar",
   "doctors",
   "doctor-schedules",

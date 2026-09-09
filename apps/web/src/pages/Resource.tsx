@@ -421,7 +421,7 @@ const configs: Record<string, Config> = {
     columns: ["patientNumber", "name", "mobile", "email", "city", "status"],
   },
   appointments: {
-    title: "Appointments",
+    title: "Doctor Appointments",
     description: "Book and manage doctor appointments.",
     fields: [
       f("patientId", "Patient", "reference", true, undefined, "/crm/patients"),
@@ -467,6 +467,38 @@ const configs: Record<string, Config> = {
       "status",
       "paymentStatus",
     ],
+  },
+  "lab-appointments": {
+    title: "Lab Appointments",
+    description: "Book and manage patient pathology test appointments.",
+    fields: [
+      f("patientId", "Patient", "reference", true, undefined, "/crm/patients"),
+      f("labTestId", "Pathology test", "reference", true, undefined, "/crm/modules/lab-tests"),
+      f("appointmentAt", "Appointment date and time", "datetime-local", true),
+      f("sampleCollectionAt", "Sample collection time", "datetime-local"),
+      f("priority", "Priority", "select", true, ["ROUTINE", "URGENT", "STAT"]),
+      f("amount", "Amount", "number", true),
+      f("paymentStatus", "Payment status", "select", true, ["PENDING", "PAID", "PARTIALLY_PAID", "REFUNDED"]),
+      f("status", "Status", "select", true, ["BOOKED", "SAMPLE_PENDING", "SAMPLE_COLLECTED", "PROCESSING", "COMPLETED", "CANCELLED"]),
+      f("instructions", "Instructions", "textarea"),
+    ],
+    columns: ["patientId", "labTestId", "appointmentAt", "priority", "amount", "paymentStatus", "status"],
+  },
+  "radiology-appointments": {
+    title: "Radiology Appointments",
+    description: "Book and manage patient imaging appointments.",
+    fields: [
+      f("patientId", "Patient", "reference", true, undefined, "/crm/patients"),
+      f("radiologyTestId", "Radiology test", "reference", true, undefined, "/crm/modules/radiology-tests"),
+      f("appointmentAt", "Appointment date and time", "datetime-local", true),
+      f("priority", "Priority", "select", true, ["ROUTINE", "URGENT", "EMERGENCY"]),
+      f("contrastRequired", "Contrast required", "checkbox"),
+      f("amount", "Amount", "number", true),
+      f("paymentStatus", "Payment status", "select", true, ["PENDING", "PAID", "PARTIALLY_PAID", "REFUNDED"]),
+      f("status", "Status", "select", true, ["BOOKED", "ARRIVED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]),
+      f("instructions", "Preparation instructions", "textarea"),
+    ],
+    columns: ["patientId", "radiologyTestId", "appointmentAt", "priority", "contrastRequired", "amount", "paymentStatus", "status"],
   },
   calendar: {
     title: "Appointment Calendar",
@@ -892,6 +924,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     patientId: "/crm/patients",
     leadId: "/crm/leads",
     appointmentId: "/crm/appointments",
+    labTestId: "/crm/modules/lab-tests",
+    radiologyTestId: "/crm/modules/radiology-tests",
   };
   const referenceKeys = Object.keys(referenceEndpoints);
   const usedReferenceKeys = new Set([
