@@ -768,6 +768,19 @@ function Ref({ field, value }: { field: Field; value?: string }) {
     </select>
   );
 }
+function DiagnosticTestSearchRef({ field, value }: { field: Field; value?: string }) {
+  const { data } = useQuery({ queryKey: ["diagnostic-test-ref", field.endpoint], queryFn: () => api.get(`${field.endpoint}?limit=100`).then(unwrap) });
+  const rows = Array.isArray(data) ? data : data?.items || [];
+  const [selectedId, setSelectedId] = useState(value || ""), [searchText, setSearchText] = useState(""), [openResults, setOpenResults] = useState(false);
+  useEffect(() => { const selected = rows.find((item: any) => item.id === selectedId); if (selected && !searchText) setSearchText(selected.title || selected.name || selected.id); }, [rows, searchText, selectedId]);
+  const matches = rows.filter((item: any) => !searchText.trim() || String(item.title || item.name || "").toLowerCase().includes(searchText.toLowerCase().trim())).slice(0, 12);
+  const choose = (test: any, target: HTMLElement) => {
+    setSelectedId(test.id); setSearchText(test.title || test.name || test.id); setOpenResults(false);
+    const amount = target.closest("form")?.querySelector<HTMLInputElement>('input[name="amount"]'), price = test.price ?? test.data?.price;
+    if (amount && price !== undefined && price !== null) { amount.value = String(price); amount.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  return <div className="patient-search diagnostic-test-search"><input type="hidden" name={field.name} value={selectedId}/><input required={field.required} value={searchText} placeholder={`Search and select ${field.label.toLowerCase()}`} autoComplete="off" onFocus={() => setOpenResults(true)} onBlur={() => setTimeout(() => setOpenResults(false), 150)} onChange={(event) => { setSearchText(event.target.value); setSelectedId(""); setOpenResults(true); }}/>{openResults && <div className="patient-results">{matches.length ? matches.map((test: any) => <button type="button" key={test.id} onMouseDown={(event) => choose(test, event.currentTarget)}><strong>{test.title || test.name}</strong><span>₹{Number(test.price ?? test.data?.price ?? 0).toLocaleString("en-IN")}</span><small>{test.data?.code || test.code || "Diagnostic test"}</small></button>) : <p>No matching tests</p>}</div>} {selectedId && <small className="patient-selected">Test selected · price added automatically</small>}</div>;
+}
 function PatientSearchRef({ field, value }: { field: Field; value?: string }) {
   const { data } = useQuery({
     queryKey: ["ref", field.endpoint],
@@ -1650,7 +1663,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                         ))}
                       </select>
                     ) : x.type === "reference" ? (
-                      x.name === "patientId" ? (
+                      ["labTestId", "radiologyTestId"].includes(x.name) ? (
+                        <DiagnosticTestSearchRef field={x} value={val(edit || {}, x.name)} />
+                      ) : x.name === "patientId" ? (
                         <PatientSearchRef
                           field={x}
                           value={val(edit || {}, x.name)}
