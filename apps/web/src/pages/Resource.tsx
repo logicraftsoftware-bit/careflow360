@@ -927,9 +927,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   });
   const { data: appointmentLogs = [], isLoading: logsLoading } = useQuery({
     queryKey: ["appointment-logs", logRecord?.id],
-    queryFn: () =>
-      api.get(`/crm/appointments/${logRecord.id}/logs`).then(unwrap),
-    enabled: slug === "appointments" && !!logRecord?.id,
+    queryFn: () => api.get(slug === "appointments"?`/crm/appointments/${logRecord.id}/logs`:`/crm/modules/${slug}/${logRecord.id}/logs`).then(unwrap),
+    enabled: ["appointments","lab-appointments","radiology-appointments"].includes(slug) && !!logRecord?.id,
   });
   const referenceEndpoints: Record<string, string> = {
     doctorId: "/crm/doctors",
@@ -1059,8 +1058,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       },
     }),
     resendWhatsApp = useMutation({
-      mutationFn: (id: string) =>
-        api.post(`/crm/appointments/${id}/whatsapp/retry`),
+      mutationFn: (id: string) => api.post(slug === "appointments"?`/crm/appointments/${id}/whatsapp/retry`:`/crm/modules/${slug}/${id}/whatsapp/retry`),
       onSuccess: () => window.alert("WhatsApp message sent successfully."),
       onError: (error: any) =>
         window.alert(
@@ -1130,6 +1128,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         changeStatus.mutate({ row, status, cancellationReason: cancellationReason.trim() });
       return;
     }
+    if (["lab-appointments","radiology-appointments"].includes(slug)&&status==="CANCELLED") {const cancellationReason=window.prompt("Enter the cancellation reason");if(cancellationReason?.trim()&&window.confirm("Cancel this diagnostic appointment?"))changeStatus.mutate({row,status,cancellationReason:cancellationReason.trim()});return}
     const conversion =
       status === "CONVERTED"
         ? " This will also create a patient record automatically."
@@ -1521,7 +1520,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           <button onClick={() => setView(r)}>
                             <Eye />
                           </button>
-                          {slug === "appointments" && (
+                          {["appointments","lab-appointments","radiology-appointments"].includes(slug) && (
                             <button
                               title="Resend WhatsApp message"
                               disabled={resendWhatsApp.isPending}
@@ -1530,7 +1529,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                               <MessageCircle />
                             </button>
                           )}
-                          {slug === "appointments" && (
+                          {["appointments","lab-appointments","radiology-appointments"].includes(slug) && (
                             <button
                               title="View activity logs"
                               onClick={() => setLogRecord(r)}
@@ -1860,7 +1859,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             <div className="modal-head">
               <div>
                 <h2>Appointment activity</h2>
-                <p>{logRecord.appointmentNumber}</p>
+                <p>{logRecord.appointmentNumber||logRecord.title}</p>
               </div>
               <button className="icon" onClick={() => setLogRecord(undefined)}>
                 <X />

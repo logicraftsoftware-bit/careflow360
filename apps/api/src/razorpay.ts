@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { appointmentToken, decryptIntegrationSecret, sendPaymentSuccessMessage, type AppointmentMessage } from "./aisensy.js";
+import { appointmentToken, decryptIntegrationSecret, sendDiagnosticMessage, sendPaymentSuccessMessage, type AppointmentMessage } from "./aisensy.js";
 import { config } from "./config.js";
 import { prisma } from "./lib.js";
 
@@ -82,6 +82,22 @@ export async function ensureRazorpayPaymentLink(appointment: {
     },
   });
   return link;
+}
+
+export async function ensureDiagnosticPaymentLink(record:any,patient:any){
+  const data=record.data as any;if(data.paymentUrl)return {id:data.paymentLinkId,short_url:data.paymentUrl};
+  const integration=await prisma.razorpayIntegration.findUnique({where:{tenantId:record.tenantId}});if(!integration?.isActive)throw new Error("Razorpay is not configured or active for this clinic");
+  const keySecret=decryptIntegrationSecret(integration.keySecretEncrypted),response=await fetch("https://api.razorpay.com/v1/payment_links",{method:"POST",headers:{authorization:`Basic ${Buffer.from(`${integration.keyId}:${keySecret}`).toString("base64")}`,"content-type":"application/json"},signal:AbortSignal.timeout(15000),body:JSON.stringify({amount:Math.round(Number(data.amount||0)*100),currency:"INR",accept_partial:false,description:`Diagnostic tests for ${record.title}`,customer:{name:patient.name,contact:indianContact(patient.mobile),...(patient.email?{email:patient.email}:{})},notify:{sms:false,email:false},reminder_enable:true,callback_url:`${config.APP_URL.replace(/\/$/,"")}/login`,callback_method:"get",notes:{tenantId:record.tenantId,diagnosticAppointmentId:record.id,appointmentNumber:record.title}})});
+  const text=await response.text();if(!response.ok)throw new Error(`Razorpay returned ${response.status}: ${text.slice(0,500)}`);const link=JSON.parse(text);if(!link.id||!link.short_url)throw new Error("Razorpay did not return a payment link");
+  await prisma.moduleRecord.update({where:{id:record.id},data:{data:{...data,paymentLinkId:link.id,paymentUrl:link.short_url}}});return link;
+}
+
+export async function confirmRazorpayDiagnostic(id:string,paymentId?:string){
+  const record=await prisma.moduleRecord.findUnique({where:{id}});if(!record||!["lab-appointments","radiology-appointments"].includes(record.module))throw new Error("Diagnostic appointment not found");const data=record.data as any;
+  const [patient,clinic]=await Promise.all([prisma.patient.findUnique({where:{id:data.patientId}}),prisma.tenant.findUnique({where:{id:record.tenantId!}})]);if(!patient||!clinic)throw new Error("Diagnostic patient or clinic not found");
+  const updated=await prisma.moduleRecord.update({where:{id},data:{status:record.status==="CANCELLED"?record.status:"CONFIRMED",data:{...data,paymentStatus:"PAID",paymentConfirmedAt:new Date().toISOString(),providerPaymentId:paymentId||null}}});
+  const message:AppointmentMessage={appointmentId:id,tenantId:record.tenantId!,appointmentNumber:record.title,patientName:patient.name,patientMobile:patient.mobile,patientNumber:patient.patientNumber,clinicName:clinic.name,clinicPhone:clinic.mobile,doctorName:record.module==="lab-appointments"?"Laboratory":"Radiology",departmentName:data.testNames||"Diagnostic test",branchName:"Clinic",startsAt:new Date(data.appointmentAt),amount:Number(data.amount||0),token:record.title};
+  const delivery=await sendDiagnosticMessage("payment_success",message);await prisma.auditLog.create({data:{tenantId:record.tenantId!,action:`${record.module}.whatsapp.payment_success.${delivery.sent?"sent":"skipped"}`,entityType:"ModuleRecord",entityId:id,metadata:delivery}});return updated;
 }
 
 export function verifyRazorpaySignature(rawBody: Buffer, signature: string, secret: string) {

@@ -25,9 +25,9 @@ async function sendCampaign(campaign:(settings:AiSensySettings)=>string, appoint
   return {sent:true,status:response.status,response:responseText.slice(0,500)};
 }
 export type DiagnosticMessageKind="payment_pending"|"payment_success"|"cancelled"|"rescheduled";
-export async function sendDiagnosticMessage(kind:DiagnosticMessageKind,a:AppointmentMessage,details?:{previousStartsAt?:Date;cancellationReason?:string}){
+export async function sendDiagnosticMessage(kind:DiagnosticMessageKind,a:AppointmentMessage,details?:{previousStartsAt?:Date;cancellationReason?:string;paymentUrl?:string}){
   const old=details?.previousStartsAt||a.startsAt,common=[a.patientName,a.clinicName,a.doctorName,a.departmentName];
-  if(kind==="payment_pending")return sendCampaign(s=>s.campaignDiagnosticPending,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),String(a.amount),paymentLinkFor(a.appointmentNumber)]);
+  if(kind==="payment_pending")return sendCampaign(s=>s.campaignDiagnosticPending,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),String(a.amount),details?.paymentUrl||paymentLinkFor(a.appointmentNumber)]);
   if(kind==="payment_success")return sendCampaign(s=>s.campaignDiagnosticSuccess,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,String(a.amount)]);
   if(kind==="cancelled")return sendCampaign(s=>s.campaignDiagnosticCancelled,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,details?.cancellationReason||"Cancelled by clinic",a.clinicPhone]);
   return sendCampaign(s=>s.campaignDiagnosticRescheduled,a,[...common,indiaDate(old),indiaTime(old),indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,a.clinicPhone]);

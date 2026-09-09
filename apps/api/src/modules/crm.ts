@@ -20,7 +20,7 @@ import {
   sendRescheduledMessage,
   sendDiagnosticMessage,
 } from "../aisensy.js";
-import { ensureRazorpayPaymentLink } from "../razorpay.js";
+import { ensureDiagnosticPaymentLink, ensureRazorpayPaymentLink } from "../razorpay.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
 const resources: any = {
@@ -211,13 +211,13 @@ async function notifyAppointment(
     });
   }
 }
-async function notifyDiagnostic(req:Parameters<typeof audit>[0],row:any,previous?:any){
+async function notifyDiagnostic(req:Parameters<typeof audit>[0],row:any,previous?:any,strict=false){
   const data=row.data as any;if(!["lab-appointments","radiology-appointments"].includes(row.module)||!data?.patientId)return;
-  if(previous&&previous.appointmentAt===data.appointmentAt&&previous.paymentStatus===data.paymentStatus&&previous.status===data.status)return;
+  if(previous&&previous.appointmentAt===data.appointmentAt&&previous.paymentStatus===data.paymentStatus&&previous.status===row.status)return;
   const [patient,clinic]=await Promise.all([prisma.patient.findFirst({where:{id:data.patientId,tenantId:row.tenantId}}),prisma.tenant.findUnique({where:{id:row.tenantId}})]);if(!patient||!clinic)return;
   const message:AppointmentMessage={appointmentId:row.id,tenantId:row.tenantId,appointmentNumber:row.title,patientName:patient.name,patientMobile:patient.mobile,patientNumber:patient.patientNumber,clinicName:clinic.name,clinicPhone:clinic.mobile,doctorName:row.module==="lab-appointments"?"Laboratory":"Radiology",departmentName:data.testNames||"Diagnostic test",branchName:"Clinic",startsAt:new Date(data.appointmentAt||row.createdAt),amount:Number(data.amount||0),token:row.title};
-  const kind=data.status==="CANCELLED"?"cancelled":previous?.appointmentAt&&previous.appointmentAt!==data.appointmentAt?"rescheduled":data.paymentStatus==="PAID"?"payment_success":"payment_pending";
-  try{const delivery=await sendDiagnosticMessage(kind,message,{previousStartsAt:previous?.appointmentAt?new Date(previous.appointmentAt):undefined,cancellationReason:data.cancellationReason});await audit(req,`${row.module}.whatsapp.${kind}.${delivery.sent?"sent":"skipped"}`,"ModuleRecord",row.id,delivery)}catch(error){await audit(req,`${row.module}.whatsapp.${kind}.failed`,"ModuleRecord",row.id,{error:error instanceof Error?error.message:"Unknown AiSensy error"})}
+  const kind=row.status==="CANCELLED"?"cancelled":previous?.appointmentAt&&previous.appointmentAt!==data.appointmentAt?"rescheduled":data.paymentStatus==="PAID"?"payment_success":"payment_pending";
+  try{const paymentLink=kind==="payment_pending"?await ensureDiagnosticPaymentLink(row,patient):null;const delivery=await sendDiagnosticMessage(kind,message,{previousStartsAt:previous?.appointmentAt?new Date(previous.appointmentAt):undefined,cancellationReason:data.cancellationReason,paymentUrl:paymentLink?.short_url});await audit(req,`${row.module}.whatsapp.${kind}.${delivery.sent?"sent":"skipped"}`,"ModuleRecord",row.id,delivery);if(strict&&!delivery.sent)throw new Error(delivery.reason||"AiSensy did not send the message")}catch(error){await audit(req,`${row.module}.whatsapp.${kind}.failed`,"ModuleRecord",row.id,{error:error instanceof Error?error.message:"Unknown AiSensy error"});if(strict)throw new AppError(502,error instanceof Error?error.message:"WhatsApp message failed","AISENSY_SEND_FAILED")}
 }
 crmRouter.get(
   "/dashboard",
@@ -381,6 +381,8 @@ crmRouter.get(
     return ok(res, { items, total: items.length, page: 1, limit: 100 });
   }),
 );
+crmRouter.get("/modules/:module/:id/logs",asyncRoute(async(req,res)=>{const tid=tenantId(req),record=await prisma.moduleRecord.findFirst({where:{id:req.params.id,tenantId:tid,module:req.params.module}});if(!record)throw new AppError(404,"Appointment not found","NOT_FOUND");const logs=await prisma.auditLog.findMany({where:{tenantId:tid,entityId:record.id},include:{actor:{select:{id:true,name:true,email:true}}},orderBy:{createdAt:"desc"}});return ok(res,logs)}));
+crmRouter.post("/modules/:module/:id/whatsapp/retry",asyncRoute(async(req,res)=>{const tid=tenantId(req),record=await prisma.moduleRecord.findFirst({where:{id:req.params.id,tenantId:tid,module:req.params.module}});if(!record||!["lab-appointments","radiology-appointments"].includes(record.module))throw new AppError(404,"Diagnostic appointment not found","NOT_FOUND");await notifyDiagnostic(req,record,undefined,true);return ok(res,null,"WhatsApp message sent successfully")}));
 crmRouter.post(
   "/modules/:module",
   asyncRoute(async (req, res) => {
@@ -418,7 +420,7 @@ crmRouter.patch(
       },
     });
     await audit(req, `${req.params.module}.updated`, "ModuleRecord", row.id);
-    await notifyDiagnostic(req,row,found.data);
+    await notifyDiagnostic(req,row,{...(found.data as object),status:found.status});
     return ok(res, row, "Updated successfully");
   }),
 );
