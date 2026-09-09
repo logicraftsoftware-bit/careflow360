@@ -483,7 +483,7 @@ const configs: Record<string, Config> = {
       f("status", "Status", "select", true, ["BOOKED", "ASSIGNED", "SAMPLE_PENDING", "SAMPLE_COLLECTED", "PROCESSING", "COMPLETED", "CANCELLED"]),
       f("instructions", "Instructions", "textarea"),
     ],
-    columns: ["patientId", "testNames", "appointmentAt", "priority", "subtotal", "discountAmount", "amount", "paymentStatus", "status"],
+    columns: ["patientId", "testNames", "appointmentAt", "assignedTechnicianName", "priority", "subtotal", "discountAmount", "amount", "paymentStatus", "status"],
   },
   "radiology-appointments": {
     title: "Radiology Appointments",
