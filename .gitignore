@@ -3,7 +3,9 @@ dist/
 dist-check/
 .native-scaffold/
 apps/staff-mobile/android/.gradle/
+apps/staff-mobile/android/build/
 apps/staff-mobile/android/app/build/
+apps/staff-mobile/android/app/.cxx/
 apps/staff-mobile/ios/Pods/
 .env
 .env.local
