@@ -100,6 +100,7 @@ export default function App() {
         <Route path="staff" element={<StaffPage />} />
         <Route path="lab-collection/assigned" element={<LabCollectionPage state="assigned" />} />
         <Route path="lab-collection/collected" element={<LabCollectionPage state="collected" />} />
+        <Route path="lab-collection/all" element={<LabCollectionPage state="all" />} />
         <Route path="call-logs" element={<CallLogsPage />} />
         <Route path="settings" element={<ClinicSettingsPage />} />
         <Route path="lab" element={<LabMasterDataPage />} />
