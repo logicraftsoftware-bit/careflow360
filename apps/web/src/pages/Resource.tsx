@@ -482,7 +482,7 @@ const configs: Record<string, Config> = {
       f("status", "Status", "select", true, ["BOOKED", "SAMPLE_PENDING", "SAMPLE_COLLECTED", "PROCESSING", "COMPLETED", "CANCELLED"]),
       f("instructions", "Instructions", "textarea"),
     ],
-    columns: ["patientId", "labTestId", "appointmentAt", "priority", "amount", "paymentStatus", "status"],
+    columns: ["patientId", "testNames", "appointmentAt", "priority", "subtotal", "discountAmount", "amount", "paymentStatus", "status"],
   },
   "radiology-appointments": {
     title: "Radiology Appointments",
@@ -498,7 +498,7 @@ const configs: Record<string, Config> = {
       f("status", "Status", "select", true, ["BOOKED", "ARRIVED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]),
       f("instructions", "Preparation instructions", "textarea"),
     ],
-    columns: ["patientId", "radiologyTestId", "appointmentAt", "priority", "contrastRequired", "amount", "paymentStatus", "status"],
+    columns: ["patientId", "testNames", "appointmentAt", "priority", "subtotal", "discountAmount", "amount", "paymentStatus", "status"],
   },
   calendar: {
     title: "Appointment Calendar",
@@ -1315,6 +1315,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               onClick={() =>
                 slug === "appointments"
                   ? navigate("/app/appointments/new")
+                  : ["lab-appointments", "radiology-appointments"].includes(slug)
+                    ? navigate(`/app/${slug}/new`)
                   : setOpen(true)
               }
             >

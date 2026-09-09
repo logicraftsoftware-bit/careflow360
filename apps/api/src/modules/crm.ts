@@ -322,7 +322,7 @@ crmRouter.get(
     });
     const diagnosticLogs = diagnosticData.map(({ row, data }) => {
       const patient = patientMap.get(data.patientId), isLab = row.module === "lab-appointments";
-      return { id: row.id, serviceType: isLab ? "LAB" : "RADIOLOGY", serviceName: testMap.get(isLab ? data.labTestId : data.radiologyTestId) || "Unknown test", customerName: patient?.name || "Unknown patient", customerMobile: patient?.mobile, patientNumber: patient?.patientNumber, appointmentNumber: row.title === "Untitled record" ? row.id.slice(-8).toUpperCase() : row.title, provider: data.paymentMethod || "UNRECORDED", transactionId: data.transactionId || null, amount: Number(data.amount || 0), currency: data.currency || "INR", status: data.paymentStatus || row.status, date: data.appointmentAt || row.createdAt };
+      return { id: row.id, serviceType: isLab ? "LAB" : "RADIOLOGY", serviceName: data.testNames || testMap.get(isLab ? data.labTestId : data.radiologyTestId) || "Unknown test", customerName: patient?.name || "Unknown patient", customerMobile: patient?.mobile, patientNumber: patient?.patientNumber, appointmentNumber: row.title === "Untitled record" ? row.id.slice(-8).toUpperCase() : row.title, provider: data.paymentMethod || "UNRECORDED", transactionId: data.transactionId || null, subtotal: Number(data.subtotal || data.amount || 0), discountAmount: Number(data.discountAmount || 0), amount: Number(data.amount || 0), currency: data.currency || "INR", status: data.paymentStatus || row.status, date: data.appointmentAt || row.createdAt };
     });
     const items = [...doctorLogs, ...diagnosticLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return ok(res, { items, total: items.length });
