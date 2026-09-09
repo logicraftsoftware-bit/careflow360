@@ -1,0 +1,36 @@
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Pencil, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { api, unwrap } from "../api";
+
+type Role={id:string;title:string;status:string;data?:{code?:string;permissions?:string[]|string}};
+const modules=[
+ ["Dashboard","dashboard"],["Meta Ads","meta-ads"],["Leads","leads"],["Interested Leads","interested-leads"],["Converted Leads","converted-leads"],["Patients","patients"],
+ ["Doctor Appointments","doctor-appointments"],["Lab Appointments","lab-appointments"],["Radiology Appointments","radiology-appointments"],["Calendar","calendar"],["Reports","reports"],["Payments","payments"],
+ ["IVR Call Logs","call-logs"],["WhatsApp","whatsapp"],["Audit Logs","audit-logs"],["Settings","settings"],["Departments","departments"],["Branches","branches"],["Doctors","doctors"],
+ ["Doctor Schedule","doctor-schedules"],["Staff","staff"],["Roles & Permission","roles-permissions"],["Lab Master","lab"],["Radiology Master","radiology"],
+] as const;
+const endpoint="/crm/modules/roles-permissions";
+const rolePermissions=(role?:Role)=>{const raw=role?.data?.permissions;if(Array.isArray(raw))return raw;if(typeof raw==="string")return raw.split(",").map(item=>item.trim()).filter(Boolean);return[]};
+
+export function RolesPermissionsPage(){
+ const nav=useNavigate(),qc=useQueryClient(),seeded=useRef(false),[search,setSearch]=useState("");
+ const {data,isLoading,error}=useQuery({queryKey:[endpoint],queryFn:()=>api.get(endpoint).then(unwrap)}),roles:Role[]=data?.items||[];
+ useEffect(()=>{if(!data||seeded.current||roles.some(role=>role.data?.code==="LAB_TECHNICIAN"))return;seeded.current=true;api.post(endpoint,{title:"Lab Technician",code:"LAB_TECHNICIAN",permissions:["dashboard.read","patients.read","lab.read","lab.manage","lab-appointments.read","lab-appointments.manage"],status:"ACTIVE"}).then(()=>qc.invalidateQueries({queryKey:[endpoint]})).catch(()=>{seeded.current=false})},[data,qc,roles]);
+ const remove=useMutation({mutationFn:(id:string)=>api.delete(`${endpoint}/${id}`),onSuccess:()=>qc.invalidateQueries({queryKey:[endpoint]})});
+ const filtered=useMemo(()=>roles.filter(role=>JSON.stringify(role).toLowerCase().includes(search.toLowerCase())),[roles,search]);
+ return <div><div className="page-head"><div><span>CLINIC MANAGEMENT</span><h1>Roles & Permissions</h1><p>Control menu-level read and manage access for every staff role.</p></div><button className="btn" onClick={()=>nav("/app/roles-permissions/new")}><Plus/> Add Role</button></div><section className="panel table-panel"><div className="toolbar"><div className="search"><Search/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Search roles…"/></div></div>{isLoading?<div className="state">Loading roles…</div>:error?<div className="state error">Unable to load roles.</div>:<div className="table-wrap"><table><thead><tr><th>Role name</th><th>Role code</th><th>Permissions</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filtered.map(role=><tr key={role.id}><td><b>{role.title}</b></td><td>{role.data?.code||"—"}</td><td><span className="permission-count"><ShieldCheck/>{rolePermissions(role).length} permissions</span></td><td><span className="status-pill">{role.status}</span></td><td><div className="row-actions"><button onClick={()=>nav(`/app/roles-permissions/${role.id}`)}><Pencil/></button><button className="danger" onClick={()=>confirm(`Delete ${role.title}?`)&&remove.mutate(role.id)}><Trash2/></button></div></td></tr>)}</tbody></table></div>}</section></div>;
+}
+
+export function RolePermissionEditorPage(){
+ const {id}=useParams(),editing=id!=="new",nav=useNavigate(),[name,setName]=useState(""),[code,setCode]=useState(""),[status,setStatus]=useState("ACTIVE"),[selected,setSelected]=useState<Set<string>>(new Set());
+ const {data,isLoading}=useQuery({queryKey:[endpoint],queryFn:()=>api.get(endpoint).then(unwrap)}),role:Role|undefined=data?.items?.find((item:Role)=>item.id===id);
+ useEffect(()=>{if(!role)return;setName(role.title);setCode(role.data?.code||"");setStatus(role.status);setSelected(new Set(rolePermissions(role)))},[role]);
+ const save=useMutation({mutationFn:(payload:object)=>editing?api.patch(`${endpoint}/${id}`,payload):api.post(endpoint,payload),onSuccess:()=>nav("/app/roles-permissions")});
+ const toggle=(permission:string,checked:boolean)=>setSelected(current=>{const next=new Set(current);checked?next.add(permission):next.delete(permission);return next});
+ const all=(action:"read"|"manage",checked:boolean)=>setSelected(current=>{const next=new Set(current);modules.forEach(([,key])=>checked?next.add(`${key}.${action}`):next.delete(`${key}.${action}`));return next});
+ const submit=(event:FormEvent)=>{event.preventDefault();save.mutate({title:name,code:code.trim().toUpperCase().replace(/[^A-Z0-9]+/g,"_"),permissions:[...selected],status})};
+ if(editing&&isLoading)return <div className="state">Loading role…</div>;
+ return <div className="role-editor"><button className="schedule-back" onClick={()=>nav("/app/roles-permissions")}><ArrowLeft/> Back to Roles & Permissions</button><div className="schedule-title"><div><span>ACCESS CONTROL</span><h1>{editing?"Edit":"Create"} Role</h1><p>Select exactly which menus this role can read or manage.</p></div><ShieldCheck/></div><form onSubmit={submit}><section className="panel role-details"><label>Role name *<input required value={name} onChange={event=>setName(event.target.value)} placeholder="Example: Lab Technician"/></label><label>Role code *<input required value={code} onChange={event=>setCode(event.target.value)} placeholder="LAB_TECHNICIAN"/></label><label>Status<select value={status} onChange={event=>setStatus(event.target.value)}><option>ACTIVE</option><option>INACTIVE</option></select></label></section><section className="panel permission-panel"><div className="permission-head"><div><h2>Menu Permissions</h2><p>Read allows viewing. Manage allows creating, editing and deleting.</p></div><span>{selected.size} selected</span></div><div className="permission-table"><div className="permission-row heading"><b>Menu</b><label><input type="checkbox" onChange={event=>all("read",event.target.checked)}/> Read all</label><label><input type="checkbox" onChange={event=>all("manage",event.target.checked)}/> Manage all</label></div>{modules.map(([label,key])=><div className="permission-row" key={key}><span>{label}</span><label><input type="checkbox" checked={selected.has(`${key}.read`)} onChange={event=>toggle(`${key}.read`,event.target.checked)}/> Read</label><label><input type="checkbox" checked={selected.has(`${key}.manage`)} onChange={event=>toggle(`${key}.manage`,event.target.checked)}/> Manage</label></div>)}</div></section>{save.error&&<div className="alert error">Unable to save role.</div>}<div className="role-save"><button type="button" className="btn ghost" onClick={()=>nav("/app/roles-permissions")}>Cancel</button><button className="btn" disabled={save.isPending}>{save.isPending?"Saving…":"Save Role"}</button></div></form></div>;
+}

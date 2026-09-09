@@ -603,6 +603,7 @@ const configs: Record<string, Config> = {
         "RECEPTIONIST",
         "DOCTOR",
         "BILLING",
+        "LAB_TECHNICIAN",
       ]),
       stat,
     ],
