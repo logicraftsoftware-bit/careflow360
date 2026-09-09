@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { api, unwrap } from "../api";
@@ -31,15 +31,36 @@ const sections: Section[] = [
   ], columns: ["title", "testName", "referenceFrom", "referenceTo", "unit", "description", "status"] },
 ];
 
+const defaultLabTests = [
+  ["Complete Blood Count (CBC)", "CBC", "Hematology", "EDTA Blood", "Automated cell counter", 6, 350], ["Hemoglobin (Hb)", "HB", "Hematology", "EDTA Blood", "Cyanmethemoglobin", 4, 150],
+  ["Erythrocyte Sedimentation Rate", "ESR", "Hematology", "Whole Blood", "Westergren", 4, 180], ["Blood Group & Rh Type", "BGRH", "Hematology", "EDTA Blood", "Agglutination", 4, 250],
+  ["Fasting Blood Sugar", "FBS", "Biochemistry", "Fluoride Plasma", "Hexokinase", 4, 120], ["Postprandial Blood Sugar", "PPBS", "Biochemistry", "Fluoride Plasma", "Hexokinase", 4, 120],
+  ["HbA1c", "HBA1C", "Diabetes", "EDTA Blood", "HPLC", 8, 500], ["Lipid Profile", "LIPID", "Biochemistry", "Serum", "Enzymatic", 8, 650],
+  ["Liver Function Test", "LFT", "Biochemistry", "Serum", "Photometry", 8, 700], ["Kidney Function Test", "KFT", "Biochemistry", "Serum", "Photometry", 8, 650],
+  ["Thyroid Profile (T3, T4, TSH)", "THYROID", "Hormones", "Serum", "CLIA", 12, 750], ["Urine Routine & Microscopy", "URINE-RM", "Clinical Pathology", "Urine", "Microscopy", 4, 200],
+  ["Stool Routine & Microscopy", "STOOL-RM", "Clinical Pathology", "Stool", "Microscopy", 6, 250], ["C-Reactive Protein", "CRP", "Immunology", "Serum", "Immunoturbidimetry", 6, 450],
+  ["Dengue NS1 Antigen", "DENGUE-NS1", "Serology", "Serum", "ELISA", 8, 800], ["Malaria Parasite Test", "MP", "Parasitology", "EDTA Blood", "Peripheral smear", 4, 300],
+  ["Widal Test", "WIDAL", "Serology", "Serum", "Slide agglutination", 6, 300], ["Vitamin D (25-OH)", "VIT-D", "Vitamins", "Serum", "CLIA", 24, 1200],
+  ["Vitamin B12", "VIT-B12", "Vitamins", "Serum", "CLIA", 24, 900], ["Serum Electrolytes", "ELECTROLYTES", "Biochemistry", "Serum", "Ion-selective electrode", 6, 550],
+] as const;
+
 const value = (row: Row, key: string) => key in row ? row[key] : row.data?.[key];
 const pretty = (text: string) => text.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 
 export function LabMasterDataPage() {
   const qc = useQueryClient();
+  const seeded = useRef(false);
   const [active, setActive] = useState(0), [search, setSearch] = useState(""), [editing, setEditing] = useState<Row | null>(null), [modalOpen, setModalOpen] = useState(false);
   const section = sections[active], endpoint = `/crm/modules/${section.module}`;
   const { data, isLoading, error } = useQuery({ queryKey: [endpoint], queryFn: () => api.get(endpoint).then(unwrap) });
   const rows: Row[] = data?.items || [];
+  useEffect(() => {
+    if (section.module !== "lab-tests" || !data || rows.length || seeded.current) return;
+    seeded.current = true;
+    Promise.all(defaultLabTests.map(([title, code, category, sampleType, method, turnaroundHours, price]) => api.post(endpoint, { title, code, category, sampleType, method, turnaroundHours, price, description: `${title} laboratory test`, status: "ACTIVE" })))
+      .then(() => qc.invalidateQueries({ queryKey: [endpoint] }))
+      .catch(() => { seeded.current = false; });
+  }, [data, endpoint, qc, rows.length, section.module]);
   const filtered = useMemo(() => rows.filter((row) => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())), [rows, search]);
   const save = useMutation({
     mutationFn: (payload: Record<string, FormDataEntryValue>) => editing ? api.patch(`${endpoint}/${editing.id}`, payload) : api.post(endpoint, payload),
