@@ -24,6 +24,14 @@ async function sendCampaign(campaign:(settings:AiSensySettings)=>string, appoint
   if(!response.ok)throw new Error(`AiSensy returned ${response.status}: ${responseText.slice(0,500)}`);
   return {sent:true,status:response.status,response:responseText.slice(0,500)};
 }
+export type DiagnosticMessageKind="payment_pending"|"payment_success"|"cancelled"|"rescheduled";
+export async function sendDiagnosticMessage(kind:DiagnosticMessageKind,a:AppointmentMessage,details?:{previousStartsAt?:Date;cancellationReason?:string}){
+  const old=details?.previousStartsAt||a.startsAt,common=[a.patientName,a.clinicName,a.doctorName,a.departmentName];
+  if(kind==="payment_pending")return sendCampaign(s=>s.campaignPaymentPending,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),String(a.amount),paymentLinkFor(a.appointmentNumber)]);
+  if(kind==="payment_success")return sendCampaign(s=>s.campaignPaymentSuccess,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,String(a.amount)]);
+  if(kind==="cancelled")return sendCampaign(s=>s.campaignCancelled,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,details?.cancellationReason||"Cancelled by clinic",a.clinicPhone]);
+  return sendCampaign(s=>s.campaignRescheduled,a,[...common,indiaDate(old),indiaTime(old),indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,a.clinicPhone]);
+}
 export const paymentLinkFor=(appointmentNumber:string)=>`${config.APP_URL.replace(/\/$/,"")}/payment/${encodeURIComponent(appointmentNumber)}`;
 export function appointmentToken(doctorName:string,departmentName:string,departmentCode:string,startsAt:Date,serialNumber:number){const name=doctorName.replace(/^dr\.?\s*/i,"").trim().split(/\s+/),initials=`${name[0]?.[0]||"D"}${name.length>1?name[name.length-1][0]:"R"}`.toUpperCase(),localDate=startsAt.toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}),datePart=`${Number(localDate.slice(8,10))}-${localDate.slice(5,7)}`,specialty=departmentName.replace(/[^a-z]/gi,"").slice(0,5).toUpperCase()||departmentCode.toUpperCase();return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2,"0")}`;}
 export const tokenImageSignature=(appointmentId:string)=>createHmac("sha256",config.JWT_SECRET).update(`appointment-token:${appointmentId}`).digest("hex");

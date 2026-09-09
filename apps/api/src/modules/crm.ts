@@ -18,6 +18,7 @@ import {
   sendPaymentPendingMessage,
   sendPaymentSuccessMessage,
   sendRescheduledMessage,
+  sendDiagnosticMessage,
 } from "../aisensy.js";
 import { ensureRazorpayPaymentLink } from "../razorpay.js";
 export const crmRouter = Router();
@@ -210,6 +211,14 @@ async function notifyAppointment(
     });
   }
 }
+async function notifyDiagnostic(req:Parameters<typeof audit>[0],row:any,previous?:any){
+  const data=row.data as any;if(!["lab-appointments","radiology-appointments"].includes(row.module)||!data?.patientId)return;
+  if(previous&&previous.appointmentAt===data.appointmentAt&&previous.paymentStatus===data.paymentStatus&&previous.status===data.status)return;
+  const [patient,clinic]=await Promise.all([prisma.patient.findFirst({where:{id:data.patientId,tenantId:row.tenantId}}),prisma.tenant.findUnique({where:{id:row.tenantId}})]);if(!patient||!clinic)return;
+  const message:AppointmentMessage={appointmentId:row.id,tenantId:row.tenantId,appointmentNumber:row.title,patientName:patient.name,patientMobile:patient.mobile,patientNumber:patient.patientNumber,clinicName:clinic.name,clinicPhone:clinic.mobile,doctorName:row.module==="lab-appointments"?"Laboratory":"Radiology",departmentName:data.testNames||"Diagnostic test",branchName:"Clinic",startsAt:new Date(data.appointmentAt||row.createdAt),amount:Number(data.amount||0),token:row.title};
+  const kind=data.status==="CANCELLED"?"cancelled":previous?.appointmentAt&&previous.appointmentAt!==data.appointmentAt?"rescheduled":data.paymentStatus==="PAID"?"payment_success":"payment_pending";
+  try{const delivery=await sendDiagnosticMessage(kind,message,{previousStartsAt:previous?.appointmentAt?new Date(previous.appointmentAt):undefined,cancellationReason:data.cancellationReason});await audit(req,`${row.module}.whatsapp.${kind}.${delivery.sent?"sent":"skipped"}`,"ModuleRecord",row.id,delivery)}catch(error){await audit(req,`${row.module}.whatsapp.${kind}.failed`,"ModuleRecord",row.id,{error:error instanceof Error?error.message:"Unknown AiSensy error"})}
+}
 crmRouter.get(
   "/dashboard",
   asyncRoute(async (req, res) => {
@@ -387,6 +396,7 @@ crmRouter.post(
       },
     });
     await audit(req, `${req.params.module}.created`, "ModuleRecord", row.id);
+    await notifyDiagnostic(req,row);
     return ok(res, row, "Created successfully", 201);
   }),
 );
@@ -408,6 +418,7 @@ crmRouter.patch(
       },
     });
     await audit(req, `${req.params.module}.updated`, "ModuleRecord", row.id);
+    await notifyDiagnostic(req,row,found.data);
     return ok(res, row, "Updated successfully");
   }),
 );
