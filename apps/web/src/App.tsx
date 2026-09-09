@@ -26,6 +26,8 @@ const menus = [
   "branches",
   "staff",
   "roles-permissions",
+  "lab",
+  "radiology",
   "reports",
   "payments",
   "whatsapp",
