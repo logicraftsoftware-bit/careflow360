@@ -13,6 +13,7 @@ import { AiSensyIntegrationsPage } from "./pages/AiSensyIntegrations";
 import { RazorpayIntegrationsPage } from "./pages/RazorpayIntegrations";
 import { LabMasterDataPage } from "./pages/LabMasterData";
 import { RadiologyMasterDataPage } from "./pages/RadiologyMasterData";
+import { PaymentLogsPage } from "./pages/PaymentLogs";
 import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
 const menus = [
   "leads",
@@ -92,7 +93,8 @@ export default function App() {
         <Route path="settings" element={<ClinicSettingsPage />} />
         <Route path="lab" element={<LabMasterDataPage />} />
         <Route path="radiology" element={<RadiologyMasterDataPage />} />
-        {menus.filter((x) => !["settings", "lab", "radiology"].includes(x)).map((x) => (
+        <Route path="payments" element={<PaymentLogsPage />} />
+        {menus.filter((x) => !["settings", "lab", "radiology", "payments"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}

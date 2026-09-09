@@ -301,6 +301,34 @@ crmRouter.get(
   }),
 );
 crmRouter.get(
+  "/payment-logs",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const [doctorAppointments, diagnosticAppointments] = await Promise.all([
+      prisma.appointment.findMany({ where: { tenantId: tid }, include: { patient: { select: { id: true, name: true, mobile: true, patientNumber: true } }, doctor: { select: { id: true, name: true } }, payments: { orderBy: { createdAt: "desc" } } }, orderBy: { createdAt: "desc" } }),
+      prisma.moduleRecord.findMany({ where: { tenantId: tid, module: { in: ["lab-appointments", "radiology-appointments"] } }, orderBy: { createdAt: "desc" } }),
+    ]);
+    const diagnosticData = diagnosticAppointments.map((row) => ({ row, data: row.data as Record<string, any> }));
+    const patientIds = [...new Set(diagnosticData.map(({ data }) => data.patientId).filter(Boolean))];
+    const testIds = [...new Set(diagnosticData.flatMap(({ data }) => [data.labTestId, data.radiologyTestId]).filter(Boolean))];
+    const [patients, tests] = await Promise.all([
+      prisma.patient.findMany({ where: { tenantId: tid, id: { in: patientIds } }, select: { id: true, name: true, mobile: true, patientNumber: true } }),
+      prisma.moduleRecord.findMany({ where: { tenantId: tid, id: { in: testIds } }, select: { id: true, title: true } }),
+    ]);
+    const patientMap = new Map(patients.map((patient) => [patient.id, patient])), testMap = new Map(tests.map((test) => [test.id, test.title]));
+    const doctorLogs = doctorAppointments.flatMap((appointment) => {
+      const payments = appointment.payments.length ? appointment.payments : [{ id: `appointment-${appointment.id}`, provider: "UNRECORDED", providerTransactionId: null, amount: appointment.amount, currency: "INR", status: appointment.paymentStatus, confirmedAt: appointment.paymentConfirmedAt, createdAt: appointment.createdAt }];
+      return payments.map((payment) => ({ id: payment.id, serviceType: "DOCTOR", serviceName: appointment.doctor.name, customerName: appointment.patient.name, customerMobile: appointment.patient.mobile, patientNumber: appointment.patient.patientNumber, appointmentNumber: appointment.appointmentNumber, provider: payment.provider, transactionId: payment.providerTransactionId, amount: payment.amount, currency: payment.currency, status: payment.status, date: payment.confirmedAt || payment.createdAt }));
+    });
+    const diagnosticLogs = diagnosticData.map(({ row, data }) => {
+      const patient = patientMap.get(data.patientId), isLab = row.module === "lab-appointments";
+      return { id: row.id, serviceType: isLab ? "LAB" : "RADIOLOGY", serviceName: testMap.get(isLab ? data.labTestId : data.radiologyTestId) || "Unknown test", customerName: patient?.name || "Unknown patient", customerMobile: patient?.mobile, patientNumber: patient?.patientNumber, appointmentNumber: row.title === "Untitled record" ? row.id.slice(-8).toUpperCase() : row.title, provider: data.paymentMethod || "UNRECORDED", transactionId: data.transactionId || null, amount: Number(data.amount || 0), currency: data.currency || "INR", status: data.paymentStatus || row.status, date: data.appointmentAt || row.createdAt };
+    });
+    const items = [...doctorLogs, ...diagnosticLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return ok(res, { items, total: items.length });
+  }),
+);
+crmRouter.get(
   "/modules/:module",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
