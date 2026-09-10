@@ -2,7 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import argon2 from "argon2";
 import { z } from "zod";
-import QRCode from "qrcode";
+import bwipjs from "bwip-js";
 import {
   asyncRoute,
   audit,
@@ -27,6 +27,8 @@ import {
 } from "../razorpay.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
+const tubeBarcodeValue = (token: string) =>
+  `CF${token.replaceAll("-", "").slice(0, 20).toUpperCase()}`;
 const defaultSpecimenTubes = [
   ["SST_GOLD", "SST Gold-Top Tube", "Serum", "Gold", "Clot activator and gel", "5 mL"],
   ["PLAIN_RED", "Plain Red-Top Tube", "Serum", "Red", "None / clot activator", "5 mL"],
@@ -761,13 +763,17 @@ crmRouter.post(
         "INVALID_TECHNICIAN"
       );
     const now = new Date().toISOString(),
-      specimens = body.specimens.map((specimen, index) => ({
-        ...specimen,
-        id: `SP-${randomUUID()}`,
-        sequence: index + 1,
-        status: "EXPECTED",
-        qrToken: randomUUID(),
-      })),
+      specimens = body.specimens.map((specimen, index) => {
+        const qrToken = randomUUID();
+        return {
+          ...specimen,
+          id: `SP-${randomUUID()}`,
+          sequence: index + 1,
+          status: "EXPECTED",
+          qrToken,
+          barcodeValue: tubeBarcodeValue(qrToken),
+        };
+      }),
       row = await prisma.moduleRecord.create({
         data: {
           tenantId: tid,
@@ -834,7 +840,8 @@ crmRouter.patch(
     const previous = record.data as any,
       specimens = body.specimens.map((item, index) => {
         const existing = previous.specimens?.find((specimen: any) => specimen.tests?.[0] === item.tests[0]);
-        return { ...item, id: existing?.id || `SP-${randomUUID()}`, sequence: index + 1, status: "EXPECTED", qrToken: existing?.qrToken || randomUUID() };
+        const qrToken = existing?.qrToken || randomUUID();
+        return { ...item, id: existing?.id || `SP-${randomUUID()}`, sequence: index + 1, status: "EXPECTED", qrToken, barcodeValue: existing?.barcodeValue || tubeBarcodeValue(qrToken) };
       }),
       definitionChanged = JSON.stringify((previous.specimens || []).map(({ tubeType, sampleType, tests }: any) => ({ tubeType, sampleType, tests }))) !== JSON.stringify(body.specimens),
       row = await prisma.moduleRecord.update({
@@ -882,13 +889,18 @@ crmRouter.get(
       );
     const
       specimens = await Promise.all(
-        (data.specimens || []).map(async (specimen: any) => ({
-          ...specimen,
-          qrDataUrl: await QRCode.toDataURL(
-            `CF360:${record.id}:${specimen.id}:${specimen.qrToken}`,
-            { errorCorrectionLevel: "H", margin: 1, width: 320 }
-          ),
-        }))
+        (data.specimens || []).map(async (specimen: any) => {
+          const barcodeValue = specimen.barcodeValue || tubeBarcodeValue(specimen.qrToken);
+          const png = await bwipjs.toBuffer({
+            bcid: "code128",
+            text: barcodeValue,
+            scale: 3,
+            height: 12,
+            includetext: true,
+            textxalign: "center",
+          });
+          return { ...specimen, barcodeValue, barcodeDataUrl: `data:image/png;base64,${png.toString("base64")}` };
+        })
       );
     const generatedAt = new Date().toISOString();
     await prisma.moduleRecord.update({
@@ -896,6 +908,7 @@ crmRouter.get(
       data: {
         data: {
           ...data,
+          specimens: specimens.map(({ barcodeDataUrl: _barcodeDataUrl, ...specimen }: any) => specimen),
           labelsGeneratedAt: generatedAt,
           labelsGeneratedById: req.user!.id,
         },

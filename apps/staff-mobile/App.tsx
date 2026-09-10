@@ -550,10 +550,13 @@ function Work({ user }: { user: User }) {
     setScannerOrder(item);
   };
   const readTubeCode = (value: string) => {
-    if (!scannerOrder || !value.startsWith(`CF360:${scannerOrder.id}:`)) return;
-    const token = value.split(":").at(-1);
-    const expected = (scannerOrder.specimens || []).map((x: any) => x.qrToken);
-    if (token && expected.includes(token)) setScannedTokens((current) => current.includes(token) ? current : [...current, token]);
+    if (!scannerOrder) return;
+    const specimen = (scannerOrder.specimens || []).find((item: any) =>
+      item.barcodeValue === value ||
+      (value.startsWith(`CF360:${scannerOrder.id}:`) && item.qrToken === value.split(":").at(-1))
+    );
+    const token = specimen?.qrToken;
+    if (token) setScannedTokens((current) => current.includes(token) ? current : [...current, token]);
   };
   const choices = tech
     ? [

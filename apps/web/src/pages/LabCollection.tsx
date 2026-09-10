@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { FlaskConical, QrCode } from "lucide-react";
+import { Barcode, FlaskConical } from "lucide-react";
 import { api, unwrap } from "../api";
 
 export function LabCollectionPage({
@@ -35,11 +35,11 @@ export function LabCollectionPage({
       popup.document.write(
         `<html><head><title>${
           result.orderNumber
-        } labels</title><style>body{font-family:Arial;display:flex;flex-wrap:wrap;gap:16px;padding:20px}.label{width:260px;border:2px solid #111;padding:12px;text-align:center;page-break-inside:avoid}.label img{width:180px}.label b,.label span{display:block;margin:4px}</style></head><body>${result.specimens
+        } labels</title><style>@page{margin:8mm}body{font-family:Arial;display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:10px}.label{width:300px;border:1px solid #111;padding:10px;text-align:center;page-break-inside:avoid}.label img{display:block;width:270px;height:82px;object-fit:contain;margin:5px auto}.label b,.label span{display:block;margin:3px;font-size:12px}.label strong{font-size:11px}</style></head><body>${result.specimens
           .map(
             (x: any) =>
               `<div class="label"><b>${result.orderNumber}</b><img src="${
-                x.qrDataUrl
+                x.barcodeDataUrl
               }"/><strong>${x.id}</strong><span>${x.tubeType} · ${
                 x.sampleType
               }</span><span>${x.tests.join(", ")}</span></div>`
@@ -110,7 +110,7 @@ export function LabCollectionPage({
                         className="btn ghost"
                         onClick={() => labels(item)}
                       >
-                        <QrCode /> {item.labelsGeneratedAt && item.specimens?.length ? "Reprint labels" : "Generate / print"}
+                        <Barcode /> {item.labelsGeneratedAt && item.specimens?.length ? "Reprint barcodes" : "Generate / print"}
                       </button>
                     </td>}
                   </tr>
