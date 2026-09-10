@@ -1284,19 +1284,15 @@ crmRouter.get(
       orderBy: { createdAt: "desc" },
     });
     if (req.params.module === "specimen-tubes" && !items.length) {
-      await prisma.$transaction(
-        defaultSpecimenTubes.map(([code, title, sampleType, capColor, additive, volume]) =>
-          prisma.moduleRecord.create({
-            data: {
-              tenantId: tid,
-              module: "specimen-tubes",
-              title,
-              status: "ACTIVE",
-              data: { code, sampleType, capColor, additive, volume },
-            },
-          })
-        )
-      );
+      await prisma.moduleRecord.createMany({
+        data: defaultSpecimenTubes.map(([code, title, sampleType, capColor, additive, volume]) => ({
+          tenantId: tid,
+          module: "specimen-tubes",
+          title,
+          status: "ACTIVE",
+          data: { code, sampleType, capColor, additive, volume },
+        })),
+      });
       items = await prisma.moduleRecord.findMany({
         where: { tenantId: tid, module: req.params.module },
         orderBy: { createdAt: "asc" },

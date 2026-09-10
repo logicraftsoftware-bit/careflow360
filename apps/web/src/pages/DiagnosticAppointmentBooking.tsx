@@ -19,7 +19,7 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
   const { data: patientData } = useQuery({ queryKey: ["booking-patients"], queryFn: () => api.get("/crm/patients?limit=100").then(unwrap) });
   const { data: testData } = useQuery({ queryKey: [`${kind}-booking-tests`], queryFn: () => api.get(`/crm/modules/${kind}-tests?limit=100`).then(unwrap) });
   const { data: technicians = [] } = useQuery<Technician[]>({ queryKey: ["lab-technicians"], queryFn: () => api.get("/crm/lab-technicians").then(unwrap), enabled: isLab });
-  const { data: tubeData } = useQuery({ queryKey: ["specimen-tube-master"], queryFn: () => api.get("/crm/modules/specimen-tubes").then(unwrap), enabled: isLab });
+  const { data: tubeData, isError: tubeLoadError } = useQuery({ queryKey: ["specimen-tube-master"], queryFn: () => api.get("/crm/modules/specimen-tubes").then(unwrap), enabled: isLab });
   const { data: orderData, isLoading: orderLoading } = useQuery({ queryKey: [kind, "appointment-edit", id], queryFn: () => api.get(`/crm/modules/${kind}-appointments`).then(unwrap), enabled: editing });
   const order = orderData?.items?.find((item: any) => item.id === id), orderValues = order?.data || {};
   const tubeOptions: TubeMaster[] = (tubeData?.items || []).filter((item: TubeMaster) => item.status === "ACTIVE");
@@ -43,7 +43,11 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
   };
   const selectTube = (index: number, title: string) => {
     const tube = tubeOptions.find((item) => item.title === title);
-    setSpecimens((rows) => rows.map((row, position) => position === index ? { tubeType: title, sampleType: tube?.data?.sampleType || row.sampleType } : row));
+    setSpecimens((rows) => {
+      const next = Array.from({ length: selected.length }, (_, position) => rows[position] || { tubeType: "", sampleType: "" });
+      next[index] = { tubeType: title, sampleType: tube?.data?.sampleType || "" };
+      return next;
+    });
   };
   const addTest = (test: Test) => {
     setSelected((items) => [...items, test]);
@@ -61,9 +65,13 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
     const foundPatient = patients.find((item) => item.id === orderValues.patientId) || null;
     setPatient(foundPatient);
     if (foundPatient) setPatientSearch(`${foundPatient.name} · ${foundPatient.mobile || foundPatient.patientNumber || ""}`);
-    setSelected(Array.isArray(orderValues.tests) ? orderValues.tests.map((test: any) => ({ id: test.id, title: test.title, data: { price: test.price } })) : []);
+    const savedTests = Array.isArray(orderValues.tests) ? orderValues.tests.map((test: any) => ({ id: test.id, title: test.title, data: { price: test.price } })) : [];
+    setSelected(savedTests);
     setDiscount(Number(orderValues.discountAmount || 0));
-    if (isLab && Array.isArray(orderValues.specimens) && orderValues.specimens.length) setSpecimens(orderValues.specimens.map((item: any) => ({ tubeType: item.tubeType, sampleType: item.sampleType })));
+    if (isLab) setSpecimens(savedTests.map((_: Test, index: number) => {
+      const item = Array.isArray(orderValues.specimens) ? orderValues.specimens[index] : undefined;
+      return item ? { tubeType: item.tubeType || "", sampleType: item.sampleType || "" } : { tubeType: "", sampleType: "" };
+    }));
   }, [order, patients, patient, orderValues, isLab]);
   const localDate = (value?: string) => value ? new Date(value).toISOString().slice(0, 16) : "";
   if (editing && orderLoading) return <div className="state">Loading order…</div>;
@@ -84,7 +92,7 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
           <label>Payment status<select name="paymentStatus" defaultValue={orderValues.paymentStatus || "PENDING"}><option>PENDING</option><option>PAID</option><option>PARTIALLY_PAID</option></select></label>
           <label className="wide">Instructions<textarea name="instructions" defaultValue={orderValues.instructions || ""} placeholder="Fasting, preparation or collection instructions" /></label>
         </div>
-        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Test-wise specimen tubes</h2><p>Every selected test requires its own tube choice. Remove or add tests from the Pathology tests panel.</p></div><span className="tube-count">{selected.length} tests · {specimens.length} tubes</span></div>{selected.map((test, index) => { const item = specimens[index] || { tubeType: "", sampleType: "" }; return <div className="specimen-row test-wise" key={test.id}><div className="tube-test"><small>Test {index + 1}</small><b>{test.title}</b></div><label>Tube/container type *<select required value={item.tubeType} onChange={(event) => selectTube(index, event.target.value)}><option value="" disabled>Select tube for this test</option>{tubeOptions.map((tube) => <option key={tube.id} value={tube.title}>{tube.title}{tube.data?.capColor ? ` · ${tube.data.capColor}` : ""}{tube.data?.volume ? ` · ${tube.data.volume}` : ""}</option>)}</select></label><label>Sample type<input readOnly value={item.sampleType} placeholder="Filled automatically" /></label></div>; })}{!selected.length && <div className="tube-empty">Select pathology tests to choose their specimen tubes.</div>}</div>}
+        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Test-wise specimen tubes</h2><p>Every selected test requires its own tube choice. Remove or add tests from the Pathology tests panel.</p></div><span className="tube-count">{selected.length} tests · {specimens.filter((item) => item.tubeType).length} selected</span></div>{tubeLoadError && <div className="alert error">Unable to load Specimen Tube Master. Refresh the page or check the master data.</div>}{selected.map((test, index) => { const item = specimens[index] || { tubeType: "", sampleType: "" }; return <div className="specimen-row test-wise" key={test.id}><div className="tube-test"><small>Test {index + 1}</small><b>{test.title}</b></div><label>Tube/container type *<select required value={item.tubeType} onChange={(event) => selectTube(index, event.target.value)}><option value="" disabled>{tubeOptions.length ? "Select tube for this test" : "No active tubes in master"}</option>{tubeOptions.map((tube) => <option key={tube.id} value={tube.title}>{tube.title}{tube.data?.capColor ? ` · ${tube.data.capColor}` : ""}{tube.data?.volume ? ` · ${tube.data.volume}` : ""}</option>)}</select></label><label>Sample type<input readOnly value={item.sampleType} placeholder="Filled automatically" /></label></div>; })}{!selected.length && <div className="tube-empty">Select pathology tests to choose their specimen tubes.</div>}</div>}
       </section>
       <aside className="panel test-cart">
         <h2>{isLab ? "Pathology" : "Radiology"} tests</h2>
