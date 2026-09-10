@@ -110,7 +110,7 @@ export function LabCollectionPage({
                         className="btn ghost"
                         onClick={() => labels(item)}
                       >
-                        <QrCode /> {item.labelsGeneratedAt ? "Reprint labels" : "Generate / print"}
+                        <QrCode /> {item.labelsGeneratedAt && item.specimens?.length ? "Reprint labels" : "Generate / print"}
                       </button>
                     </td>}
                   </tr>

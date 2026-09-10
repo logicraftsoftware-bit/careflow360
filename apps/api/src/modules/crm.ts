@@ -683,6 +683,7 @@ crmRouter.post(
           testNames: z.string().trim().min(2),
           instructions: z.string().trim().max(500).optional(),
           amount: z.coerce.number().min(0).default(0),
+          technicianId: z.string().optional(),
           specimens: z
             .array(
               z.object({
@@ -698,6 +699,39 @@ crmRouter.post(
         where: { id: body.patientId, tenantId: tid },
       });
     if (!patient) throw new AppError(404, "Patient not found", "NOT_FOUND");
+    const roles = await prisma.userRole.findMany({
+        where: { userId: req.user!.id },
+        select: { role: { select: { code: true } } },
+      }),
+      isAdmin =
+        req.user!.isPlatform ||
+        roles.some(({ role }) =>
+          ["SUPER_ADMIN", "CLINIC_ADMIN", "BRANCH_ADMIN", "MANAGER"].includes(
+            role.code
+          )
+        ),
+      technicianId = isAdmin ? body.technicianId : req.user!.id;
+    if (!technicianId)
+      throw new AppError(
+        400,
+        "Please assign a lab technician",
+        "TECHNICIAN_REQUIRED"
+      );
+    const technician = await prisma.user.findFirst({
+      where: {
+        id: technicianId,
+        tenantId: tid,
+        status: "ACTIVE",
+        roles: { some: { role: { code: "LAB_TECHNICIAN" } } },
+      },
+      select: { id: true, name: true },
+    });
+    if (!technician)
+      throw new AppError(
+        400,
+        "Please select an active lab technician",
+        "INVALID_TECHNICIAN"
+      );
     const now = new Date().toISOString(),
       specimens = body.specimens.map((specimen, index) => ({
         ...specimen,
@@ -718,10 +752,11 @@ crmRouter.post(
             appointmentAt: body.appointmentAt.toISOString(),
             instructions: body.instructions || "",
             amount: body.amount,
-            assignedTechnicianId: req.user!.id,
-            assignedTechnicianName: req.user!.id,
+            assignedTechnicianId: technician.id,
+            assignedTechnicianName: technician.name,
             assignedAt: now,
-            createdByTechnicianId: req.user!.id,
+            createdByTechnicianId: isAdmin ? undefined : req.user!.id,
+            createdById: req.user!.id,
             specimens,
             workflow: [{ stage: "ASSIGNED", at: now, by: req.user!.id }],
           },
@@ -761,7 +796,14 @@ crmRouter.get(
       },
     });
     if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
-    const data = record.data as any,
+    const data = record.data as any;
+    if (!(data.specimens || []).length)
+      throw new AppError(
+        409,
+        "This order has no specimen tubes. Edit or recreate it with specimen details.",
+        "SPECIMENS_REQUIRED"
+      );
+    const
       specimens = await Promise.all(
         (data.specimens || []).map(async (specimen: any) => ({
           ...specimen,
