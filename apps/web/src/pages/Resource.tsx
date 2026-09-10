@@ -1559,8 +1559,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           {!c.readOnly && (
                             <button
                               onClick={() =>
-                                slug === "appointments"
-                                  ? navigate(`/app/appointments/${r.id}/edit`)
+                                ["appointments", "lab-appointments", "radiology-appointments"].includes(slug)
+                                  ? navigate(`/app/${slug}/${r.id}/edit`)
                                   : setEdit(r)
                               }
                             >

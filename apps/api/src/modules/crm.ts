@@ -704,6 +704,10 @@ crmRouter.post(
           appointmentAt: z.coerce.date(),
           testNames: z.string().trim().min(2),
           instructions: z.string().trim().max(500).optional(),
+          priority: z.enum(["ROUTINE", "URGENT", "STAT"]).default("ROUTINE"),
+          paymentStatus: z.enum(["PENDING", "PAID", "PARTIALLY_PAID"]).default("PENDING"),
+          subtotal: z.coerce.number().min(0).optional(),
+          discountAmount: z.coerce.number().min(0).default(0),
           amount: z.coerce.number().min(0).default(0),
           technicianId: z.string().optional(),
           specimens: z
@@ -773,6 +777,10 @@ crmRouter.post(
             testNames: body.testNames,
             appointmentAt: body.appointmentAt.toISOString(),
             instructions: body.instructions || "",
+            priority: body.priority,
+            paymentStatus: body.paymentStatus,
+            subtotal: body.subtotal ?? body.amount,
+            discountAmount: body.discountAmount,
             amount: body.amount,
             assignedTechnicianId: technician.id,
             assignedTechnicianName: technician.name,
@@ -788,6 +796,46 @@ crmRouter.post(
       specimenCount: specimens.length,
     });
     return ok(res, row, "Lab order created and assigned", 201);
+  })
+);
+crmRouter.patch(
+  "/lab-collections/orders/:id",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      body = z.object({
+        patientId: z.string(),
+        appointmentAt: z.coerce.date(),
+        technicianId: z.string(),
+        testNames: z.string().trim().min(2),
+        instructions: z.string().trim().max(500).optional(),
+        priority: z.enum(["ROUTINE", "URGENT", "STAT"]).default("ROUTINE"),
+        paymentStatus: z.enum(["PENDING", "PAID", "PARTIALLY_PAID"]).default("PENDING"),
+        subtotal: z.coerce.number().min(0).optional(),
+        discountAmount: z.coerce.number().min(0).default(0),
+        amount: z.coerce.number().min(0).default(0),
+        specimens: z.array(z.object({ tubeType: z.string().trim().min(2), sampleType: z.string().trim().min(2), tests: z.array(z.string().trim().min(1)).min(1) })).min(1),
+      }).parse(req.body),
+      roles = await prisma.userRole.findMany({ where: { userId: req.user!.id }, select: { role: { select: { code: true } } } }),
+      isAdmin = req.user!.isPlatform || roles.some(({ role }) => ["SUPER_ADMIN", "CLINIC_ADMIN", "BRANCH_ADMIN", "MANAGER"].includes(role.code));
+    if (!isAdmin) throw new AppError(403, "Only an administrator can edit lab orders", "ADMIN_REQUIRED");
+    const [record, patient, technician] = await Promise.all([
+      prisma.moduleRecord.findFirst({ where: { id: req.params.id, tenantId: tid, module: "lab-appointments" } }),
+      prisma.patient.findFirst({ where: { id: body.patientId, tenantId: tid } }),
+      prisma.user.findFirst({ where: { id: body.technicianId, tenantId: tid, status: "ACTIVE", roles: { some: { role: { code: "LAB_TECHNICIAN" } } } }, select: { id: true, name: true } }),
+    ]);
+    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
+    if (!patient) throw new AppError(404, "Patient not found", "NOT_FOUND");
+    if (!technician) throw new AppError(400, "Please select an active lab technician", "INVALID_TECHNICIAN");
+    if (record.status !== "ASSIGNED") throw new AppError(409, "An order can only be edited before the technician accepts it", "ORDER_IN_PROGRESS");
+    const previous = record.data as any,
+      specimens = body.specimens.map((item, index) => ({ ...item, id: previous.specimens?.[index]?.id || `SP-${randomUUID()}`, sequence: index + 1, status: "EXPECTED", qrToken: previous.specimens?.[index]?.qrToken || randomUUID() })),
+      definitionChanged = JSON.stringify((previous.specimens || []).map(({ tubeType, sampleType, tests }: any) => ({ tubeType, sampleType, tests }))) !== JSON.stringify(body.specimens),
+      row = await prisma.moduleRecord.update({
+        where: { id: record.id },
+        data: { data: { ...previous, patientId: patient.id, appointmentAt: body.appointmentAt.toISOString(), assignedTechnicianId: technician.id, assignedTechnicianName: technician.name, testNames: body.testNames, instructions: body.instructions || "", priority: body.priority, paymentStatus: body.paymentStatus, subtotal: body.subtotal ?? body.amount, discountAmount: body.discountAmount, amount: body.amount, specimens, ...(definitionChanged ? { labelsGeneratedAt: null, labelsGeneratedById: null } : {}) } },
+      });
+    await audit(req, "lab.order.updated", "ModuleRecord", row.id, { specimenCount: specimens.length, labelsInvalidated: definitionChanged });
+    return ok(res, row, "Lab order updated successfully");
   })
 );
 crmRouter.get(
