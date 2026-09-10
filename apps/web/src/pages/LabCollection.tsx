@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FlaskConical, QrCode } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { FlaskConical, QrCode } from "lucide-react";
 import { api, unwrap } from "../api";
 
 export function LabCollectionPage({
@@ -7,16 +7,17 @@ export function LabCollectionPage({
 }: {
   state: "assigned" | "collected" | "all";
 }) {
-  const qc = useQueryClient(),
-    { data, isLoading, error } = useQuery({
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const admin =
+    user.isPlatform ||
+    user.portal === "ADMIN" ||
+    (user.roleCodes || []).some((code: string) =>
+      ["SUPER_ADMIN", "CLINIC_ADMIN", "BRANCH_ADMIN", "MANAGER"].includes(code)
+    );
+  const { data, isLoading, error } = useQuery({
       queryKey: ["lab-collections", state],
       queryFn: () =>
         api.get(`/crm/lab-collections?state=${state}`).then(unwrap),
-    }),
-    collect = useMutation({
-      mutationFn: (id: string) =>
-        api.patch(`/crm/lab-collections/${id}/collect`),
-      onSuccess: () => qc.invalidateQueries({ queryKey: ["lab-collections"] }),
     }),
     items = data?.items || [],
     all = state === "all";
@@ -87,8 +88,7 @@ export function LabCollectionPage({
                   <th>Tests</th>
                   <th>Technician</th>
                   <th>Status</th>
-                  <th>QR labels</th>
-                  {state === "assigned" && <th>Action</th>}
+                  {admin && <th>Tube labels</th>}
                 </tr>
               </thead>
               <tbody>
@@ -105,28 +105,14 @@ export function LabCollectionPage({
                         {item.status.replaceAll("_", " ")}
                       </span>
                     </td>
-                    <td>
+                    {admin && <td>
                       <button
                         className="btn ghost"
                         onClick={() => labels(item)}
                       >
-                        <QrCode /> Generate / print
+                        <QrCode /> {item.labelsGeneratedAt ? "Reprint labels" : "Generate / print"}
                       </button>
-                    </td>
-                    {state === "assigned" && (
-                      <td>
-                        <button
-                          className="btn"
-                          disabled={collect.isPending}
-                          onClick={() =>
-                            confirm("Mark this sample as collected?") &&
-                            collect.mutate(item.id)
-                          }
-                        >
-                          <CheckCircle2 /> Mark Collected
-                        </button>
-                      </td>
-                    )}
+                    </td>}
                   </tr>
                 ))}
               </tbody>

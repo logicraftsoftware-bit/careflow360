@@ -5,6 +5,8 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Modal,
+  PermissionsAndroid,
   Platform,
   Pressable,
   SafeAreaView,
@@ -18,6 +20,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { WebView } from "react-native-webview";
+import { Camera, CameraType } from "react-native-camera-kit";
 import { clearSession, login, request } from "./src/api";
 import { WEB_APP_URL } from "./src/config";
 import { Card, Empty, Row, Title } from "./src/ui";
@@ -509,7 +512,49 @@ function Work({ user }: { user: User }) {
     [kind, setKind] = useState(tech ? "assigned" : "doctor"),
     [rows, setRows] = useState<any[]>([]),
     [search, setSearch] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [scannerOrder, setScannerOrder] = useState<any>(null),
+    [scannedTokens, setScannedTokens] = useState<string[]>([]),
+    [submitting, setSubmitting] = useState<string | null>(null);
+  const activeStages = ["ASSIGNED", "ACCEPTED", "ON_THE_WAY", "ARRIVED", "PATIENT_VERIFIED", "PREPARATION_CHECKED", "BARCODES_SCANNED", "SPECIMENS_COLLECTED", "PAYMENT_RECORDED", "PACKAGED", "SAMPLE_COLLECTED", "IN_TRANSIT", "RECEIVED"];
+  const actionLabels: Record<string, string> = {
+    ACCEPTED: "Accept assignment", ON_THE_WAY: "Start journey", ARRIVED: "Mark arrived",
+    PATIENT_VERIFIED: "Verify patient", PREPARATION_CHECKED: "Confirm preparation",
+    BARCODES_SCANNED: "Scan tube labels", SPECIMENS_COLLECTED: "Confirm specimens collected",
+    PAYMENT_RECORDED: "Record payment", PACKAGED: "Confirm package and seal",
+    SAMPLE_COLLECTED: "Submit collection", IN_TRANSIT: "Start transport", RECEIVED: "Confirm lab handover",
+  };
+  const refresh = () => request(`/crm/lab-collections?state=${kind}`).then((d) => setRows(Array.isArray(d) ? d : d.items || []));
+  const moveWorkflow = async (item: any, stage: string, extra: any = {}) => {
+    try {
+      setSubmitting(item.id);
+      await request(`/crm/lab-collections/${item.id}/workflow`, { method: "PATCH", body: JSON.stringify({ stage, ...extra }) });
+      await refresh();
+    } catch (error: any) {
+      Alert.alert("Cannot continue", error?.message || "Workflow update failed");
+    } finally { setSubmitting(null); }
+  };
+  const openScanner = async (item: any) => {
+    if (!item.labelsGeneratedAt) {
+      Alert.alert("Labels not ready", "Ask an administrator to generate, print and attach all tube labels first.");
+      return;
+    }
+    if (Platform.OS === "android") {
+      const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+      if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
+        Alert.alert("Camera permission required", "Allow camera access to scan tube labels.");
+        return;
+      }
+    }
+    setScannedTokens([]);
+    setScannerOrder(item);
+  };
+  const readTubeCode = (value: string) => {
+    if (!scannerOrder || !value.startsWith(`CF360:${scannerOrder.id}:`)) return;
+    const token = value.split(":").at(-1);
+    const expected = (scannerOrder.specimens || []).map((x: any) => x.qrToken);
+    if (token && expected.includes(token)) setScannedTokens((current) => current.includes(token) ? current : [...current, token]);
+  };
   const choices = tech
     ? [
         ["assigned", "Assigned"],
@@ -633,37 +678,40 @@ function Work({ user }: { user: User }) {
                     : "Schedule pending"}
                 </Text>
               </View>
-              {kind === "assigned" && (
+              {(kind === "assigned" || kind === "collected") && tech && (() => {
+                const currentIndex = activeStages.indexOf(String(item.status));
+                const nextStage = activeStages[currentIndex + 1];
+                if (!nextStage) return null;
+                return (
                 <Pressable
                   style={s.collect}
-                  onPress={() =>
-                    Alert.alert(
-                      "Collect sample",
-                      "Mark this sample as collected?",
-                      [
-                        { text: "Cancel" },
-                        {
-                          text: "Confirm",
-                          onPress: async () => {
-                            await request(
-                              `/crm/lab-collections/${item.id}/collect`,
-                              { method: "PATCH" }
-                            );
-                            setRows((v) => v.filter((x) => x.id !== item.id));
-                          },
-                        },
-                      ]
-                    )
-                  }
+                  disabled={submitting === item.id}
+                  onPress={() => nextStage === "BARCODES_SCANNED" ? openScanner(item) : moveWorkflow(item, nextStage, nextStage === "PAYMENT_RECORDED" ? { payment: { status: Number(item.amount || 0) > 0 ? "PENDING" : "NOT_REQUIRED", amount: Number(item.amount || 0) } } : {})}
                 >
-                  <Ionicons name="beaker-outline" size={20} color="white" />
-                  <Text style={s.primaryText}>Mark as collected</Text>
+                  <Ionicons name={nextStage === "BARCODES_SCANNED" ? "scan-outline" : "checkmark-circle-outline"} size={20} color="white" />
+                  <Text style={s.primaryText}>{submitting === item.id ? "Updating…" : actionLabels[nextStage]}</Text>
                 </Pressable>
-              )}
+                );
+              })()}
             </Card>
           )}
         />
       )}
+      <Modal visible={!!scannerOrder} animationType="slide" onRequestClose={() => setScannerOrder(null)}>
+        <SafeAreaView style={s.scannerScreen}>
+          <View style={s.scannerHead}>
+            <Pressable onPress={() => setScannerOrder(null)}><Ionicons name="close" size={30} color="white" /></Pressable>
+            <View><Text style={s.scannerTitle}>Scan tube labels</Text><Text style={s.scannerCount}>{scannedTokens.length} of {scannerOrder?.specimens?.length || 0} scanned</Text></View>
+          </View>
+          <Camera style={{ flex: 1 }} cameraType={CameraType.Back} scanBarcode showFrame laserColor="#16c9b4" frameColor="white" onReadCode={(event: any) => readTubeCode(event.nativeEvent.codeStringValue)} />
+          <View style={s.scannerFoot}>
+            <Text style={s.scannerHelp}>Scan every label attached to this order's tubes.</Text>
+            <Pressable style={[s.collect, scannedTokens.length !== (scannerOrder?.specimens?.length || 0) && { opacity: 0.45 }]} disabled={scannedTokens.length !== (scannerOrder?.specimens?.length || 0)} onPress={async () => { const order = scannerOrder; setScannerOrder(null); await moveWorkflow(order, "BARCODES_SCANNED", { barcodeTokens: scannedTokens }); }}>
+              <Ionicons name="checkmark-done" size={20} color="white" /><Text style={s.primaryText}>Submit scanned tubes</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -1885,6 +1933,12 @@ const pageStyles = StyleSheet.create({
     overflow: "hidden",
     textTransform: "uppercase",
   },
+  scannerScreen: { flex: 1, backgroundColor: "#07182A" },
+  scannerHead: { minHeight: 82, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 18 },
+  scannerTitle: { color: "white", fontSize: 21, fontWeight: "800" },
+  scannerCount: { color: "#9BE8DF", marginTop: 3, fontWeight: "700" },
+  scannerFoot: { padding: 20, backgroundColor: "#07182A" },
+  scannerHelp: { color: "white", textAlign: "center", marginBottom: 14 },
 });
 const profileStyles = StyleSheet.create({
   profileScroll: {

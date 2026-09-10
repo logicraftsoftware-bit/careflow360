@@ -736,6 +736,23 @@ crmRouter.post(
 crmRouter.get(
   "/lab-collections/:id/labels",
   asyncRoute(async (req, res) => {
+    const roles = await prisma.userRole.findMany({
+      where: { userId: req.user!.id },
+      select: { role: { select: { code: true } } },
+    });
+    const isAdmin =
+      req.user!.isPlatform ||
+      roles.some(({ role }) =>
+        ["SUPER_ADMIN", "CLINIC_ADMIN", "BRANCH_ADMIN", "MANAGER"].includes(
+          role.code
+        )
+      );
+    if (!isAdmin)
+      throw new AppError(
+        403,
+        "Only an administrator can generate tube labels",
+        "ADMIN_REQUIRED"
+      );
     const record = await prisma.moduleRecord.findFirst({
       where: {
         id: req.params.id,
@@ -754,10 +771,25 @@ crmRouter.get(
           ),
         }))
       );
+    const generatedAt = new Date().toISOString();
+    await prisma.moduleRecord.update({
+      where: { id: record.id },
+      data: {
+        data: {
+          ...data,
+          labelsGeneratedAt: generatedAt,
+          labelsGeneratedById: req.user!.id,
+        },
+      },
+    });
+    await audit(req, "lab.labels.generated", "ModuleRecord", record.id, {
+      specimenCount: specimens.length,
+    });
     return ok(res, {
       orderId: record.id,
       orderNumber: record.title,
       patientId: data.patientId,
+      generatedAt,
       specimens,
     });
   })
@@ -802,11 +834,35 @@ crmRouter.patch(
             x.role.code
           )
         );
+    if (!data.labelsGeneratedAt)
+      throw new AppError(
+        409,
+        "Administrator must generate and print tube labels before collection starts",
+        "LABELS_NOT_GENERATED"
+      );
     if (!isAdmin && data.assignedTechnicianId !== req.user!.id)
       throw new AppError(
         403,
         "This order is assigned to another technician",
         "FORBIDDEN"
+      );
+    if (
+      body.stage === "BARCODES_SCANNED" &&
+      data.assignedTechnicianId !== req.user!.id
+    )
+      throw new AppError(
+        403,
+        "Only the assigned lab technician can scan these tube labels",
+        "ASSIGNED_TECHNICIAN_REQUIRED"
+      );
+    if (
+      ["ACCEPTED_AT_LAB", "REJECTED_AT_LAB"].includes(body.stage) &&
+      !isAdmin
+    )
+      throw new AppError(
+        403,
+        "Only an administrator can accept or reject samples at the lab",
+        "ADMIN_REQUIRED"
       );
     const current = String(record.status),
       currentIndex = collectionStages.indexOf(current as any),
@@ -897,10 +953,35 @@ crmRouter.get(
           tenantId: tid,
           module: "lab-appointments",
           ...(state === "all"
-            ? { status: { in: ["ASSIGNED", "SAMPLE_COLLECTED"] } }
+            ? {}
             : state === "collected"
-            ? { status: "SAMPLE_COLLECTED" }
-            : { status: "ASSIGNED" }),
+            ? {
+                status: {
+                  in: [
+                    "SAMPLE_COLLECTED",
+                    "IN_TRANSIT",
+                    "RECEIVED",
+                    "ACCEPTED_AT_LAB",
+                    "REJECTED_AT_LAB",
+                  ],
+                },
+              }
+            : {
+                status: {
+                  in: [
+                    "ASSIGNED",
+                    "ACCEPTED",
+                    "ON_THE_WAY",
+                    "ARRIVED",
+                    "PATIENT_VERIFIED",
+                    "PREPARATION_CHECKED",
+                    "BARCODES_SCANNED",
+                    "SPECIMENS_COLLECTED",
+                    "PAYMENT_RECORDED",
+                    "PACKAGED",
+                  ],
+                },
+              }),
         },
         orderBy: { updatedAt: "desc" },
       }),
@@ -931,45 +1012,11 @@ crmRouter.get(
 crmRouter.patch(
   "/lab-collections/:id/collect",
   asyncRoute(async (req, res) => {
-    const tid = tenantId(req),
-      record = await prisma.moduleRecord.findFirst({
-        where: {
-          id: req.params.id,
-          tenantId: tid,
-          module: "lab-appointments",
-          status: "ASSIGNED",
-        },
-      });
-    if (!record)
-      throw new AppError(404, "Assigned sample not found", "NOT_FOUND");
-    const data = record.data as any,
-      roles = await prisma.userRole.findMany({
-        where: { userId: req.user!.id },
-        include: { role: true },
-      }),
-      isTechnician = roles.some((item) => item.role.code === "LAB_TECHNICIAN");
-    if (isTechnician && data.assignedTechnicianId !== req.user!.id)
-      throw new AppError(
-        403,
-        "This sample is assigned to another technician",
-        "FORBIDDEN"
-      );
-    const row = await prisma.moduleRecord.update({
-      where: { id: record.id },
-      data: {
-        status: "SAMPLE_COLLECTED",
-        data: {
-          ...data,
-          collectedAt: new Date().toISOString(),
-          collectedById: req.user!.id,
-          collectedByName: data.assignedTechnicianName,
-        },
-      },
-    });
-    await audit(req, "lab.sample.collected", "ModuleRecord", row.id, {
-      technicianName: data.assignedTechnicianName,
-    });
-    return ok(res, row, "Sample marked as collected");
+    throw new AppError(
+      409,
+      "Direct collection is disabled. Complete every collection workflow step and scan all tube labels.",
+      "WORKFLOW_REQUIRED"
+    );
   })
 );
 crmRouter.get(
