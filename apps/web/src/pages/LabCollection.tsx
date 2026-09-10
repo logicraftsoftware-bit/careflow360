@@ -20,7 +20,9 @@ export function LabCollectionPage({
         api.get(`/crm/lab-collections?state=${state}`).then(unwrap),
     }),
     items = data?.items || [],
-    all = state === "all";
+    all = state === "all",
+    canPrint = (item: any) => admin || (item.createdByTechnicianId === user.id && item.assignedTechnicianId === user.id),
+    showLabelColumn = items.some(canPrint);
   const labels = async (item: any) => {
     try {
       const result = unwrap(
@@ -30,10 +32,7 @@ export function LabCollectionPage({
         alert("This legacy order has no specimen labels.");
         return;
       }
-      const popup = window.open("", "_blank");
-      if (!popup) return;
-      popup.document.write(
-        `<html><head><title>${
+      const html = `<html><head><title>${
           result.orderNumber
         } labels</title><style>@page{margin:8mm}body{font-family:Arial;display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:10px}.label{width:300px;border:1px solid #111;padding:10px;text-align:center;page-break-inside:avoid}.label img{display:block;width:270px;height:82px;object-fit:contain;margin:5px auto}.label b,.label span{display:block;margin:3px;font-size:12px}.label strong{font-size:11px}</style></head><body>${result.specimens
           .map(
@@ -44,8 +43,14 @@ export function LabCollectionPage({
                 x.sampleType
               }</span><span>${x.tests.join(", ")}</span></div>`
           )
-          .join("")}</body></html>`
-      );
+          .join("")}</body></html>`;
+      if ((window as any).ReactNativeWebView) {
+        (window as any).ReactNativeWebView.postMessage(JSON.stringify({ type: "PRINT_HTML", html }));
+        return;
+      }
+      const popup = window.open("", "_blank");
+      if (!popup) return;
+      popup.document.write(html);
       popup.document.close();
       setTimeout(() => popup.print(), 400);
     } catch (error: any) {
@@ -88,7 +93,7 @@ export function LabCollectionPage({
                   <th>Tests</th>
                   <th>Technician</th>
                   <th>Status</th>
-                  {admin && <th>Tube labels</th>}
+                  {showLabelColumn && <th>Tube labels</th>}
                 </tr>
               </thead>
               <tbody>
@@ -105,13 +110,13 @@ export function LabCollectionPage({
                         {item.status.replaceAll("_", " ")}
                       </span>
                     </td>
-                    {admin && <td>
-                      <button
+                    {showLabelColumn && <td>
+                      {canPrint(item) && <button
                         className="btn ghost"
                         onClick={() => labels(item)}
                       >
                         <Barcode /> {item.labelsGeneratedAt && item.specimens?.length ? "Reprint barcodes" : "Generate / print"}
-                      </button>
+                      </button>}
                     </td>}
                   </tr>
                 ))}

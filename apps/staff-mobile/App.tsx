@@ -21,6 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { WebView } from "react-native-webview";
 import { Camera, CameraType } from "react-native-camera-kit";
+import RNPrint from "react-native-print";
 import { clearSession, login, request } from "./src/api";
 import { WEB_APP_URL } from "./src/config";
 import { Card, Empty, Row, Title } from "./src/ui";
@@ -869,8 +870,16 @@ type MoreMenuItem = {
   permission?: string;
   tab?: Tab;
   route?: string;
+  labTechOnly?: boolean;
 };
 const moreMenuItems: MoreMenuItem[] = [
+  {
+    label: "On-the-Spot Lab Order",
+    icon: "flask-outline",
+    permission: "lab-collection",
+    route: "lab-appointments/on-spot",
+    labTechOnly: true,
+  },
   {
     label: "Dashboard",
     icon: "grid-outline",
@@ -1083,7 +1092,7 @@ function More({
       permissions.has("appointments.payment_manage")) ||
     (item.permission === "lab-collection" &&
       user.roleCodes?.includes("LAB_TECHNICIAN"));
-  const items = moreMenuItems.filter(canSee);
+  const items = moreMenuItems.filter((item) => canSee(item) && (!item.labTechOnly || user.roleCodes?.includes("LAB_TECHNICIAN")));
   if (webTool?.route)
     return <WebWorkspace item={webTool} back={() => setWebTool(null)} />;
   if (showProfile)
@@ -1239,6 +1248,14 @@ function WebWorkspace({
               <Text style={s.webLoadingText}>Opening {item.label}…</Text>
             </View>
           )}
+          onMessage={async (event) => {
+            try {
+              const message = JSON.parse(event.nativeEvent.data);
+              if (message.type === "PRINT_HTML" && message.html) await RNPrint.print({ html: message.html });
+            } catch {
+              Alert.alert("Unable to print", "The tube label could not be sent to the printer.");
+            }
+          }}
           onError={() =>
             Alert.alert(
               "Unable to open workspace",

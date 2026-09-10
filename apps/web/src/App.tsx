@@ -95,6 +95,7 @@ export default function App() {
         <Route path="appointments/new" element={<AppointmentBookingPage />} />
         <Route path="appointments/:id/edit" element={<AppointmentEditPage />} />
         <Route path="lab-appointments/new" element={<DiagnosticAppointmentBookingPage kind="lab" />} />
+        <Route path="lab-appointments/on-spot" element={<DiagnosticAppointmentBookingPage kind="lab" onSpot />} />
         <Route path="lab-appointments/:id/edit" element={<DiagnosticAppointmentBookingPage kind="lab" />} />
         <Route path="radiology-appointments/new" element={<DiagnosticAppointmentBookingPage kind="radiology" />} />
         <Route path="radiology-appointments/:id/edit" element={<DiagnosticAppointmentBookingPage kind="radiology" />} />

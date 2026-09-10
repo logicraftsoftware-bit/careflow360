@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, FlaskConical, Plus, ScanLine, Search, Trash2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, unwrap } from "../api";
@@ -11,14 +11,16 @@ type Technician = { id: string; name: string; mobile?: string };
 type Specimen = { tubeType: string; sampleType: string };
 type TubeMaster = { id: string; title: string; status: string; data?: { sampleType?: string; code?: string; capColor?: string; volume?: string } };
 
-export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
-  const nav = useNavigate(), { id } = useParams(), editing = Boolean(id), isLab = kind === "lab", label = isLab ? "Lab" : "Radiology";
+export function DiagnosticAppointmentBookingPage({ kind, onSpot = false }: { kind: Kind; onSpot?: boolean }) {
+  const nav = useNavigate(), qc = useQueryClient(), { id } = useParams(), editing = Boolean(id), isLab = kind === "lab", label = isLab ? "Lab" : "Radiology";
+  const currentUser = JSON.parse(localStorage.getItem("user") || "{}"), isLabTechnician = currentUser.roleCodes?.includes("LAB_TECHNICIAN");
   const [patientSearch, setPatientSearch] = useState(""), [patient, setPatient] = useState<Patient | null>(null), [patientOpen, setPatientOpen] = useState(false);
   const [testSearch, setTestSearch] = useState(""), [testOpen, setTestOpen] = useState(false), [selected, setSelected] = useState<Test[]>([]);
   const [discount, setDiscount] = useState(0), [specimens, setSpecimens] = useState<Specimen[]>([]);
+  const [showNewPatient, setShowNewPatient] = useState(false);
   const { data: patientData } = useQuery({ queryKey: ["booking-patients"], queryFn: () => api.get("/crm/patients?limit=100").then(unwrap) });
   const { data: testData } = useQuery({ queryKey: [`${kind}-booking-tests`], queryFn: () => api.get(`/crm/modules/${kind}-tests?limit=100`).then(unwrap) });
-  const { data: technicians = [] } = useQuery<Technician[]>({ queryKey: ["lab-technicians"], queryFn: () => api.get("/crm/lab-technicians").then(unwrap), enabled: isLab });
+  const { data: technicians = [] } = useQuery<Technician[]>({ queryKey: ["lab-technicians"], queryFn: () => api.get("/crm/lab-technicians").then(unwrap), enabled: isLab && !onSpot });
   const { data: tubeData, isError: tubeLoadError } = useQuery({ queryKey: ["specimen-tube-master"], queryFn: () => api.get("/crm/modules/specimen-tubes").then(unwrap), enabled: isLab });
   const { data: orderData, isLoading: orderLoading } = useQuery({ queryKey: [kind, "appointment-edit", id], queryFn: () => api.get(`/crm/modules/${kind}-appointments`).then(unwrap), enabled: editing });
   const order = orderData?.items?.find((item: any) => item.id === id), orderValues = order?.data || {};
@@ -34,12 +36,16 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
       : api.post(isLab ? "/crm/lab-collections/orders" : "/crm/modules/radiology-appointments", payload),
     onSuccess: () => nav(isLab ? "/app/lab-collection/assigned" : "/app/radiology-appointments"),
   });
+  const createPatient = useMutation({
+    mutationFn: (payload: object) => api.post("/crm/patients", payload).then(unwrap),
+    onSuccess: (created: Patient) => { setPatient(created); setPatientSearch(`${created.name} · ${created.mobile || created.patientNumber || ""}`); setShowNewPatient(false); qc.invalidateQueries({ queryKey: ["booking-patients"] }); },
+  });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!patient || !selected.length || (isLab && !specimens.length)) return;
     const form = Object.fromEntries(new FormData(event.currentTarget));
     const common = { ...form, patientId: patient.id, testIds: selected.map((test) => test.id), testNames: selected.map((test) => test.title).join(", "), tests: selected.map((test) => ({ id: test.id, title: test.title, price: Number(test.data?.price || 0) })), subtotal, discountAmount: Number(discount || 0), amount: total, currency: "INR" };
-    save.mutate(isLab ? { patientId: patient.id, appointmentAt: form.appointmentAt, technicianId: form.technicianId, testNames: common.testNames, instructions: form.instructions, priority: form.priority, paymentStatus: form.paymentStatus, subtotal, discountAmount: Number(discount || 0), amount: total, specimens: specimens.map((item, index) => ({ ...item, tests: [selected[index].title] })) } : { ...common, title: editing ? order.title : `RADIOLOGY-${Date.now().toString(36).toUpperCase()}` });
+    save.mutate(isLab ? { patientId: patient.id, appointmentAt: form.appointmentAt, ...(onSpot ? {} : { technicianId: form.technicianId }), testNames: common.testNames, instructions: form.instructions, priority: form.priority, paymentStatus: form.paymentStatus, subtotal, discountAmount: Number(discount || 0), amount: total, specimens: specimens.map((item, index) => ({ ...item, tests: [selected[index].title] })) } : { ...common, title: editing ? order.title : `RADIOLOGY-${Date.now().toString(36).toUpperCase()}` });
   };
   const selectTube = (index: number, title: string) => {
     const tube = tubeOptions.find((item) => item.title === title);
@@ -76,18 +82,20 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
   const localDate = (value?: string) => value ? new Date(value).toISOString().slice(0, 16) : "";
   if (editing && orderLoading) return <div className="state">Loading order…</div>;
   if (editing && !order) return <div className="state error">Order not found.</div>;
+  if (onSpot && !isLabTechnician) return <div className="state error">On-the-spot orders are available only to lab technician accounts.</div>;
 
   return <div className="diagnostic-booking">
     <button className="schedule-back" onClick={() => nav(`/app/${kind}-appointments`)}><ArrowLeft /> Back to {label} Appointments</button>
-    <div className="schedule-title"><div><span>CLINIC MANAGEMENT</span><h1>{editing ? "Edit" : "Create"} {label} Order</h1><p>{isLab ? "Create the order, define every specimen tube and assign a technician." : "Create and schedule a patient radiology procedure."}</p></div>{isLab ? <FlaskConical /> : <ScanLine />}</div>
+    <div className="schedule-title"><div><span>{onSpot ? "TECHNICIAN COLLECTION" : "CLINIC MANAGEMENT"}</span><h1>{onSpot ? "On-the-Spot Lab Order" : `${editing ? "Edit" : "Create"} ${label} Order`}</h1><p>{onSpot ? "Register or select the customer, choose tests and prepare labelled tubes at the collection location." : isLab ? "Create the order, define every specimen tube and assign a technician." : "Create and schedule a patient radiology procedure."}</p></div>{isLab ? <FlaskConical /> : <ScanLine />}</div>
     <form onSubmit={submit} className="diagnostic-booking-grid">
       <section className="panel diagnostic-form">
         <h2>Patient and appointment</h2>
         <label>Patient *</label>
         <div className="patient-search"><div className="smart-select-input"><Search /><input value={patientSearch} placeholder="Search patient name, mobile or ID" onFocus={() => setPatientOpen(true)} onBlur={() => setTimeout(() => setPatientOpen(false), 150)} onChange={(event) => { setPatientSearch(event.target.value); setPatient(null); setPatientOpen(true); }} /></div>{patientOpen && <div className="patient-results">{patientMatches.map((item) => <button type="button" key={item.id} onMouseDown={() => { setPatient(item); setPatientSearch(`${item.name} · ${item.mobile || item.patientNumber}`); setPatientOpen(false); }}><strong>{item.name}</strong><span>{item.mobile}</span><small>{item.patientNumber}</small></button>)}</div>}{patient && <small className="patient-selected">Patient selected</small>}</div>
+        {onSpot && <div className="onspot-patient"><button type="button" className="btn ghost" onClick={() => setShowNewPatient((value) => !value)}><Plus /> Register new customer</button>{showNewPatient && <div className="diagnostic-fields"><label>Customer name *<input id="onspot-name" /></label><label>Mobile number *<input id="onspot-mobile" inputMode="tel" /></label><label>Gender<select id="onspot-gender"><option>OTHER</option><option>MALE</option><option>FEMALE</option></select></label><button type="button" className="btn" disabled={createPatient.isPending} onClick={() => { const name = (document.getElementById("onspot-name") as HTMLInputElement)?.value.trim(), mobile = (document.getElementById("onspot-mobile") as HTMLInputElement)?.value.trim(), gender = (document.getElementById("onspot-gender") as HTMLSelectElement)?.value; if (name && mobile) createPatient.mutate({ name, mobile, gender, status: "ACTIVE" }); }}>{createPatient.isPending ? "Registering…" : "Save customer"}</button></div>}</div>}
         <div className="diagnostic-fields">
           <label>Appointment date and time *<input name="appointmentAt" type="datetime-local" required defaultValue={localDate(orderValues.appointmentAt)} /></label>
-          {isLab && <label>Assigned technician *<select name="technicianId" required defaultValue={orderValues.assignedTechnicianId || ""}><option value="" disabled>Select lab technician</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+          {isLab && !onSpot && <label>Assigned technician *<select name="technicianId" required defaultValue={orderValues.assignedTechnicianId || ""}><option value="" disabled>Select lab technician</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
           <label>Priority<select name="priority" defaultValue={orderValues.priority || "ROUTINE"}><option>ROUTINE</option><option>URGENT</option><option>{isLab ? "STAT" : "EMERGENCY"}</option></select></label>
           <label>Payment status<select name="paymentStatus" defaultValue={orderValues.paymentStatus || "PENDING"}><option>PENDING</option><option>PAID</option><option>PARTIALLY_PAID</option></select></label>
           <label className="wide">Instructions<textarea name="instructions" defaultValue={orderValues.instructions || ""} placeholder="Fasting, preparation or collection instructions" /></label>
@@ -100,7 +108,7 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
         <div className="selected-tests">{selected.map((test) => <article key={test.id}><div><b>{test.title}</b><small>{isLab ? "Tube selection required" : test.data?.code}</small></div><strong>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</strong><button type="button" onClick={() => removeTest(test.id)}><Trash2 /></button></article>)}{!selected.length && <p>Search and add one or more tests.</p>}</div>
         <div className="booking-totals"><p><span>Subtotal</span><b>₹{subtotal.toLocaleString("en-IN")}</b></p><label>Discount amount<input type="number" min="0" max={subtotal} value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label><p className="grand-total"><span>Total payable</span><b>₹{total.toLocaleString("en-IN")}</b></p></div>
         {save.error && <div className="alert error">{(save.error as any)?.response?.data?.message || "Unable to create order."}</div>}
-        <button className="btn full" disabled={!patient || !selected.length || (isLab && (specimens.length !== selected.length || specimens.some((item) => !item.tubeType || !item.sampleType) || !technicians.length)) || save.isPending}><Plus />{save.isPending ? "Saving…" : `${editing ? "Save" : "Create"} ${label} Order`}</button>
+        <button className="btn full" disabled={!patient || !selected.length || (isLab && (specimens.length !== selected.length || specimens.some((item) => !item.tubeType || !item.sampleType) || (!onSpot && !technicians.length))) || save.isPending}><Plus />{save.isPending ? "Saving…" : onSpot ? "Create and prepare labels" : `${editing ? "Save" : "Create"} ${label} Order`}</button>
       </aside>
     </form>
   </div>;

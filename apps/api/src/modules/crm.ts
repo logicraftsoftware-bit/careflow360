@@ -866,12 +866,6 @@ crmRouter.get(
           role.code
         )
       );
-    if (!isAdmin)
-      throw new AppError(
-        403,
-        "Only an administrator can generate tube labels",
-        "ADMIN_REQUIRED"
-      );
     const record = await prisma.moduleRecord.findFirst({
       where: {
         id: req.params.id,
@@ -881,6 +875,15 @@ crmRouter.get(
     });
     if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
     const data = record.data as any;
+    const ownOnSpotOrder =
+      data.createdByTechnicianId === req.user!.id &&
+      data.assignedTechnicianId === req.user!.id;
+    if (!isAdmin && !ownOnSpotOrder)
+      throw new AppError(
+        403,
+        "Only an administrator or the technician who created this on-the-spot order can generate tube labels",
+        "LABEL_ACCESS_DENIED"
+      );
     if (!(data.specimens || []).length)
       throw new AppError(
         409,
