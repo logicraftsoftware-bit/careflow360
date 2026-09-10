@@ -570,10 +570,12 @@ model Payment {
   secureToken           String        @unique
   expiresAt             DateTime?
   confirmedAt           DateTime?
+  collectedById         String?       @db.ObjectId
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
   @@index([tenantId, appointmentId])
+  @@index([tenantId, collectedById])
 }
 
 model WebhookEvent {

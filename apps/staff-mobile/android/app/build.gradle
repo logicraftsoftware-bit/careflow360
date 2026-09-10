@@ -2,6 +2,13 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Bundle the icon font used by react-native-vector-icons into the APK.
+project.ext.vectoricons = [
+    iconFontNames: ["Ionicons.ttf"],
+    iconFontsDir: "../../../../node_modules/react-native-vector-icons/Fonts"
+]
+apply from: file("../../../../node_modules/react-native-vector-icons/fonts.gradle")
+
 def hostOs = System.getProperty("os.name").toLowerCase()
 def hermesOsBin = hostOs.contains("win") ? "win64-bin" : (hostOs.contains("mac") ? "osx-bin" : "linux64-bin")
 def hermesExecutable = hostOs.contains("win") ? "hermesc.exe" : "hermesc"

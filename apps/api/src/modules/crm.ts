@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import argon2 from "argon2";
 import { z } from "zod";
+import QRCode from "qrcode";
 import {
   asyncRoute,
   audit,
@@ -20,7 +21,10 @@ import {
   sendRescheduledMessage,
   sendDiagnosticMessage,
 } from "../aisensy.js";
-import { ensureDiagnosticPaymentLink, ensureRazorpayPaymentLink } from "../razorpay.js";
+import {
+  ensureDiagnosticPaymentLink,
+  ensureRazorpayPaymentLink,
+} from "../razorpay.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
 const resources: any = {
@@ -140,11 +144,11 @@ function prepared(
   resource: string,
   body: any,
   userId: string,
-  creating = false,
+  creating = false
 ) {
   const allowed = allowedFields[resource] ?? [];
   const data: any = Object.fromEntries(
-    Object.entries(body).filter(([key]) => allowed.includes(key)),
+    Object.entries(body).filter(([key]) => allowed.includes(key))
   );
   for (const key of Object.keys(data)) {
     if (key.endsWith("Id") && data[key] === "") delete data[key];
@@ -197,27 +201,130 @@ async function notifyAppointment(
   req: Parameters<typeof audit>[0],
   kind: "payment_pending" | "payment_success" | "cancelled" | "rescheduled",
   appointment: AppointmentMessage,
-  details?: { cancellationReason?: string; previousStartsAt?: Date },
+  details?: { cancellationReason?: string; previousStartsAt?: Date }
 ) {
   try {
-    const delivery = kind === "payment_pending" ? await sendPaymentPendingMessage(appointment)
-      : kind === "payment_success" ? await sendPaymentSuccessMessage(appointment)
-      : kind === "cancelled" ? await sendCancelledMessage(appointment, details?.cancellationReason || "Cancelled by clinic")
-      : await sendRescheduledMessage(appointment, details?.previousStartsAt || appointment.startsAt);
-    await audit(req, `appointment.whatsapp.${kind}.${delivery.sent ? "sent" : "skipped"}`, "Appointment", appointment.appointmentId, delivery);
+    const delivery =
+      kind === "payment_pending"
+        ? await sendPaymentPendingMessage(appointment)
+        : kind === "payment_success"
+        ? await sendPaymentSuccessMessage(appointment)
+        : kind === "cancelled"
+        ? await sendCancelledMessage(
+            appointment,
+            details?.cancellationReason || "Cancelled by clinic"
+          )
+        : await sendRescheduledMessage(
+            appointment,
+            details?.previousStartsAt || appointment.startsAt
+          );
+    await audit(
+      req,
+      `appointment.whatsapp.${kind}.${delivery.sent ? "sent" : "skipped"}`,
+      "Appointment",
+      appointment.appointmentId,
+      delivery
+    );
   } catch (error) {
-    await audit(req, `appointment.whatsapp.${kind}.failed`, "Appointment", appointment.appointmentId, {
-      error: error instanceof Error ? error.message : "Unknown AiSensy error",
-    });
+    await audit(
+      req,
+      `appointment.whatsapp.${kind}.failed`,
+      "Appointment",
+      appointment.appointmentId,
+      {
+        error: error instanceof Error ? error.message : "Unknown AiSensy error",
+      }
+    );
   }
 }
-async function notifyDiagnostic(req:Parameters<typeof audit>[0],row:any,previous?:any,strict=false){
-  const data=row.data as any;if(!["lab-appointments","radiology-appointments"].includes(row.module)||!data?.patientId)return;
-  if(previous&&previous.appointmentAt===data.appointmentAt&&previous.paymentStatus===data.paymentStatus&&previous.status===row.status)return;
-  const [patient,clinic]=await Promise.all([prisma.patient.findFirst({where:{id:data.patientId,tenantId:row.tenantId}}),prisma.tenant.findUnique({where:{id:row.tenantId}})]);if(!patient||!clinic)return;
-  const message:AppointmentMessage={appointmentId:row.id,tenantId:row.tenantId,appointmentNumber:row.title,patientName:patient.name,patientMobile:patient.mobile,patientNumber:patient.patientNumber,clinicName:clinic.name,clinicPhone:clinic.mobile,doctorName:row.module==="lab-appointments"?"Laboratory":"Radiology",departmentName:data.testNames||"Diagnostic test",branchName:"Clinic",startsAt:new Date(data.appointmentAt||row.createdAt),amount:Number(data.amount||0),token:row.title};
-  const kind=row.status==="CANCELLED"?"cancelled":previous?.appointmentAt&&previous.appointmentAt!==data.appointmentAt?"rescheduled":data.paymentStatus==="PAID"?"payment_success":"payment_pending";
-  try{const paymentLink=kind==="payment_pending"?await ensureDiagnosticPaymentLink(row,patient):null;const delivery=await sendDiagnosticMessage(kind,message,{previousStartsAt:previous?.appointmentAt?new Date(previous.appointmentAt):undefined,cancellationReason:data.cancellationReason,paymentUrl:paymentLink?.short_url});await audit(req,`${row.module}.whatsapp.${kind}.${delivery.sent?"sent":"skipped"}`,"ModuleRecord",row.id,delivery);if(strict&&!delivery.sent)throw new Error(delivery.reason||"AiSensy did not send the message")}catch(error){await audit(req,`${row.module}.whatsapp.${kind}.failed`,"ModuleRecord",row.id,{error:error instanceof Error?error.message:"Unknown AiSensy error"});if(strict)throw new AppError(502,error instanceof Error?error.message:"WhatsApp message failed","AISENSY_SEND_FAILED")}
+async function notifyDiagnostic(
+  req: Parameters<typeof audit>[0],
+  row: any,
+  previous?: any,
+  strict = false
+) {
+  const data = row.data as any;
+  if (
+    !["lab-appointments", "radiology-appointments"].includes(row.module) ||
+    !data?.patientId
+  )
+    return;
+  if (
+    previous &&
+    previous.appointmentAt === data.appointmentAt &&
+    previous.paymentStatus === data.paymentStatus &&
+    previous.status === row.status
+  )
+    return;
+  const [patient, clinic] = await Promise.all([
+    prisma.patient.findFirst({
+      where: { id: data.patientId, tenantId: row.tenantId },
+    }),
+    prisma.tenant.findUnique({ where: { id: row.tenantId } }),
+  ]);
+  if (!patient || !clinic) return;
+  const message: AppointmentMessage = {
+    appointmentId: row.id,
+    tenantId: row.tenantId,
+    appointmentNumber: row.title,
+    patientName: patient.name,
+    patientMobile: patient.mobile,
+    patientNumber: patient.patientNumber,
+    clinicName: clinic.name,
+    clinicPhone: clinic.mobile,
+    doctorName: row.module === "lab-appointments" ? "Laboratory" : "Radiology",
+    departmentName: data.testNames || "Diagnostic test",
+    branchName: "Clinic",
+    startsAt: new Date(data.appointmentAt || row.createdAt),
+    amount: Number(data.amount || 0),
+    token: row.title,
+  };
+  const kind =
+    row.status === "CANCELLED"
+      ? "cancelled"
+      : previous?.appointmentAt && previous.appointmentAt !== data.appointmentAt
+      ? "rescheduled"
+      : data.paymentStatus === "PAID"
+      ? "payment_success"
+      : "payment_pending";
+  try {
+    const paymentLink =
+      kind === "payment_pending"
+        ? await ensureDiagnosticPaymentLink(row, patient)
+        : null;
+    const delivery = await sendDiagnosticMessage(kind, message, {
+      previousStartsAt: previous?.appointmentAt
+        ? new Date(previous.appointmentAt)
+        : undefined,
+      cancellationReason: data.cancellationReason,
+      paymentUrl: paymentLink?.short_url,
+    });
+    await audit(
+      req,
+      `${row.module}.whatsapp.${kind}.${delivery.sent ? "sent" : "skipped"}`,
+      "ModuleRecord",
+      row.id,
+      delivery
+    );
+    if (strict && !delivery.sent)
+      throw new Error(delivery.reason || "AiSensy did not send the message");
+  } catch (error) {
+    await audit(
+      req,
+      `${row.module}.whatsapp.${kind}.failed`,
+      "ModuleRecord",
+      row.id,
+      {
+        error: error instanceof Error ? error.message : "Unknown AiSensy error",
+      }
+    );
+    if (strict)
+      throw new AppError(
+        502,
+        error instanceof Error ? error.message : "WhatsApp message failed",
+        "AISENSY_SEND_FAILED"
+      );
+  }
 }
 crmRouter.get(
   "/dashboard",
@@ -301,78 +408,706 @@ crmRouter.get(
       todayCalls,
       todayAppointments,
       pipeline: Object.fromEntries(
-        pipeline.map((x) => [x.status, x._count._all]),
+        pipeline.map((x) => [x.status, x._count._all])
       ),
       todayFollowups,
       upcomingAppointments,
       recentPayments,
       timeline,
     });
-  }),
+  })
 );
 crmRouter.get(
   "/staff-accounts",
   asyncRoute(async (req, res) => {
-    const users = await prisma.user.findMany({ where: { tenantId: tenantId(req), isPlatform: false }, include: { roles: { include: { role: true } } }, orderBy: { createdAt: "desc" } });
-    return ok(res, { items: users.map((user) => ({ id: user.id, name: user.name, email: user.email, mobile: user.mobile, status: user.status, role: user.roles[0]?.role.code || "STAFF", lastLoginAt: user.lastLoginAt, createdAt: user.createdAt })), total: users.length });
-  }),
+    const users = await prisma.user.findMany({
+      where: { tenantId: tenantId(req), isPlatform: false },
+      include: { roles: { include: { role: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return ok(res, {
+      items: users.map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        mobile: user.mobile,
+        status: user.status,
+        role: user.roles[0]?.role.code || "STAFF",
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt,
+      })),
+      total: users.length,
+    });
+  })
 );
 crmRouter.post(
   "/staff-accounts",
   asyncRoute(async (req, res) => {
-    const tid = tenantId(req), body = z.object({ name: z.string().trim().min(2), email: z.string().email(), mobile: z.string().trim().optional(), password: z.string().min(8), role: z.string().trim().min(2), status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE") }).parse(req.body);
-    const roleRecords = await prisma.moduleRecord.findMany({ where: { tenantId: tid, module: "roles-permissions" } }), roleRecord = roleRecords.find((item) => (item.data as any)?.code === body.role);
-    const role = await prisma.role.upsert({ where: { tenantId_code: { tenantId: tid, code: body.role } }, update: { name: roleRecord?.title || body.role.replaceAll("_", " ") }, create: { tenantId: tid, code: body.role, name: roleRecord?.title || body.role.replaceAll("_", " ") } });
-    const permissions = Array.isArray((roleRecord?.data as any)?.permissions) ? (roleRecord!.data as any).permissions as string[] : [];
-    for (const key of permissions) { const permission = await prisma.permission.upsert({ where: { key }, update: {}, create: { key } }); await prisma.rolePermission.upsert({ where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } }, update: {}, create: { roleId: role.id, permissionId: permission.id } }); }
-    const user = await prisma.user.create({ data: { tenantId: tid, name: body.name, email: body.email.toLowerCase(), mobile: body.mobile || null, passwordHash: await argon2.hash(body.password), status: body.status, roles: { create: { roleId: role.id } } } });
-    await audit(req, "staff.created", "Staff", user.id, { name: user.name, email: user.email, role: body.role });
+    const tid = tenantId(req),
+      body = z
+        .object({
+          name: z.string().trim().min(2),
+          email: z.string().email(),
+          mobile: z.string().trim().optional(),
+          password: z.string().min(8),
+          role: z.string().trim().min(2),
+          status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
+        })
+        .parse(req.body);
+    const roleRecords = await prisma.moduleRecord.findMany({
+        where: { tenantId: tid, module: "roles-permissions" },
+      }),
+      roleRecord = roleRecords.find(
+        (item) => (item.data as any)?.code === body.role
+      );
+    const role = await prisma.role.upsert({
+      where: { tenantId_code: { tenantId: tid, code: body.role } },
+      update: { name: roleRecord?.title || body.role.replaceAll("_", " ") },
+      create: {
+        tenantId: tid,
+        code: body.role,
+        name: roleRecord?.title || body.role.replaceAll("_", " "),
+      },
+    });
+    const permissions = Array.isArray((roleRecord?.data as any)?.permissions)
+      ? ((roleRecord!.data as any).permissions as string[])
+      : [];
+    for (const key of permissions) {
+      const permission = await prisma.permission.upsert({
+        where: { key },
+        update: {},
+        create: { key },
+      });
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: { roleId: role.id, permissionId: permission.id },
+        },
+        update: {},
+        create: { roleId: role.id, permissionId: permission.id },
+      });
+    }
+    const user = await prisma.user.create({
+      data: {
+        tenantId: tid,
+        name: body.name,
+        email: body.email.toLowerCase(),
+        mobile: body.mobile || null,
+        passwordHash: await argon2.hash(body.password),
+        status: body.status,
+        roles: { create: { roleId: role.id } },
+      },
+    });
+    await audit(req, "staff.created", "Staff", user.id, {
+      name: user.name,
+      email: user.email,
+      role: body.role,
+    });
     return ok(res, { id: user.id }, "Staff account created", 201);
-  }),
+  })
 );
 crmRouter.patch(
   "/staff-accounts/:id",
   asyncRoute(async (req, res) => {
-    const tid = tenantId(req), body = z.object({ name: z.string().trim().min(2), email: z.string().email(), mobile: z.string().trim().optional(), password: z.string().min(8).optional().or(z.literal("")), role: z.string().trim().min(2), status: z.enum(["ACTIVE", "INACTIVE"]) }).parse(req.body);
-    const found = await prisma.user.findFirst({ where: { id: req.params.id, tenantId: tid, isPlatform: false } }); if (!found) throw new AppError(404, "Staff account not found", "NOT_FOUND");
-    const role = await prisma.role.upsert({ where: { tenantId_code: { tenantId: tid, code: body.role } }, update: {}, create: { tenantId: tid, code: body.role, name: body.role.replaceAll("_", " ") } });
-    await prisma.$transaction([prisma.user.update({ where: { id: found.id }, data: { name: body.name, email: body.email.toLowerCase(), mobile: body.mobile || null, status: body.status, ...(body.password ? { passwordHash: await argon2.hash(body.password) } : {}) } }), prisma.userRole.deleteMany({ where: { userId: found.id } }), prisma.userRole.create({ data: { userId: found.id, roleId: role.id } })]);
-    await audit(req, body.password ? "staff.password_reset" : "staff.updated", "Staff", found.id, { role: body.role }); return ok(res, { id: found.id }, "Staff account updated");
-  }),
+    const tid = tenantId(req),
+      body = z
+        .object({
+          name: z.string().trim().min(2),
+          email: z.string().email(),
+          mobile: z.string().trim().optional(),
+          password: z.string().min(8).optional().or(z.literal("")),
+          role: z.string().trim().min(2),
+          status: z.enum(["ACTIVE", "INACTIVE"]),
+        })
+        .parse(req.body);
+    const found = await prisma.user.findFirst({
+      where: { id: req.params.id, tenantId: tid, isPlatform: false },
+    });
+    if (!found) throw new AppError(404, "Staff account not found", "NOT_FOUND");
+    const role = await prisma.role.upsert({
+      where: { tenantId_code: { tenantId: tid, code: body.role } },
+      update: {},
+      create: {
+        tenantId: tid,
+        code: body.role,
+        name: body.role.replaceAll("_", " "),
+      },
+    });
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: found.id },
+        data: {
+          name: body.name,
+          email: body.email.toLowerCase(),
+          mobile: body.mobile || null,
+          status: body.status,
+          ...(body.password
+            ? { passwordHash: await argon2.hash(body.password) }
+            : {}),
+        },
+      }),
+      prisma.userRole.deleteMany({ where: { userId: found.id } }),
+      prisma.userRole.create({ data: { userId: found.id, roleId: role.id } }),
+    ]);
+    await audit(
+      req,
+      body.password ? "staff.password_reset" : "staff.updated",
+      "Staff",
+      found.id,
+      { role: body.role }
+    );
+    return ok(res, { id: found.id }, "Staff account updated");
+  })
 );
-crmRouter.get("/staff-accounts/:id/activity", asyncRoute(async (req, res) => { const tid = tenantId(req); const user = await prisma.user.findFirst({ where: { id: req.params.id, tenantId: tid } }); if (!user) throw new AppError(404, "Staff account not found", "NOT_FOUND"); const items = await prisma.auditLog.findMany({ where: { tenantId: tid, actorId: user.id }, orderBy: { createdAt: "desc" }, take: 100 }); return ok(res, { user: { id: user.id, name: user.name }, items }); }));
-crmRouter.delete("/staff-accounts/:id", asyncRoute(async (req, res) => { const tid = tenantId(req); if (req.params.id === req.user!.id) throw new AppError(400, "You cannot delete your own account", "SELF_DELETE"); const user = await prisma.user.findFirst({ where: { id: req.params.id, tenantId: tid, isPlatform: false } }); if (!user) throw new AppError(404, "Staff account not found", "NOT_FOUND"); await prisma.user.delete({ where: { id: user.id } }); await audit(req, "staff.deleted", "Staff", user.id, { name: user.name }); return ok(res, null, "Staff account deleted"); }));
-crmRouter.get("/lab-technicians",asyncRoute(async(req,res)=>{const users=await prisma.user.findMany({where:{tenantId:tenantId(req),status:"ACTIVE",roles:{some:{role:{code:"LAB_TECHNICIAN"}}}},select:{id:true,name:true,email:true,mobile:true}});return ok(res,users)}));
-crmRouter.patch("/lab-appointments/:id/assign",asyncRoute(async(req,res)=>{const tid=tenantId(req),body=z.object({technicianId:z.string()}).parse(req.body),[record,technician]=await Promise.all([prisma.moduleRecord.findFirst({where:{id:req.params.id,tenantId:tid,module:"lab-appointments"}}),prisma.user.findFirst({where:{id:body.technicianId,tenantId:tid,status:"ACTIVE",roles:{some:{role:{code:"LAB_TECHNICIAN"}}}}})]);if(!record)throw new AppError(404,"Lab appointment not found","NOT_FOUND");if(!technician)throw new AppError(400,"Please select an active Lab Technician","INVALID_TECHNICIAN");const row=await prisma.moduleRecord.update({where:{id:record.id},data:{status:"ASSIGNED",data:{...(record.data as object),assignedTechnicianId:technician.id,assignedTechnicianName:technician.name,assignedAt:new Date().toISOString(),assignedById:req.user!.id}}});await audit(req,"lab.appointment.assigned","ModuleRecord",row.id,{technicianId:technician.id,technicianName:technician.name});return ok(res,row,`Assigned to ${technician.name}`)}));
-crmRouter.get("/lab-collections",asyncRoute(async(req,res)=>{const tid=tenantId(req),state=z.enum(["assigned","collected","all"]).default("assigned").parse(req.query.state),roles=await prisma.userRole.findMany({where:{userId:req.user!.id},include:{role:true}}),isTechnician=roles.some(item=>item.role.code==="LAB_TECHNICIAN"),rows=await prisma.moduleRecord.findMany({where:{tenantId:tid,module:"lab-appointments",...(state==="all"?{status:{in:["ASSIGNED","SAMPLE_COLLECTED"]}}:state==="collected"?{status:"SAMPLE_COLLECTED"}:{status:"ASSIGNED"})},orderBy:{updatedAt:"desc"}}),visible=isTechnician?rows.filter(row=>(row.data as any)?.assignedTechnicianId===req.user!.id):rows,patientIds=[...new Set(visible.map(row=>(row.data as any)?.patientId).filter(Boolean))],patients=await prisma.patient.findMany({where:{tenantId:tid,id:{in:patientIds}}}),patientMap=new Map(patients.map(patient=>[patient.id,patient]));return ok(res,{items:visible.map(row=>({...row,...(row.data as object),patient:patientMap.get((row.data as any)?.patientId)})),total:visible.length})}));
-crmRouter.patch("/lab-collections/:id/collect",asyncRoute(async(req,res)=>{const tid=tenantId(req),record=await prisma.moduleRecord.findFirst({where:{id:req.params.id,tenantId:tid,module:"lab-appointments",status:"ASSIGNED"}});if(!record)throw new AppError(404,"Assigned sample not found","NOT_FOUND");const data=record.data as any,roles=await prisma.userRole.findMany({where:{userId:req.user!.id},include:{role:true}}),isTechnician=roles.some(item=>item.role.code==="LAB_TECHNICIAN");if(isTechnician&&data.assignedTechnicianId!==req.user!.id)throw new AppError(403,"This sample is assigned to another technician","FORBIDDEN");const row=await prisma.moduleRecord.update({where:{id:record.id},data:{status:"SAMPLE_COLLECTED",data:{...data,collectedAt:new Date().toISOString(),collectedById:req.user!.id,collectedByName:data.assignedTechnicianName}}});await audit(req,"lab.sample.collected","ModuleRecord",row.id,{technicianName:data.assignedTechnicianName});return ok(res,row,"Sample marked as collected")}));
+crmRouter.get(
+  "/staff-accounts/:id/activity",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const user = await prisma.user.findFirst({
+      where: { id: req.params.id, tenantId: tid },
+    });
+    if (!user) throw new AppError(404, "Staff account not found", "NOT_FOUND");
+    const items = await prisma.auditLog.findMany({
+      where: { tenantId: tid, actorId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    return ok(res, { user: { id: user.id, name: user.name }, items });
+  })
+);
+crmRouter.delete(
+  "/staff-accounts/:id",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    if (req.params.id === req.user!.id)
+      throw new AppError(
+        400,
+        "You cannot delete your own account",
+        "SELF_DELETE"
+      );
+    const user = await prisma.user.findFirst({
+      where: { id: req.params.id, tenantId: tid, isPlatform: false },
+    });
+    if (!user) throw new AppError(404, "Staff account not found", "NOT_FOUND");
+    await prisma.user.delete({ where: { id: user.id } });
+    await audit(req, "staff.deleted", "Staff", user.id, { name: user.name });
+    return ok(res, null, "Staff account deleted");
+  })
+);
+crmRouter.get(
+  "/lab-technicians",
+  asyncRoute(async (req, res) => {
+    const users = await prisma.user.findMany({
+      where: {
+        tenantId: tenantId(req),
+        status: "ACTIVE",
+        roles: { some: { role: { code: "LAB_TECHNICIAN" } } },
+      },
+      select: { id: true, name: true, email: true, mobile: true },
+    });
+    return ok(res, users);
+  })
+);
+crmRouter.patch(
+  "/lab-appointments/:id/assign",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      body = z.object({ technicianId: z.string() }).parse(req.body),
+      [record, technician] = await Promise.all([
+        prisma.moduleRecord.findFirst({
+          where: {
+            id: req.params.id,
+            tenantId: tid,
+            module: "lab-appointments",
+          },
+        }),
+        prisma.user.findFirst({
+          where: {
+            id: body.technicianId,
+            tenantId: tid,
+            status: "ACTIVE",
+            roles: { some: { role: { code: "LAB_TECHNICIAN" } } },
+          },
+        }),
+      ]);
+    if (!record)
+      throw new AppError(404, "Lab appointment not found", "NOT_FOUND");
+    if (!technician)
+      throw new AppError(
+        400,
+        "Please select an active Lab Technician",
+        "INVALID_TECHNICIAN"
+      );
+    const row = await prisma.moduleRecord.update({
+      where: { id: record.id },
+      data: {
+        status: "ASSIGNED",
+        data: {
+          ...(record.data as object),
+          assignedTechnicianId: technician.id,
+          assignedTechnicianName: technician.name,
+          assignedAt: new Date().toISOString(),
+          assignedById: req.user!.id,
+        },
+      },
+    });
+    await audit(req, "lab.appointment.assigned", "ModuleRecord", row.id, {
+      technicianId: technician.id,
+      technicianName: technician.name,
+    });
+    return ok(res, row, `Assigned to ${technician.name}`);
+  })
+);
+const collectionStages = [
+  "ASSIGNED",
+  "ACCEPTED",
+  "ON_THE_WAY",
+  "ARRIVED",
+  "PATIENT_VERIFIED",
+  "PREPARATION_CHECKED",
+  "BARCODES_SCANNED",
+  "SPECIMENS_COLLECTED",
+  "PAYMENT_RECORDED",
+  "PACKAGED",
+  "SAMPLE_COLLECTED",
+  "IN_TRANSIT",
+  "RECEIVED",
+] as const;
+crmRouter.post(
+  "/lab-collections/orders",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      body = z
+        .object({
+          patientId: z.string(),
+          appointmentAt: z.coerce.date(),
+          testNames: z.string().trim().min(2),
+          instructions: z.string().trim().max(500).optional(),
+          amount: z.coerce.number().min(0).default(0),
+          specimens: z
+            .array(
+              z.object({
+                tubeType: z.string().trim().min(2),
+                sampleType: z.string().trim().min(2),
+                tests: z.array(z.string().trim().min(1)).min(1),
+              })
+            )
+            .min(1),
+        })
+        .parse(req.body),
+      patient = await prisma.patient.findFirst({
+        where: { id: body.patientId, tenantId: tid },
+      });
+    if (!patient) throw new AppError(404, "Patient not found", "NOT_FOUND");
+    const now = new Date().toISOString(),
+      specimens = body.specimens.map((specimen, index) => ({
+        ...specimen,
+        id: `SP-${randomUUID()}`,
+        sequence: index + 1,
+        status: "EXPECTED",
+        qrToken: randomUUID(),
+      })),
+      row = await prisma.moduleRecord.create({
+        data: {
+          tenantId: tid,
+          module: "lab-appointments",
+          title: `LAB-${Date.now().toString(36).toUpperCase()}`,
+          status: "ASSIGNED",
+          data: {
+            patientId: patient.id,
+            testNames: body.testNames,
+            appointmentAt: body.appointmentAt.toISOString(),
+            instructions: body.instructions || "",
+            amount: body.amount,
+            assignedTechnicianId: req.user!.id,
+            assignedTechnicianName: req.user!.id,
+            assignedAt: now,
+            createdByTechnicianId: req.user!.id,
+            specimens,
+            workflow: [{ stage: "ASSIGNED", at: now, by: req.user!.id }],
+          },
+        },
+      });
+    await audit(req, "lab.order.technician_created", "ModuleRecord", row.id, {
+      specimenCount: specimens.length,
+    });
+    return ok(res, row, "Lab order created and assigned", 201);
+  })
+);
+crmRouter.get(
+  "/lab-collections/:id/labels",
+  asyncRoute(async (req, res) => {
+    const record = await prisma.moduleRecord.findFirst({
+      where: {
+        id: req.params.id,
+        tenantId: tenantId(req),
+        module: "lab-appointments",
+      },
+    });
+    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
+    const data = record.data as any,
+      specimens = await Promise.all(
+        (data.specimens || []).map(async (specimen: any) => ({
+          ...specimen,
+          qrDataUrl: await QRCode.toDataURL(
+            `CF360:${record.id}:${specimen.id}:${specimen.qrToken}`,
+            { errorCorrectionLevel: "H", margin: 1, width: 320 }
+          ),
+        }))
+      );
+    return ok(res, {
+      orderId: record.id,
+      orderNumber: record.title,
+      patientId: data.patientId,
+      specimens,
+    });
+  })
+);
+crmRouter.patch(
+  "/lab-collections/:id/workflow",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      body = z
+        .object({
+          stage: z.enum([
+            ...collectionStages,
+            "ACCEPTED_AT_LAB",
+            "REJECTED_AT_LAB",
+          ] as [string, ...string[]]),
+          notes: z.string().trim().max(500).optional(),
+          barcodeTokens: z.array(z.string()).optional(),
+          checklist: z.record(z.boolean()).optional(),
+          payment: z
+            .object({
+              status: z.enum(["PAID", "PENDING", "NOT_REQUIRED"]),
+              method: z.string().optional(),
+              amount: z.coerce.number().min(0).optional(),
+              transactionId: z.string().optional(),
+            })
+            .optional(),
+        })
+        .parse(req.body),
+      record = await prisma.moduleRecord.findFirst({
+        where: { id: req.params.id, tenantId: tid, module: "lab-appointments" },
+      });
+    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
+    const data = record.data as any,
+      roles = await prisma.userRole.findMany({
+        where: { userId: req.user!.id },
+        include: { role: true },
+      }),
+      isAdmin =
+        req.user!.isPlatform ||
+        roles.some((x) =>
+          ["SUPER_ADMIN", "CLINIC_ADMIN", "BRANCH_ADMIN", "MANAGER"].includes(
+            x.role.code
+          )
+        );
+    if (!isAdmin && data.assignedTechnicianId !== req.user!.id)
+      throw new AppError(
+        403,
+        "This order is assigned to another technician",
+        "FORBIDDEN"
+      );
+    const current = String(record.status),
+      currentIndex = collectionStages.indexOf(current as any),
+      nextIndex = collectionStages.indexOf(body.stage as any);
+    if (body.stage === "ACCEPTED_AT_LAB" || body.stage === "REJECTED_AT_LAB") {
+      if (current !== "RECEIVED")
+        throw new AppError(
+          409,
+          "Order must be received before lab review",
+          "INVALID_TRANSITION"
+        );
+    } else if (nextIndex !== currentIndex + 1)
+      throw new AppError(
+        409,
+        `Expected next stage: ${
+          collectionStages[currentIndex + 1] || "lab review"
+        }`,
+        "INVALID_TRANSITION"
+      );
+    if (body.stage === "BARCODES_SCANNED") {
+      const expected = (data.specimens || []).map((x: any) => x.qrToken).sort(),
+        scanned = [...(body.barcodeTokens || [])].sort();
+      if (JSON.stringify(expected) !== JSON.stringify(scanned))
+        throw new AppError(
+          400,
+          "Every expected specimen barcode must be scanned",
+          "BARCODE_MISMATCH"
+        );
+    }
+    const at = new Date().toISOString(),
+      updated = await prisma.moduleRecord.update({
+        where: { id: record.id },
+        data: {
+          status: body.stage,
+          data: {
+            ...data,
+            ...(body.payment
+              ? {
+                  paymentStatus: body.payment.status,
+                  paymentMethod: body.payment.method,
+                  amount: body.payment.amount ?? data.amount,
+                  transactionId: body.payment.transactionId,
+                  paymentCollectedById: req.user!.id,
+                }
+              : {}),
+            workflow: [
+              ...(data.workflow || []),
+              {
+                stage: body.stage,
+                at,
+                by: req.user!.id,
+                notes: body.notes,
+                checklist: body.checklist,
+              },
+            ],
+          },
+        },
+      });
+    await audit(
+      req,
+      `lab.workflow.${body.stage.toLowerCase()}`,
+      "ModuleRecord",
+      record.id,
+      { notes: body.notes }
+    );
+    return ok(
+      res,
+      updated,
+      `Order moved to ${body.stage.replaceAll("_", " ")}`
+    );
+  })
+);
+crmRouter.get(
+  "/lab-collections",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      state = z
+        .enum(["assigned", "collected", "all"])
+        .default("assigned")
+        .parse(req.query.state),
+      roles = await prisma.userRole.findMany({
+        where: { userId: req.user!.id },
+        include: { role: true },
+      }),
+      isTechnician = roles.some((item) => item.role.code === "LAB_TECHNICIAN"),
+      rows = await prisma.moduleRecord.findMany({
+        where: {
+          tenantId: tid,
+          module: "lab-appointments",
+          ...(state === "all"
+            ? { status: { in: ["ASSIGNED", "SAMPLE_COLLECTED"] } }
+            : state === "collected"
+            ? { status: "SAMPLE_COLLECTED" }
+            : { status: "ASSIGNED" }),
+        },
+        orderBy: { updatedAt: "desc" },
+      }),
+      visible = isTechnician
+        ? rows.filter(
+            (row) => (row.data as any)?.assignedTechnicianId === req.user!.id
+          )
+        : rows,
+      patientIds = [
+        ...new Set(
+          visible.map((row) => (row.data as any)?.patientId).filter(Boolean)
+        ),
+      ],
+      patients = await prisma.patient.findMany({
+        where: { tenantId: tid, id: { in: patientIds } },
+      }),
+      patientMap = new Map(patients.map((patient) => [patient.id, patient]));
+    return ok(res, {
+      items: visible.map((row) => ({
+        ...row,
+        ...(row.data as object),
+        patient: patientMap.get((row.data as any)?.patientId),
+      })),
+      total: visible.length,
+    });
+  })
+);
+crmRouter.patch(
+  "/lab-collections/:id/collect",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      record = await prisma.moduleRecord.findFirst({
+        where: {
+          id: req.params.id,
+          tenantId: tid,
+          module: "lab-appointments",
+          status: "ASSIGNED",
+        },
+      });
+    if (!record)
+      throw new AppError(404, "Assigned sample not found", "NOT_FOUND");
+    const data = record.data as any,
+      roles = await prisma.userRole.findMany({
+        where: { userId: req.user!.id },
+        include: { role: true },
+      }),
+      isTechnician = roles.some((item) => item.role.code === "LAB_TECHNICIAN");
+    if (isTechnician && data.assignedTechnicianId !== req.user!.id)
+      throw new AppError(
+        403,
+        "This sample is assigned to another technician",
+        "FORBIDDEN"
+      );
+    const row = await prisma.moduleRecord.update({
+      where: { id: record.id },
+      data: {
+        status: "SAMPLE_COLLECTED",
+        data: {
+          ...data,
+          collectedAt: new Date().toISOString(),
+          collectedById: req.user!.id,
+          collectedByName: data.assignedTechnicianName,
+        },
+      },
+    });
+    await audit(req, "lab.sample.collected", "ModuleRecord", row.id, {
+      technicianName: data.assignedTechnicianName,
+    });
+    return ok(res, row, "Sample marked as collected");
+  })
+);
 crmRouter.get(
   "/payment-logs",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
+    const roles = await prisma.userRole.findMany({
+      where: { userId: req.user!.id },
+      select: { role: { select: { code: true } } },
+    });
+    const adminCodes = [
+      "SUPER_ADMIN",
+      "CLINIC_ADMIN",
+      "BRANCH_ADMIN",
+      "MANAGER",
+    ];
+    const isAdmin =
+      req.user!.isPlatform ||
+      roles.some(({ role }) => adminCodes.includes(role.code));
     const [doctorAppointments, diagnosticAppointments] = await Promise.all([
-      prisma.appointment.findMany({ where: { tenantId: tid }, include: { patient: { select: { id: true, name: true, mobile: true, patientNumber: true } }, doctor: { select: { id: true, name: true } }, payments: { orderBy: { createdAt: "desc" } } }, orderBy: { createdAt: "desc" } }),
-      prisma.moduleRecord.findMany({ where: { tenantId: tid, module: { in: ["lab-appointments", "radiology-appointments"] } }, orderBy: { createdAt: "desc" } }),
+      prisma.appointment.findMany({
+        where: { tenantId: tid },
+        include: {
+          patient: {
+            select: { id: true, name: true, mobile: true, patientNumber: true },
+          },
+          doctor: { select: { id: true, name: true } },
+          payments: { orderBy: { createdAt: "desc" } },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.moduleRecord.findMany({
+        where: {
+          tenantId: tid,
+          module: { in: ["lab-appointments", "radiology-appointments"] },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
     ]);
-    const diagnosticData = diagnosticAppointments.map((row) => ({ row, data: row.data as Record<string, any> }));
-    const patientIds = [...new Set(diagnosticData.map(({ data }) => data.patientId).filter(Boolean))];
-    const testIds = [...new Set(diagnosticData.flatMap(({ data }) => [data.labTestId, data.radiologyTestId]).filter(Boolean))];
+    const diagnosticData = diagnosticAppointments.map((row) => ({
+      row,
+      data: row.data as Record<string, any>,
+    }));
+    const patientIds = [
+      ...new Set(
+        diagnosticData.map(({ data }) => data.patientId).filter(Boolean)
+      ),
+    ];
+    const testIds = [
+      ...new Set(
+        diagnosticData
+          .flatMap(({ data }) => [data.labTestId, data.radiologyTestId])
+          .filter(Boolean)
+      ),
+    ];
     const [patients, tests] = await Promise.all([
-      prisma.patient.findMany({ where: { tenantId: tid, id: { in: patientIds } }, select: { id: true, name: true, mobile: true, patientNumber: true } }),
-      prisma.moduleRecord.findMany({ where: { tenantId: tid, id: { in: testIds } }, select: { id: true, title: true } }),
+      prisma.patient.findMany({
+        where: { tenantId: tid, id: { in: patientIds } },
+        select: { id: true, name: true, mobile: true, patientNumber: true },
+      }),
+      prisma.moduleRecord.findMany({
+        where: { tenantId: tid, id: { in: testIds } },
+        select: { id: true, title: true },
+      }),
     ]);
-    const patientMap = new Map(patients.map((patient) => [patient.id, patient])), testMap = new Map(tests.map((test) => [test.id, test.title]));
+    const patientMap = new Map(
+        patients.map((patient) => [patient.id, patient])
+      ),
+      testMap = new Map(tests.map((test) => [test.id, test.title]));
     const doctorLogs = doctorAppointments.flatMap((appointment) => {
-      const payments = appointment.payments.length ? appointment.payments : [{ id: `appointment-${appointment.id}`, provider: "UNRECORDED", providerTransactionId: null, amount: appointment.amount, currency: "INR", status: appointment.paymentStatus, confirmedAt: appointment.paymentConfirmedAt, createdAt: appointment.createdAt }];
-      return payments.map((payment) => ({ id: payment.id, serviceType: "DOCTOR", serviceName: appointment.doctor.name, customerName: appointment.patient.name, customerMobile: appointment.patient.mobile, patientNumber: appointment.patient.patientNumber, appointmentNumber: appointment.appointmentNumber, provider: payment.provider, transactionId: payment.providerTransactionId, amount: payment.amount, currency: payment.currency, status: payment.status, date: payment.confirmedAt || payment.createdAt }));
+      const payments = appointment.payments.length
+        ? appointment.payments
+        : [
+            {
+              id: `appointment-${appointment.id}`,
+              provider: "UNRECORDED",
+              providerTransactionId: null,
+              amount: appointment.amount,
+              currency: "INR",
+              status: appointment.paymentStatus,
+              confirmedAt: appointment.paymentConfirmedAt,
+              createdAt: appointment.createdAt,
+            },
+          ];
+      return payments.map((payment) => ({
+        id: payment.id,
+        serviceType: "DOCTOR",
+        serviceName: appointment.doctor.name,
+        customerName: appointment.patient.name,
+        customerMobile: appointment.patient.mobile,
+        patientNumber: appointment.patient.patientNumber,
+        appointmentNumber: appointment.appointmentNumber,
+        provider: payment.provider,
+        transactionId: payment.providerTransactionId,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        date: payment.confirmedAt || payment.createdAt,
+        collectedById:
+          "collectedById" in payment ? payment.collectedById : null,
+      }));
     });
     const diagnosticLogs = diagnosticData.map(({ row, data }) => {
-      const patient = patientMap.get(data.patientId), isLab = row.module === "lab-appointments";
-      return { id: row.id, serviceType: isLab ? "LAB" : "RADIOLOGY", serviceName: data.testNames || testMap.get(isLab ? data.labTestId : data.radiologyTestId) || "Unknown test", customerName: patient?.name || "Unknown patient", customerMobile: patient?.mobile, patientNumber: patient?.patientNumber, appointmentNumber: row.title === "Untitled record" ? row.id.slice(-8).toUpperCase() : row.title, provider: data.paymentMethod || "UNRECORDED", transactionId: data.transactionId || null, subtotal: Number(data.subtotal || data.amount || 0), discountAmount: Number(data.discountAmount || 0), amount: Number(data.amount || 0), currency: data.currency || "INR", status: data.paymentStatus || row.status, date: data.appointmentAt || row.createdAt };
+      const patient = patientMap.get(data.patientId),
+        isLab = row.module === "lab-appointments";
+      return {
+        id: row.id,
+        serviceType: isLab ? "LAB" : "RADIOLOGY",
+        serviceName:
+          data.testNames ||
+          testMap.get(isLab ? data.labTestId : data.radiologyTestId) ||
+          "Unknown test",
+        customerName: patient?.name || "Unknown patient",
+        customerMobile: patient?.mobile,
+        patientNumber: patient?.patientNumber,
+        appointmentNumber:
+          row.title === "Untitled record"
+            ? row.id.slice(-8).toUpperCase()
+            : row.title,
+        provider: data.paymentMethod || "UNRECORDED",
+        transactionId: data.transactionId || null,
+        subtotal: Number(data.subtotal || data.amount || 0),
+        discountAmount: Number(data.discountAmount || 0),
+        amount: Number(data.amount || 0),
+        currency: data.currency || "INR",
+        status: data.paymentStatus || row.status,
+        date: data.appointmentAt || row.createdAt,
+        collectedById: data.paymentCollectedById || null,
+      };
     });
-    const items = [...doctorLogs, ...diagnosticLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const allItems = [...doctorLogs, ...diagnosticLogs];
+    const items = (
+      isAdmin
+        ? allItems
+        : allItems.filter((item) => item.collectedById === req.user!.id)
+    ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return ok(res, { items, total: items.length });
-  }),
+  })
 );
 crmRouter.get(
   "/modules/:module",
@@ -383,15 +1118,52 @@ crmRouter.get(
       orderBy: { createdAt: "desc" },
     });
     return ok(res, { items, total: items.length, page: 1, limit: 100 });
-  }),
+  })
 );
-crmRouter.get("/modules/:module/:id/logs",asyncRoute(async(req,res)=>{const tid=tenantId(req),record=await prisma.moduleRecord.findFirst({where:{id:req.params.id,tenantId:tid,module:req.params.module}});if(!record)throw new AppError(404,"Appointment not found","NOT_FOUND");const logs=await prisma.auditLog.findMany({where:{tenantId:tid,entityId:record.id},include:{actor:{select:{id:true,name:true,email:true}}},orderBy:{createdAt:"desc"}});return ok(res,logs)}));
-crmRouter.post("/modules/:module/:id/whatsapp/retry",asyncRoute(async(req,res)=>{const tid=tenantId(req),record=await prisma.moduleRecord.findFirst({where:{id:req.params.id,tenantId:tid,module:req.params.module}});if(!record||!["lab-appointments","radiology-appointments"].includes(record.module))throw new AppError(404,"Diagnostic appointment not found","NOT_FOUND");await notifyDiagnostic(req,record,undefined,true);return ok(res,null,"WhatsApp message sent successfully")}));
+crmRouter.get(
+  "/modules/:module/:id/logs",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      record = await prisma.moduleRecord.findFirst({
+        where: { id: req.params.id, tenantId: tid, module: req.params.module },
+      });
+    if (!record) throw new AppError(404, "Appointment not found", "NOT_FOUND");
+    const logs = await prisma.auditLog.findMany({
+      where: { tenantId: tid, entityId: record.id },
+      include: { actor: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return ok(res, logs);
+  })
+);
+crmRouter.post(
+  "/modules/:module/:id/whatsapp/retry",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req),
+      record = await prisma.moduleRecord.findFirst({
+        where: { id: req.params.id, tenantId: tid, module: req.params.module },
+      });
+    if (
+      !record ||
+      !["lab-appointments", "radiology-appointments"].includes(record.module)
+    )
+      throw new AppError(404, "Diagnostic appointment not found", "NOT_FOUND");
+    await notifyDiagnostic(req, record, undefined, true);
+    return ok(res, null, "WhatsApp message sent successfully");
+  })
+);
 crmRouter.post(
   "/modules/:module",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
     const { title, status = "ACTIVE", ...data } = req.body;
+    if (
+      ["lab-appointments", "radiology-appointments"].includes(
+        req.params.module
+      ) &&
+      data.paymentStatus === "PAID"
+    )
+      data.paymentCollectedById = req.user!.id;
     const row = await prisma.moduleRecord.create({
       data: {
         tenantId: tid,
@@ -402,9 +1174,9 @@ crmRouter.post(
       },
     });
     await audit(req, `${req.params.module}.created`, "ModuleRecord", row.id);
-    await notifyDiagnostic(req,row);
+    await notifyDiagnostic(req, row);
     return ok(res, row, "Created successfully", 201);
-  }),
+  })
 );
 crmRouter.patch(
   "/modules/:module/:id",
@@ -415,6 +1187,15 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const { title, status, ...data } = req.body;
+    const previousData = found.data as Record<string, any>;
+    if (
+      ["lab-appointments", "radiology-appointments"].includes(
+        req.params.module
+      ) &&
+      data.paymentStatus === "PAID" &&
+      previousData.paymentStatus !== "PAID"
+    )
+      data.paymentCollectedById = req.user!.id;
     const row = await prisma.moduleRecord.update({
       where: { id: found.id },
       data: {
@@ -424,9 +1205,12 @@ crmRouter.patch(
       },
     });
     await audit(req, `${req.params.module}.updated`, "ModuleRecord", row.id);
-    await notifyDiagnostic(req,row,{...(found.data as object),status:found.status});
+    await notifyDiagnostic(req, row, {
+      ...(found.data as object),
+      status: found.status,
+    });
     return ok(res, row, "Updated successfully");
-  }),
+  })
 );
 crmRouter.delete(
   "/modules/:module/:id",
@@ -439,41 +1223,83 @@ crmRouter.delete(
     await prisma.moduleRecord.delete({ where: { id: found.id } });
     await audit(req, `${req.params.module}.deleted`, "ModuleRecord", found.id);
     return ok(res, null, "Deleted successfully");
-  }),
+  })
 );
 crmRouter.get(
   "/clinic-profile",
   asyncRoute(async (req, res) => {
     const profile = await prisma.tenant.findUnique({
       where: { id: tenantId(req) },
-      select: { id: true, name: true, logoUrl: true, mobile: true, address: true },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        mobile: true,
+        address: true,
+      },
     });
     if (!profile) throw new AppError(404, "Clinic not found", "NOT_FOUND");
     return ok(res, profile);
-  }),
+  })
 );
 crmRouter.patch(
   "/clinic-profile",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
-    const data = z.object({
-      name: z.string().trim().min(2).max(120),
-      logoUrl: z.string().max(1_500_000).nullable().optional(),
-      mobile: z.string().trim().min(8).max(20),
-      address: z.string().trim().min(3).max(500),
-    }).parse(req.body);
-    if (data.logoUrl && !/^data:image\/(png|jpeg|webp);base64,/i.test(data.logoUrl))
-      throw new AppError(400, "Logo must be a PNG, JPEG, or WebP image", "INVALID_LOGO");
+    const data = z
+      .object({
+        name: z.string().trim().min(2).max(120),
+        logoUrl: z.string().max(1_500_000).nullable().optional(),
+        mobile: z.string().trim().min(8).max(20),
+        address: z.string().trim().min(3).max(500),
+      })
+      .parse(req.body);
+    if (
+      data.logoUrl &&
+      !/^data:image\/(png|jpeg|webp);base64,/i.test(data.logoUrl)
+    )
+      throw new AppError(
+        400,
+        "Logo must be a PNG, JPEG, or WebP image",
+        "INVALID_LOGO"
+      );
     const before = await prisma.tenant.findUnique({ where: { id: tid } });
     if (!before) throw new AppError(404, "Clinic not found", "NOT_FOUND");
     const profile = await prisma.tenant.update({ where: { id: tid }, data });
     const changes = Object.fromEntries(
-      Object.keys(data).filter((key) => JSON.stringify((before as any)[key]) !== JSON.stringify((profile as any)[key]))
-        .map((key) => [key, { from: key === "logoUrl" ? Boolean((before as any)[key]) : (before as any)[key] ?? null, to: key === "logoUrl" ? Boolean((profile as any)[key]) : (profile as any)[key] ?? null }]),
+      Object.keys(data)
+        .filter(
+          (key) =>
+            JSON.stringify((before as any)[key]) !==
+            JSON.stringify((profile as any)[key])
+        )
+        .map((key) => [
+          key,
+          {
+            from:
+              key === "logoUrl"
+                ? Boolean((before as any)[key])
+                : (before as any)[key] ?? null,
+            to:
+              key === "logoUrl"
+                ? Boolean((profile as any)[key])
+                : (profile as any)[key] ?? null,
+          },
+        ])
     );
     await audit(req, "clinic.profile.updated", "Tenant", tid, { changes });
-    return ok(res, { id: profile.id, name: profile.name, logoUrl: profile.logoUrl, mobile: profile.mobile, address: profile.address }, "Clinic settings saved");
-  }),
+    return ok(
+      res,
+      {
+        id: profile.id,
+        name: profile.name,
+        logoUrl: profile.logoUrl,
+        mobile: profile.mobile,
+        address: profile.address,
+      },
+      "Clinic settings saved"
+    );
+  })
 );
 crmRouter.get(
   "/appointments/:id/logs",
@@ -491,7 +1317,7 @@ crmRouter.get(
       orderBy: { createdAt: "desc" },
     });
     return ok(res, logs);
-  }),
+  })
 );
 crmRouter.get(
   "/appointments/calendar",
@@ -499,7 +1325,11 @@ crmRouter.get(
     const from = z.coerce.date().parse(req.query.from),
       to = z.coerce.date().parse(req.query.to);
     if (to <= from || to.getTime() - from.getTime() > 370 * 86400000)
-      throw new AppError(400, "Invalid calendar date range", "INVALID_DATE_RANGE");
+      throw new AppError(
+        400,
+        "Invalid calendar date range",
+        "INVALID_DATE_RANGE"
+      );
     const appointments = await prisma.appointment.findMany({
       where: { tenantId: tenantId(req), startsAt: { gte: from, lt: to } },
       include: {
@@ -511,7 +1341,7 @@ crmRouter.get(
       orderBy: { startsAt: "asc" },
     });
     return ok(res, appointments);
-  }),
+  })
 );
 crmRouter.get(
   "/:resource",
@@ -533,7 +1363,7 @@ crmRouter.get(
       model.count({ where }),
     ]);
     return ok(res, { items, total, page, limit });
-  }),
+  })
 );
 crmRouter.post(
   "/appointments/book",
@@ -574,26 +1404,31 @@ crmRouter.post(
           });
       })
       .parse(req.body);
-    const [patient, branch, department, doctor, schedule, tenant] = await Promise.all([
-      prisma.patient.findFirst({
-        where: { id: body.patientId, tenantId: tid },
-      }),
-      prisma.branch.findFirst({ where: { id: body.branchId, tenantId: tid } }),
-      prisma.department.findFirst({
-        where: { id: body.departmentId, tenantId: tid },
-      }),
-      prisma.doctor.findFirst({ where: { id: body.doctorId, tenantId: tid } }),
-      prisma.doctorSchedule.findFirst({
-        where: {
-          id: body.scheduleId,
-          tenantId: tid,
-          doctorId: body.doctorId,
-          branchId: body.branchId,
-          status: "ACTIVE",
-        },
-      }),
-      prisma.tenant.findUnique({ where: { id: tid } }),
-    ]);
+    const [patient, branch, department, doctor, schedule, tenant] =
+      await Promise.all([
+        prisma.patient.findFirst({
+          where: { id: body.patientId, tenantId: tid },
+        }),
+        prisma.branch.findFirst({
+          where: { id: body.branchId, tenantId: tid },
+        }),
+        prisma.department.findFirst({
+          where: { id: body.departmentId, tenantId: tid },
+        }),
+        prisma.doctor.findFirst({
+          where: { id: body.doctorId, tenantId: tid },
+        }),
+        prisma.doctorSchedule.findFirst({
+          where: {
+            id: body.scheduleId,
+            tenantId: tid,
+            doctorId: body.doctorId,
+            branchId: body.branchId,
+            status: "ACTIVE",
+          },
+        }),
+        prisma.tenant.findUnique({ where: { id: tid } }),
+      ]);
     if (
       !patient ||
       !branch ||
@@ -605,7 +1440,7 @@ crmRouter.post(
       throw new AppError(
         400,
         "Patient, doctor, branch, department or schedule is invalid",
-        "INVALID_BOOKING",
+        "INVALID_BOOKING"
       );
     const date = schedule.scheduleDate.toISOString().slice(0, 10),
       dayStart = new Date(`${date}T00:00:00+05:30`),
@@ -624,7 +1459,7 @@ crmRouter.post(
         throw new AppError(
           409,
           "This patient already has an appointment with this doctor on this date",
-          "DUPLICATE_APPOINTMENT",
+          "DUPLICATE_APPOINTMENT"
         );
       const booked = await tx.appointment.count({
         where: {
@@ -639,23 +1474,30 @@ crmRouter.post(
         throw new AppError(
           409,
           "No appointment slots remain for this date",
-          "SCHEDULE_FULL",
+          "SCHEDULE_FULL"
         );
       const serialNumber = booked + 1,
         startsAt = new Date(`${date}T${schedule.startTime}:00+05:30`),
         slotStart = new Date(
-          startsAt.getTime() + booked * schedule.slotMinutes * 60000,
+          startsAt.getTime() + booked * schedule.slotMinutes * 60000
         ),
         scheduleEnd = new Date(`${date}T${schedule.endTime}:00+05:30`);
       if (slotStart >= scheduleEnd)
         throw new AppError(
           409,
           "No appointment slots remain within the doctor's schedule",
-          "SCHEDULE_FULL",
+          "SCHEDULE_FULL"
         );
-      const paymentComplete = body.paymentStatus === "PAID" || body.paymentStatus === "NOT_REQUIRED";
+      const paymentComplete =
+        body.paymentStatus === "PAID" || body.paymentStatus === "NOT_REQUIRED";
       const token = paymentComplete
-        ? appointmentToken(doctor.name, department.name, department.code, slotStart, serialNumber)
+        ? appointmentToken(
+            doctor.name,
+            department.name,
+            department.code,
+            slotStart,
+            serialNumber
+          )
         : null;
       return tx.appointment.create({
         data: {
@@ -668,7 +1510,8 @@ crmRouter.post(
           startsAt: slotStart,
           endsAt: new Date(slotStart.getTime() + schedule.slotMinutes * 60000),
           amount: doctor.consultationFee,
-          status: body.paymentStatus === "PENDING" ? "PAYMENT_PENDING" : body.status,
+          status:
+            body.paymentStatus === "PENDING" ? "PAYMENT_PENDING" : body.status,
           paymentStatus: body.paymentStatus,
           paymentConfirmedAt: body.paymentStatus === "PAID" ? new Date() : null,
           serialNumber,
@@ -685,6 +1528,7 @@ crmRouter.post(
                     status: "PAID",
                     secureToken: randomUUID(),
                     confirmedAt: new Date(),
+                    collectedById: req.user!.id,
                   },
                 }
               : undefined,
@@ -706,13 +1550,26 @@ crmRouter.post(
           patientMobile: patient.mobile,
           patientEmail: patient.email,
         });
-        await audit(req, "appointment.razorpay_link.created", "Appointment", result.id, {
-          paymentLinkId: paymentLink.id,
-        });
+        await audit(
+          req,
+          "appointment.razorpay_link.created",
+          "Appointment",
+          result.id,
+          {
+            paymentLinkId: paymentLink.id,
+          }
+        );
       } catch (error) {
-        await audit(req, "appointment.razorpay_link.failed", "Appointment", result.id, {
-          error: error instanceof Error ? error.message : "Unknown Razorpay error",
-        });
+        await audit(
+          req,
+          "appointment.razorpay_link.failed",
+          "Appointment",
+          result.id,
+          {
+            error:
+              error instanceof Error ? error.message : "Unknown Razorpay error",
+          }
+        );
       }
     }
     const message: AppointmentMessage = {
@@ -741,9 +1598,9 @@ crmRouter.post(
       result.paymentStatus === "PENDING"
         ? "Appointment slot held pending payment"
         : "Appointment booked successfully",
-      201,
+      201
     );
-  }),
+  })
 );
 crmRouter.post(
   "/appointments/:id/whatsapp/retry",
@@ -780,30 +1637,33 @@ crmRouter.post(
     };
 
     try {
-      const kind = appointment.status === "CANCELLED"
-        ? "cancelled"
-        : appointment.paymentStatus === "PENDING"
+      const kind =
+        appointment.status === "CANCELLED"
+          ? "cancelled"
+          : appointment.paymentStatus === "PENDING"
           ? "payment_pending"
           : "payment_success";
       if (kind === "payment_success" && !appointment.token)
         throw new Error("Paid appointment does not have a token yet");
-      const paymentLink = kind === "payment_pending"
-        ? await ensureRazorpayPaymentLink({
-            id: appointment.id,
-            tenantId: appointment.tenantId,
-            appointmentNumber: appointment.appointmentNumber,
-            amount: appointment.amount,
-            patientName: appointment.patient.name,
-            patientMobile: appointment.patient.mobile,
-            patientEmail: appointment.patient.email,
-          })
-        : null;
-      const delivery = kind === "cancelled"
-        ? await sendCancelledMessage(
-            message,
-            appointment.cancellationReason || "Cancelled by clinic",
-          )
-        : kind === "payment_pending"
+      const paymentLink =
+        kind === "payment_pending"
+          ? await ensureRazorpayPaymentLink({
+              id: appointment.id,
+              tenantId: appointment.tenantId,
+              appointmentNumber: appointment.appointmentNumber,
+              amount: appointment.amount,
+              patientName: appointment.patient.name,
+              patientMobile: appointment.patient.mobile,
+              patientEmail: appointment.patient.email,
+            })
+          : null;
+      const delivery =
+        kind === "cancelled"
+          ? await sendCancelledMessage(
+              message,
+              appointment.cancellationReason || "Cancelled by clinic"
+            )
+          : kind === "payment_pending"
           ? await sendPaymentPendingMessage(message, paymentLink!.short_url)
           : await sendPaymentSuccessMessage(message);
       if (!delivery.sent)
@@ -813,27 +1673,26 @@ crmRouter.post(
         `appointment.whatsapp.${kind}.resent`,
         "Appointment",
         appointment.id,
-        delivery,
+        delivery
       );
       return ok(res, delivery, "WhatsApp message sent successfully");
     } catch (error) {
-      const reason = error instanceof Error
-        ? error.message
-        : "Unknown AiSensy error";
+      const reason =
+        error instanceof Error ? error.message : "Unknown AiSensy error";
       await audit(
         req,
         "appointment.whatsapp.retry.failed",
         "Appointment",
         appointment.id,
-        { error: reason },
+        { error: reason }
       );
       throw new AppError(
         502,
         `WhatsApp message failed: ${reason}`,
-        "AISENSY_SEND_FAILED",
+        "AISENSY_SEND_FAILED"
       );
     }
-  }),
+  })
 );
 crmRouter.post(
   "/bulk/:resource",
@@ -843,7 +1702,7 @@ crmRouter.post(
       throw new AppError(
         404,
         "Bulk import is not available for this resource",
-        "NOT_FOUND",
+        "NOT_FOUND"
       );
     const records = z
       .array(z.record(z.string(), z.any()))
@@ -863,7 +1722,10 @@ crmRouter.post(
         if (resource === "leads")
           data.leadNumber = `LD-${stamp}-${String(index + 1).padStart(3, "0")}`;
         else
-          data.patientNumber = `PT-${stamp}-${String(index + 1).padStart(3, "0")}`;
+          data.patientNumber = `PT-${stamp}-${String(index + 1).padStart(
+            3,
+            "0"
+          )}`;
         output.push(await (model as any).create({ data }));
       }
       return output;
@@ -872,7 +1734,7 @@ crmRouter.post(
       count: created.length,
     });
     return ok(res, { count: created.length }, "Bulk import completed", 201);
-  }),
+  })
 );
 crmRouter.post(
   "/:resource",
@@ -889,10 +1751,10 @@ crmRouter.post(
       req,
       `${req.params.resource}.created`,
       req.params.resource,
-      row.id,
+      row.id
     );
     return ok(res, row, "Created successfully", 201);
-  }),
+  })
 );
 crmRouter.patch(
   "/leads/:id/status",
@@ -948,9 +1810,9 @@ crmRouter.patch(
       result,
       status === "CONVERTED"
         ? "Lead converted and patient created"
-        : "Lead status updated",
+        : "Lead status updated"
     );
-  }),
+  })
 );
 crmRouter.patch(
   "/:resource/:id",
@@ -986,7 +1848,7 @@ crmRouter.patch(
         throw new AppError(
           409,
           "This patient already has an appointment with this doctor on this date",
-          "DUPLICATE_APPOINTMENT",
+          "DUPLICATE_APPOINTMENT"
         );
 
       const schedules = await prisma.doctorSchedule.findMany({
@@ -999,19 +1861,22 @@ crmRouter.patch(
         },
       });
       const selectedMinutes = Number(
-        data.startsAt.toLocaleTimeString("en-GB", {
-          timeZone: "Asia/Kolkata",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }).replace(":", ""),
+        data.startsAt
+          .toLocaleTimeString("en-GB", {
+            timeZone: "Asia/Kolkata",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+          .replace(":", "")
       );
       const schedule = schedules.find((item) => {
         const [sh, sm] = item.startTime.split(":").map(Number);
         const [eh, em] = item.endTime.split(":").map(Number);
         const startMinutes = sh * 60 + sm;
         const endMinutes = eh * 60 + em;
-        const chosenMinutes = Math.floor(selectedMinutes / 100) * 60 + selectedMinutes % 100;
+        const chosenMinutes =
+          Math.floor(selectedMinutes / 100) * 60 + (selectedMinutes % 100);
         return (
           chosenMinutes >= startMinutes &&
           chosenMinutes < endMinutes &&
@@ -1022,16 +1887,26 @@ crmRouter.patch(
         throw new AppError(
           409,
           "The selected slot is not available in this doctor's schedule",
-          "SLOT_NOT_AVAILABLE",
+          "SLOT_NOT_AVAILABLE"
         );
-      data.endsAt = new Date(data.startsAt.getTime() + schedule.slotMinutes * 60000);
-      if (data.status === "RESCHEDULED" && data.startsAt.getTime() === appointment.startsAt.getTime())
+      data.endsAt = new Date(
+        data.startsAt.getTime() + schedule.slotMinutes * 60000
+      );
+      if (
+        data.status === "RESCHEDULED" &&
+        data.startsAt.getTime() === appointment.startsAt.getTime()
+      )
         throw new AppError(400, "Please select a different slot", "SAME_SLOT");
     }
     if (req.params.resource === "appointments") {
       const appointment = found as any;
       if (data.status === "CANCELLED")
-        data.cancellationReason = z.string().trim().min(3).max(250).parse(req.body.cancellationReason || "Cancelled by clinic");
+        data.cancellationReason = z
+          .string()
+          .trim()
+          .min(3)
+          .max(250)
+          .parse(req.body.cancellationReason || "Cancelled by clinic");
       if (data.paymentStatus === "PENDING") {
         data.status = "PAYMENT_PENDING";
         data.token = null;
@@ -1049,14 +1924,18 @@ crmRouter.patch(
           }),
         ]);
         if (!doctor || !department)
-          throw new AppError(400, "Doctor or department is invalid", "INVALID_APPOINTMENT");
+          throw new AppError(
+            400,
+            "Doctor or department is invalid",
+            "INVALID_APPOINTMENT"
+          );
         if (!appointment.token)
           data.token = appointmentToken(
             doctor.name,
             department.name,
             department.code,
             data.startsAt || appointment.startsAt,
-            appointment.serialNumber || 1,
+            appointment.serialNumber || 1
           );
         data.status = "CONFIRMED";
         if (data.paymentStatus === "PAID") {
@@ -1065,23 +1944,35 @@ crmRouter.patch(
             const paymentMethod = z
               .enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"])
               .parse(req.body.paymentMethod);
-            const utrNumber = z.string().trim().max(100).optional().parse(req.body.utrNumber);
+            const utrNumber = z
+              .string()
+              .trim()
+              .max(100)
+              .optional()
+              .parse(req.body.utrNumber);
             if (paymentMethod !== "CASH" && !utrNumber)
               throw new AppError(
                 400,
                 "UTR or transaction number is required",
-                "PAYMENT_REFERENCE_REQUIRED",
+                "PAYMENT_REFERENCE_REQUIRED"
               );
             data.payments = {
               create: {
                 tenantId: tid,
                 provider: paymentMethod,
                 providerTransactionId: utrNumber || null,
-                remarks: z.string().trim().max(500).optional().parse(req.body.paymentRemarks) || null,
+                remarks:
+                  z
+                    .string()
+                    .trim()
+                    .max(500)
+                    .optional()
+                    .parse(req.body.paymentRemarks) || null,
                 amount: Number(data.amount ?? appointment.amount),
                 status: "PAID",
                 secureToken: randomUUID(),
                 confirmedAt: new Date(),
+                collectedById: req.user!.id,
               },
             };
           }
@@ -1093,8 +1984,13 @@ crmRouter.patch(
     const after = JSON.parse(JSON.stringify(row));
     const changes = Object.fromEntries(
       Object.keys(data)
-        .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
-        .map((key) => [key, { from: before[key] ?? null, to: after[key] ?? null }]),
+        .filter(
+          (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key])
+        )
+        .map((key) => [
+          key,
+          { from: before[key] ?? null, to: after[key] ?? null },
+        ])
     );
     await audit(
       req,
@@ -1103,21 +1999,38 @@ crmRouter.patch(
         : `${req.params.resource}.updated`,
       req.params.resource,
       row.id,
-      { changes },
+      { changes }
     );
     if (req.params.resource === "appointments") {
-      const becamePaid = (found as any).paymentStatus !== "PAID" && (row as any).paymentStatus === "PAID";
-      const becameCancelled = (found as any).status !== "CANCELLED" && (row as any).status === "CANCELLED";
-      const wasRescheduled = (row as any).status === "RESCHEDULED" && new Date((found as any).startsAt).getTime() !== new Date((row as any).startsAt).getTime();
+      const becamePaid =
+        (found as any).paymentStatus !== "PAID" &&
+        (row as any).paymentStatus === "PAID";
+      const becameCancelled =
+        (found as any).status !== "CANCELLED" &&
+        (row as any).status === "CANCELLED";
+      const wasRescheduled =
+        (row as any).status === "RESCHEDULED" &&
+        new Date((found as any).startsAt).getTime() !==
+          new Date((row as any).startsAt).getTime();
       if (becamePaid || becameCancelled || wasRescheduled) {
         const full = await prisma.appointment.findUnique({
           where: { id: row.id },
-          include: { tenant: true, patient: true, doctor: true, department: true, branch: true },
+          include: {
+            tenant: true,
+            patient: true,
+            doctor: true,
+            department: true,
+            branch: true,
+          },
         });
         if (full)
           await notifyAppointment(
             req,
-            becamePaid ? "payment_success" : becameCancelled ? "cancelled" : "rescheduled",
+            becamePaid
+              ? "payment_success"
+              : becameCancelled
+              ? "cancelled"
+              : "rescheduled",
             {
               appointmentId: full.id,
               tenantId: full.tenantId,
@@ -1135,15 +2048,18 @@ crmRouter.patch(
               token: full.token,
             },
             becameCancelled
-              ? { cancellationReason: full.cancellationReason || "Cancelled by clinic" }
+              ? {
+                  cancellationReason:
+                    full.cancellationReason || "Cancelled by clinic",
+                }
               : wasRescheduled
-                ? { previousStartsAt: new Date((found as any).startsAt) }
-                : undefined,
+              ? { previousStartsAt: new Date((found as any).startsAt) }
+              : undefined
           );
       }
     }
     return ok(res, row, "Updated successfully");
-  }),
+  })
 );
 crmRouter.delete(
   "/:resource/:id",
@@ -1172,8 +2088,8 @@ crmRouter.delete(
       `${req.params.resource}.deleted`,
       req.params.resource,
       found.id,
-      { deletedRecord: JSON.parse(JSON.stringify(found)) },
+      { deletedRecord: JSON.parse(JSON.stringify(found)) }
     );
     return ok(res, null, "Deleted successfully");
-  }),
+  })
 );
