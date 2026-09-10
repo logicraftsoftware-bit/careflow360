@@ -485,6 +485,20 @@ const configs: Record<string, Config> = {
     ],
     columns: ["patientId", "testNames", "appointmentAt", "assignedTechnicianName", "priority", "subtotal", "discountAmount", "amount", "paymentStatus", "status"],
   },
+  "specimen-tubes": {
+    title: "Specimen Tube Master",
+    description: "Configure approved collection tubes and specimen containers used in lab orders.",
+    fields: [
+      f("title", "Tube / container name", "text", true),
+      f("code", "Code", "text", true),
+      f("sampleType", "Sample type", "text", true),
+      f("capColor", "Cap colour"),
+      f("additive", "Additive / medium"),
+      f("volume", "Nominal volume"),
+      stat,
+    ],
+    columns: ["title", "code", "sampleType", "capColor", "additive", "volume", "status"],
+  },
   "radiology-appointments": {
     title: "Radiology Appointments",
     description: "Book and manage patient imaging appointments.",

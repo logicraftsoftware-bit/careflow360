@@ -36,6 +36,7 @@ const menus = [
   "staff",
   "roles-permissions",
   "lab",
+  "specimen-tubes",
   "radiology",
   "reports",
   "payments",

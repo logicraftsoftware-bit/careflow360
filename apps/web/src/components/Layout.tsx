@@ -63,6 +63,7 @@ const masters = [
   ["Staff", "staff", Users],
   ["Roles & Permission", "roles-permissions", ShieldCheck],
   ["Lab", "lab", FlaskConical],
+  ["Specimen Tubes", "specimen-tubes", FlaskConical],
   ["Radiology", "radiology", ScanLine],
 ] as const;
 const admin = [

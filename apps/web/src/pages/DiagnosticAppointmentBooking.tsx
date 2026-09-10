@@ -9,15 +9,18 @@ type Patient = { id: string; name: string; mobile?: string; patientNumber?: stri
 type Test = { id: string; title: string; data?: { code?: string; price?: number } };
 type Technician = { id: string; name: string; mobile?: string };
 type Specimen = { tubeType: string; sampleType: string };
+type TubeMaster = { id: string; title: string; status: string; data?: { sampleType?: string; code?: string; capColor?: string; volume?: string } };
 
 export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
   const nav = useNavigate(), isLab = kind === "lab", label = isLab ? "Lab" : "Radiology";
   const [patientSearch, setPatientSearch] = useState(""), [patient, setPatient] = useState<Patient | null>(null), [patientOpen, setPatientOpen] = useState(false);
   const [testSearch, setTestSearch] = useState(""), [testOpen, setTestOpen] = useState(false), [selected, setSelected] = useState<Test[]>([]);
-  const [discount, setDiscount] = useState(0), [specimens, setSpecimens] = useState<Specimen[]>([{ tubeType: "Serum separator tube", sampleType: "Serum" }]);
+  const [discount, setDiscount] = useState(0), [specimens, setSpecimens] = useState<Specimen[]>([{ tubeType: "SST Gold-Top Tube", sampleType: "Serum" }]);
   const { data: patientData } = useQuery({ queryKey: ["booking-patients"], queryFn: () => api.get("/crm/patients?limit=100").then(unwrap) });
   const { data: testData } = useQuery({ queryKey: [`${kind}-booking-tests`], queryFn: () => api.get(`/crm/modules/${kind}-tests?limit=100`).then(unwrap) });
   const { data: technicians = [] } = useQuery<Technician[]>({ queryKey: ["lab-technicians"], queryFn: () => api.get("/crm/lab-technicians").then(unwrap), enabled: isLab });
+  const { data: tubeData } = useQuery({ queryKey: ["specimen-tube-master"], queryFn: () => api.get("/crm/modules/specimen-tubes").then(unwrap), enabled: isLab });
+  const tubeOptions: TubeMaster[] = (tubeData?.items || []).filter((item: TubeMaster) => item.status === "ACTIVE");
   const patients: Patient[] = patientData?.items || [], tests: Test[] = testData?.items || [];
   const patientMatches = patients.filter((item) => [item.name, item.mobile, item.patientNumber].some((value) => String(value || "").toLowerCase().includes(patientSearch.toLowerCase()))).slice(0, 10);
   const testMatches = tests.filter((item) => !selected.some((chosen) => chosen.id === item.id) && [item.title, item.data?.code].some((value) => String(value || "").toLowerCase().includes(testSearch.toLowerCase()))).slice(0, 12);
@@ -34,7 +37,10 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
     const common = { ...form, patientId: patient.id, testIds: selected.map((test) => test.id), testNames: selected.map((test) => test.title).join(", "), tests: selected.map((test) => ({ id: test.id, title: test.title, price: Number(test.data?.price || 0) })), subtotal, discountAmount: Number(discount || 0), amount: total, currency: "INR" };
     save.mutate(isLab ? { patientId: patient.id, appointmentAt: form.appointmentAt, technicianId: form.technicianId, testNames: common.testNames, instructions: form.instructions, amount: total, specimens: specimens.map((item) => ({ ...item, tests: selected.map((test) => test.title) })) } : { ...common, title: `RADIOLOGY-${Date.now().toString(36).toUpperCase()}` });
   };
-  const updateSpecimen = (index: number, key: keyof Specimen, value: string) => setSpecimens((rows) => rows.map((row, position) => position === index ? { ...row, [key]: value } : row));
+  const selectTube = (index: number, title: string) => {
+    const tube = tubeOptions.find((item) => item.title === title);
+    setSpecimens((rows) => rows.map((row, position) => position === index ? { tubeType: title, sampleType: tube?.data?.sampleType || row.sampleType } : row));
+  };
 
   return <div className="diagnostic-booking">
     <button className="schedule-back" onClick={() => nav(`/app/${kind}-appointments`)}><ArrowLeft /> Back to {label} Appointments</button>
@@ -51,7 +57,7 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
           <label>Payment status<select name="paymentStatus"><option>PENDING</option><option>PAID</option><option>PARTIALLY_PAID</option></select></label>
           <label className="wide">Instructions<textarea name="instructions" placeholder="Fasting, preparation or collection instructions" /></label>
         </div>
-        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Specimen tubes</h2><p>Add one row for every physical tube that must be labelled and scanned.</p></div><button type="button" className="btn ghost" onClick={() => setSpecimens((rows) => [...rows, { tubeType: "", sampleType: "" }])}><Plus /> Add tube</button></div>{specimens.map((item, index) => <div className="specimen-row" key={index}><b>Tube {index + 1}</b><label>Tube/container type *<input required value={item.tubeType} onChange={(event) => updateSpecimen(index, "tubeType", event.target.value)} placeholder="e.g. EDTA purple-top" /></label><label>Sample type *<input required value={item.sampleType} onChange={(event) => updateSpecimen(index, "sampleType", event.target.value)} placeholder="e.g. Whole blood" /></label><button type="button" disabled={specimens.length === 1} onClick={() => setSpecimens((rows) => rows.filter((_, position) => position !== index))}><Trash2 /></button></div>)}</div>}
+        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Specimen tubes</h2><p>Select each physical tube from Specimen Tube Master. The sample type fills automatically.</p></div><button type="button" className="btn ghost" onClick={() => setSpecimens((rows) => [...rows, { tubeType: "", sampleType: "" }])}><Plus /> Add tube</button></div>{specimens.map((item, index) => <div className="specimen-row" key={index}><b>Tube {index + 1}</b><label>Tube/container type *<select required value={item.tubeType} onChange={(event) => selectTube(index, event.target.value)}><option value="" disabled>Select from master</option>{tubeOptions.map((tube) => <option key={tube.id} value={tube.title}>{tube.title}{tube.data?.capColor ? ` · ${tube.data.capColor}` : ""}{tube.data?.volume ? ` · ${tube.data.volume}` : ""}</option>)}</select></label><label>Sample type *<input required readOnly value={item.sampleType} placeholder="Filled from tube master" /></label><button type="button" disabled={specimens.length === 1} onClick={() => setSpecimens((rows) => rows.filter((_, position) => position !== index))}><Trash2 /></button></div>)}</div>}
       </section>
       <aside className="panel test-cart">
         <h2>{isLab ? "Pathology" : "Radiology"} tests</h2>

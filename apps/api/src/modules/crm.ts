@@ -27,6 +27,28 @@ import {
 } from "../razorpay.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
+const defaultSpecimenTubes = [
+  ["SST_GOLD", "SST Gold-Top Tube", "Serum", "Gold", "Clot activator and gel", "5 mL"],
+  ["PLAIN_RED", "Plain Red-Top Tube", "Serum", "Red", "None / clot activator", "5 mL"],
+  ["EDTA_LAVENDER", "EDTA Lavender-Top Tube", "Whole blood", "Lavender", "K2/K3 EDTA", "3 mL"],
+  ["EDTA_PINK", "EDTA Pink-Top Tube", "Whole blood", "Pink", "K2 EDTA", "6 mL"],
+  ["CITRATE_BLUE", "Sodium Citrate Blue-Top Tube", "Citrated plasma", "Light blue", "3.2% sodium citrate", "2.7 mL"],
+  ["FLUORIDE_GREY", "Fluoride Grey-Top Tube", "Plasma", "Grey", "Sodium fluoride/potassium oxalate", "2 mL"],
+  ["HEPARIN_GREEN", "Heparin Green-Top Tube", "Heparin plasma", "Green", "Sodium/lithium heparin", "4 mL"],
+  ["HEPARIN_MINT", "Lithium Heparin Mint-Top PST", "Plasma", "Mint green", "Lithium heparin and gel", "4.5 mL"],
+  ["ACD_YELLOW", "ACD Yellow-Top Tube", "Whole blood", "Yellow", "Acid citrate dextrose", "8.5 mL"],
+  ["SPS_YELLOW", "SPS Yellow-Top Blood Culture Tube", "Whole blood", "Yellow", "Sodium polyanethol sulfonate", "8.3 mL"],
+  ["ESR_BLACK", "ESR Black-Top Tube", "Whole blood", "Black", "Sodium citrate", "2.4 mL"],
+  ["TRACE_ROYAL_BLUE", "Trace Element Royal Blue-Top Tube", "Serum/plasma", "Royal blue", "Trace-element controlled", "6 mL"],
+  ["TAN_LEAD", "Lead Tan-Top Tube", "Whole blood", "Tan", "K2 EDTA", "6 mL"],
+  ["ORANGE_RST", "Rapid Serum Orange-Top Tube", "Serum", "Orange", "Thrombin clot activator", "5 mL"],
+  ["WHITE_PPT", "PPT Pearl White-Top Tube", "Plasma", "Pearl white", "K2 EDTA and gel", "5 mL"],
+  ["URINE_STERILE", "Sterile Urine Container", "Urine", "White", "Sterile, no additive", "100 mL"],
+  ["URINE_BORIC", "Boric Acid Urine Tube", "Urine", "Yellow", "Boric acid preservative", "10 mL"],
+  ["STOOL_CONTAINER", "Sterile Stool Container", "Stool", "White", "Sterile, no additive", "30 mL"],
+  ["SWAB_VTM", "Viral Transport Medium Tube", "Nasopharyngeal/oropharyngeal swab", "Red", "Viral transport medium", "3 mL"],
+  ["SWAB_AMIES", "Amies Transport Swab", "Swab", "Blue", "Amies transport medium", "1 unit"],
+] as const;
 const resources: any = {
   branches: prisma.branch,
   departments: prisma.department,
@@ -1202,10 +1224,29 @@ crmRouter.get(
   "/modules/:module",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
-    const items = await prisma.moduleRecord.findMany({
+    let items = await prisma.moduleRecord.findMany({
       where: { tenantId: tid, module: req.params.module },
       orderBy: { createdAt: "desc" },
     });
+    if (req.params.module === "specimen-tubes" && !items.length) {
+      await prisma.$transaction(
+        defaultSpecimenTubes.map(([code, title, sampleType, capColor, additive, volume]) =>
+          prisma.moduleRecord.create({
+            data: {
+              tenantId: tid,
+              module: "specimen-tubes",
+              title,
+              status: "ACTIVE",
+              data: { code, sampleType, capColor, additive, volume },
+            },
+          })
+        )
+      );
+      items = await prisma.moduleRecord.findMany({
+        where: { tenantId: tid, module: req.params.module },
+        orderBy: { createdAt: "asc" },
+      });
+    }
     return ok(res, { items, total: items.length, page: 1, limit: 100 });
   })
 );
