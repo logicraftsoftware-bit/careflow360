@@ -724,6 +724,8 @@ crmRouter.post(
       patient = await prisma.patient.findFirst({
         where: { id: body.patientId, tenantId: tid },
       });
+    if (body.specimens.some((item) => item.tests.length !== 1))
+      throw new AppError(400, "Choose exactly one specimen tube for each test", "ONE_TUBE_PER_TEST_REQUIRED");
     if (!patient) throw new AppError(404, "Patient not found", "NOT_FOUND");
     const roles = await prisma.userRole.findMany({
         where: { userId: req.user!.id },
@@ -827,8 +829,13 @@ crmRouter.patch(
     if (!patient) throw new AppError(404, "Patient not found", "NOT_FOUND");
     if (!technician) throw new AppError(400, "Please select an active lab technician", "INVALID_TECHNICIAN");
     if (record.status !== "ASSIGNED") throw new AppError(409, "An order can only be edited before the technician accepts it", "ORDER_IN_PROGRESS");
+    if (body.specimens.some((item) => item.tests.length !== 1))
+      throw new AppError(400, "Choose exactly one specimen tube for each test", "ONE_TUBE_PER_TEST_REQUIRED");
     const previous = record.data as any,
-      specimens = body.specimens.map((item, index) => ({ ...item, id: previous.specimens?.[index]?.id || `SP-${randomUUID()}`, sequence: index + 1, status: "EXPECTED", qrToken: previous.specimens?.[index]?.qrToken || randomUUID() })),
+      specimens = body.specimens.map((item, index) => {
+        const existing = previous.specimens?.find((specimen: any) => specimen.tests?.[0] === item.tests[0]);
+        return { ...item, id: existing?.id || `SP-${randomUUID()}`, sequence: index + 1, status: "EXPECTED", qrToken: existing?.qrToken || randomUUID() };
+      }),
       definitionChanged = JSON.stringify((previous.specimens || []).map(({ tubeType, sampleType, tests }: any) => ({ tubeType, sampleType, tests }))) !== JSON.stringify(body.specimens),
       row = await prisma.moduleRecord.update({
         where: { id: record.id },

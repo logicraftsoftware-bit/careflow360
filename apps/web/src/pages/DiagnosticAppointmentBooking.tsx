@@ -15,7 +15,7 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
   const nav = useNavigate(), { id } = useParams(), editing = Boolean(id), isLab = kind === "lab", label = isLab ? "Lab" : "Radiology";
   const [patientSearch, setPatientSearch] = useState(""), [patient, setPatient] = useState<Patient | null>(null), [patientOpen, setPatientOpen] = useState(false);
   const [testSearch, setTestSearch] = useState(""), [testOpen, setTestOpen] = useState(false), [selected, setSelected] = useState<Test[]>([]);
-  const [discount, setDiscount] = useState(0), [specimens, setSpecimens] = useState<Specimen[]>([{ tubeType: "SST Gold-Top Tube", sampleType: "Serum" }]);
+  const [discount, setDiscount] = useState(0), [specimens, setSpecimens] = useState<Specimen[]>([]);
   const { data: patientData } = useQuery({ queryKey: ["booking-patients"], queryFn: () => api.get("/crm/patients?limit=100").then(unwrap) });
   const { data: testData } = useQuery({ queryKey: [`${kind}-booking-tests`], queryFn: () => api.get(`/crm/modules/${kind}-tests?limit=100`).then(unwrap) });
   const { data: technicians = [] } = useQuery<Technician[]>({ queryKey: ["lab-technicians"], queryFn: () => api.get("/crm/lab-technicians").then(unwrap), enabled: isLab });
@@ -39,11 +39,22 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
     if (!patient || !selected.length || (isLab && !specimens.length)) return;
     const form = Object.fromEntries(new FormData(event.currentTarget));
     const common = { ...form, patientId: patient.id, testIds: selected.map((test) => test.id), testNames: selected.map((test) => test.title).join(", "), tests: selected.map((test) => ({ id: test.id, title: test.title, price: Number(test.data?.price || 0) })), subtotal, discountAmount: Number(discount || 0), amount: total, currency: "INR" };
-    save.mutate(isLab ? { patientId: patient.id, appointmentAt: form.appointmentAt, technicianId: form.technicianId, testNames: common.testNames, instructions: form.instructions, priority: form.priority, paymentStatus: form.paymentStatus, subtotal, discountAmount: Number(discount || 0), amount: total, specimens: specimens.map((item) => ({ ...item, tests: selected.map((test) => test.title) })) } : { ...common, title: editing ? order.title : `RADIOLOGY-${Date.now().toString(36).toUpperCase()}` });
+    save.mutate(isLab ? { patientId: patient.id, appointmentAt: form.appointmentAt, technicianId: form.technicianId, testNames: common.testNames, instructions: form.instructions, priority: form.priority, paymentStatus: form.paymentStatus, subtotal, discountAmount: Number(discount || 0), amount: total, specimens: specimens.map((item, index) => ({ ...item, tests: [selected[index].title] })) } : { ...common, title: editing ? order.title : `RADIOLOGY-${Date.now().toString(36).toUpperCase()}` });
   };
   const selectTube = (index: number, title: string) => {
     const tube = tubeOptions.find((item) => item.title === title);
     setSpecimens((rows) => rows.map((row, position) => position === index ? { tubeType: title, sampleType: tube?.data?.sampleType || row.sampleType } : row));
+  };
+  const addTest = (test: Test) => {
+    setSelected((items) => [...items, test]);
+    if (isLab) setSpecimens((items) => [...items, { tubeType: "", sampleType: "" }]);
+    setTestSearch("");
+    setTestOpen(false);
+  };
+  const removeTest = (testId: string) => {
+    const index = selected.findIndex((item) => item.id === testId);
+    setSelected((items) => items.filter((item) => item.id !== testId));
+    if (isLab && index >= 0) setSpecimens((items) => items.filter((_, position) => position !== index));
   };
   useEffect(() => {
     if (!order || !patients.length || patient) return;
@@ -73,15 +84,15 @@ export function DiagnosticAppointmentBookingPage({ kind }: { kind: Kind }) {
           <label>Payment status<select name="paymentStatus" defaultValue={orderValues.paymentStatus || "PENDING"}><option>PENDING</option><option>PAID</option><option>PARTIALLY_PAID</option></select></label>
           <label className="wide">Instructions<textarea name="instructions" defaultValue={orderValues.instructions || ""} placeholder="Fasting, preparation or collection instructions" /></label>
         </div>
-        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Specimen tubes</h2><p>Select each physical tube from Specimen Tube Master. The sample type fills automatically.</p></div><button type="button" className="btn ghost" onClick={() => setSpecimens((rows) => [...rows, { tubeType: "", sampleType: "" }])}><Plus /> Add tube</button></div>{specimens.map((item, index) => <div className="specimen-row" key={index}><b>Tube {index + 1}</b><label>Tube/container type *<select required value={item.tubeType} onChange={(event) => selectTube(index, event.target.value)}><option value="" disabled>Select from master</option>{tubeOptions.map((tube) => <option key={tube.id} value={tube.title}>{tube.title}{tube.data?.capColor ? ` · ${tube.data.capColor}` : ""}{tube.data?.volume ? ` · ${tube.data.volume}` : ""}</option>)}</select></label><label>Sample type *<input required readOnly value={item.sampleType} placeholder="Filled from tube master" /></label><button type="button" disabled={specimens.length === 1} onClick={() => setSpecimens((rows) => rows.filter((_, position) => position !== index))}><Trash2 /></button></div>)}</div>}
+        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Test-wise specimen tubes</h2><p>Every selected test requires its own tube choice. Remove or add tests from the Pathology tests panel.</p></div><span className="tube-count">{selected.length} tests · {specimens.length} tubes</span></div>{selected.map((test, index) => { const item = specimens[index] || { tubeType: "", sampleType: "" }; return <div className="specimen-row test-wise" key={test.id}><div className="tube-test"><small>Test {index + 1}</small><b>{test.title}</b></div><label>Tube/container type *<select required value={item.tubeType} onChange={(event) => selectTube(index, event.target.value)}><option value="" disabled>Select tube for this test</option>{tubeOptions.map((tube) => <option key={tube.id} value={tube.title}>{tube.title}{tube.data?.capColor ? ` · ${tube.data.capColor}` : ""}{tube.data?.volume ? ` · ${tube.data.volume}` : ""}</option>)}</select></label><label>Sample type<input readOnly value={item.sampleType} placeholder="Filled automatically" /></label></div>; })}{!selected.length && <div className="tube-empty">Select pathology tests to choose their specimen tubes.</div>}</div>}
       </section>
       <aside className="panel test-cart">
         <h2>{isLab ? "Pathology" : "Radiology"} tests</h2>
-        <div className="patient-search"><div className="smart-select-input"><Search /><input value={testSearch} placeholder="Search and add tests" onFocus={() => setTestOpen(true)} onBlur={() => setTimeout(() => setTestOpen(false), 150)} onChange={(event) => { setTestSearch(event.target.value); setTestOpen(true); }} /></div>{testOpen && <div className="patient-results">{testMatches.map((test) => <button type="button" key={test.id} onMouseDown={() => { setSelected((items) => [...items, test]); setTestSearch(""); setTestOpen(false); }}><strong>{test.title}</strong><span>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</span><small>{test.data?.code}</small></button>)}</div>}</div>
-        <div className="selected-tests">{selected.map((test) => <article key={test.id}><div><b>{test.title}</b><small>{test.data?.code}</small></div><strong>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</strong><button type="button" onClick={() => setSelected((items) => items.filter((item) => item.id !== test.id))}><Trash2 /></button></article>)}{!selected.length && <p>Search and add one or more tests.</p>}</div>
+        <div className="patient-search"><div className="smart-select-input"><Search /><input value={testSearch} placeholder="Search and add tests" onFocus={() => setTestOpen(true)} onBlur={() => setTimeout(() => setTestOpen(false), 150)} onChange={(event) => { setTestSearch(event.target.value); setTestOpen(true); }} /></div>{testOpen && <div className="patient-results">{testMatches.map((test) => <button type="button" key={test.id} onMouseDown={() => addTest(test)}><strong>{test.title}</strong><span>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</span><small>{test.data?.code}</small></button>)}</div>}</div>
+        <div className="selected-tests">{selected.map((test) => <article key={test.id}><div><b>{test.title}</b><small>{isLab ? "Tube selection required" : test.data?.code}</small></div><strong>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</strong><button type="button" onClick={() => removeTest(test.id)}><Trash2 /></button></article>)}{!selected.length && <p>Search and add one or more tests.</p>}</div>
         <div className="booking-totals"><p><span>Subtotal</span><b>₹{subtotal.toLocaleString("en-IN")}</b></p><label>Discount amount<input type="number" min="0" max={subtotal} value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label><p className="grand-total"><span>Total payable</span><b>₹{total.toLocaleString("en-IN")}</b></p></div>
         {save.error && <div className="alert error">{(save.error as any)?.response?.data?.message || "Unable to create order."}</div>}
-        <button className="btn full" disabled={!patient || !selected.length || (isLab && (!specimens.length || !technicians.length)) || save.isPending}><Plus />{save.isPending ? "Saving…" : `${editing ? "Save" : "Create"} ${label} Order`}</button>
+        <button className="btn full" disabled={!patient || !selected.length || (isLab && (specimens.length !== selected.length || specimens.some((item) => !item.tubeType || !item.sampleType) || !technicians.length)) || save.isPending}><Plus />{save.isPending ? "Saving…" : `${editing ? "Save" : "Create"} ${label} Order`}</button>
       </aside>
     </form>
   </div>;
