@@ -16,10 +16,10 @@ const indiaTime = (value: Date) => value.toLocaleTimeString("en-IN", { timeZone:
 const whatsappNumber = (value: string) => { const digits=value.replace(/\D/g, ""); return digits.length===10?`+91${digits}`:`+${digits}`; };
 
 async function tenantSettings(appointment:AppointmentMessage):Promise<AiSensySettings|null>{const row=await prisma.aiSensyIntegration.findUnique({where:{tenantId:appointment.tenantId}});if(row?.isActive)return {...row,apiKey:decryptIntegrationSecret(row.apiKeyEncrypted)};if(!row&&appointment.clinicName.trim().toLowerCase().includes("demo clinic")&&config.AISENSY_API_KEY)return {apiUrl:config.AISENSY_API_URL,apiKey:config.AISENSY_API_KEY,campaignPaymentPending:config.AISENSY_CAMPAIGN_PAYMENT_PENDING||"",campaignPaymentSuccess:config.AISENSY_CAMPAIGN_PAYMENT_SUCCESS||"",campaignCancelled:config.AISENSY_CAMPAIGN_CANCELLED||"",campaignRescheduled:config.AISENSY_CAMPAIGN_RESCHEDULED||"",campaignDiagnosticPending:"careflow_diagnostic_payment_pending",campaignDiagnosticSuccess:"careflow_diagnostic_payment_success",campaignDiagnosticCancelled:"careflow_diagnostic_cancelled",campaignDiagnosticRescheduled:"careflow_diagnostic_rescheduled"};return null;}
-async function sendCampaign(campaign:(settings:AiSensySettings)=>string, appointment: AppointmentMessage, templateParams: string[], media?: { url: string; filename: string }) {
+async function sendCampaign(campaign:(settings:AiSensySettings)=>string, appointment: AppointmentMessage, templateParams: string[], media?: { url: string; filename: string }, buttons?: unknown[]) {
   const settings=await tenantSettings(appointment),campaignName=settings&&campaign(settings);
   if (!settings || !campaignName) return { sent:false, skipped:true, reason:"AiSensy is not configured for this clinic" };
-  const response=await fetch(settings.apiUrl,{method:"POST",headers:{"content-type":"application/json"},signal:AbortSignal.timeout(10000),body:JSON.stringify({apiKey:settings.apiKey,campaignName,destination:whatsappNumber(appointment.patientMobile),userName:appointment.patientName,source:"CareFlow360 CRM",templateParams,...(media?{media}:{})})});
+  const response=await fetch(settings.apiUrl,{method:"POST",headers:{"content-type":"application/json"},signal:AbortSignal.timeout(10000),body:JSON.stringify({apiKey:settings.apiKey,campaignName,destination:whatsappNumber(appointment.patientMobile),userName:appointment.patientName,source:"CareFlow360 CRM",templateParams,...(media?{media}:{}),...(buttons?{buttons}:{})})});
   const responseText=await response.text();
   if(!response.ok)throw new Error(`AiSensy returned ${response.status}: ${responseText.slice(0,500)}`);
   return {sent:true,status:response.status,response:responseText.slice(0,500)};
@@ -33,7 +33,7 @@ export async function sendDiagnosticMessage(kind:DiagnosticMessageKind,a:Appoint
   return sendCampaign(s=>s.campaignDiagnosticRescheduled,a,[...common,indiaDate(old),indiaTime(old),indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,a.clinicPhone]);
 }
 export const sendCollectionOtp = (a: AppointmentMessage, otp: string) =>
-  sendCampaign(() => "careflow_collection_otp", a, [a.patientName, a.clinicName, otp, a.appointmentNumber]);
+  sendCampaign(() => "careflow_collection_otp", a, [otp], undefined, [{ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: otp }] }]);
 export const paymentLinkFor=(appointmentNumber:string)=>`${config.APP_URL.replace(/\/$/,"")}/payment/${encodeURIComponent(appointmentNumber)}`;
 export function appointmentToken(doctorName:string,departmentName:string,departmentCode:string,startsAt:Date,serialNumber:number){const name=doctorName.replace(/^dr\.?\s*/i,"").trim().split(/\s+/),initials=`${name[0]?.[0]||"D"}${name.length>1?name[name.length-1][0]:"R"}`.toUpperCase(),localDate=startsAt.toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}),datePart=`${Number(localDate.slice(8,10))}-${localDate.slice(5,7)}`,specialty=departmentName.replace(/[^a-z]/gi,"").slice(0,5).toUpperCase()||departmentCode.toUpperCase();return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2,"0")}`;}
 export const tokenImageSignature=(appointmentId:string)=>createHmac("sha256",config.JWT_SECRET).update(`appointment-token:${appointmentId}`).digest("hex");
