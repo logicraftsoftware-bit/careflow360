@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Barcode, FlaskConical } from "lucide-react";
+import { Barcode, FlaskConical, MapPin } from "lucide-react";
 import { api, unwrap } from "../api";
 
 export function LabCollectionPage({
@@ -7,6 +8,7 @@ export function LabCollectionPage({
 }: {
   state: "assigned" | "collected" | "all";
 }) {
+  const [mapItem, setMapItem] = useState<any>(null);
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const admin =
     user.isPlatform ||
@@ -93,6 +95,7 @@ export function LabCollectionPage({
                   <th>Tests</th>
                   <th>Technician</th>
                   <th>Status</th>
+                  {admin && <th>Live journey</th>}
                   {showLabelColumn && <th>Tube labels</th>}
                 </tr>
               </thead>
@@ -102,6 +105,11 @@ export function LabCollectionPage({
                     <td>
                       <b>{item.title}</b>
                     </td>
+                    {admin && <td>
+                      {item.technicianLocation ? <button className="btn ghost" onClick={() => setMapItem(item)}>
+                        <MapPin /> View map
+                      </button> : <span>Not started</span>}
+                    </td>}
                     <td>{item.patient?.name || "—"}</td>
                     <td>{item.testNames || "—"}</td>
                     <td>{item.assignedTechnicianName || "—"}</td>
@@ -130,6 +138,11 @@ export function LabCollectionPage({
           </div>
         )}
       </section>
+      {mapItem?.technicianLocation && <section className="panel" style={{ marginTop: 16 }}>
+        <div className="page-head"><div><span>LIVE TECHNICIAN JOURNEY</span><h2>{mapItem.assignedTechnicianName}</h2><p>{mapItem.journeyLocations?.length || 1} location points recorded · last update {new Date(mapItem.technicianLocation.capturedAt).toLocaleString("en-IN")}</p></div><button className="btn ghost" onClick={() => setMapItem(null)}>Close map</button></div>
+        <iframe title={`${mapItem.assignedTechnicianName} live location`} style={{ width: "100%", height: 420, border: 0, borderRadius: 14 }} src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapItem.technicianLocation.longitude - .01}%2C${mapItem.technicianLocation.latitude - .01}%2C${mapItem.technicianLocation.longitude + .01}%2C${mapItem.technicianLocation.latitude + .01}&layer=mapnik&marker=${mapItem.technicianLocation.latitude}%2C${mapItem.technicianLocation.longitude}`} />
+        <a className="btn" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${mapItem.technicianLocation.latitude},${mapItem.technicianLocation.longitude}`}>Open roadmap</a>
+      </section>}
     </div>
   );
 }

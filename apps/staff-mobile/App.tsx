@@ -10,6 +10,7 @@ import {
   PermissionsAndroid,
   Platform,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -60,6 +61,18 @@ export default function App() {
       </View>
     );
   if (!user) return <Login onDone={setUser} />;
+  const confirmLogout = () =>
+    Alert.alert("Log out?", "You will need to sign in again to continue working.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log out",
+        style: "destructive",
+        onPress: async () => {
+          await clearSession();
+          setUser(null);
+        },
+      },
+    ]);
   return (
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.canvas} />
@@ -77,10 +90,7 @@ export default function App() {
           <More
             user={user}
             go={setTab}
-            logout={async () => {
-              await clearSession();
-              setUser(null);
-            }}
+            logout={confirmLogout}
           />
         )}
       </View>
@@ -516,7 +526,15 @@ function Work({ user }: { user: User }) {
     [rows, setRows] = useState<any[]>([]),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
+    [refreshing, setRefreshing] = useState(false),
     [scannerOrder, setScannerOrder] = useState<any>(null),
+    [collectionOrder, setCollectionOrder] = useState<any>(null),
+    [scanTarget, setScanTarget] = useState<any>(null),
+    [otpOrder, setOtpOrder] = useState<any>(null),
+    [otp, setOtp] = useState(""),
+    [paymentOrder, setPaymentOrder] = useState<any>(null),
+    [paymentMethod, setPaymentMethod] = useState("CASH"),
+    [transactionId, setTransactionId] = useState(""),
     [scannedTokens, setScannedTokens] = useState<string[]>([]),
     [scanMessage, setScanMessage] = useState("Hold the printed barcode steady inside the frame"),
     [submitting, setSubmitting] = useState<string | null>(null);
@@ -529,6 +547,18 @@ function Work({ user }: { user: User }) {
     SAMPLE_COLLECTED: "Submit collection", IN_TRANSIT: "Start transport", RECEIVED: "Confirm lab handover",
   };
   const refresh = () => request(`/crm/lab-collections?state=${kind}`).then((d) => setRows(Array.isArray(d) ? d : d.items || []));
+  const pullRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const path = kind === "assigned" || kind === "collected"
+        ? `/crm/lab-collections?state=${kind}`
+        : kind === "doctor" ? "/crm/appointments?limit=100" : `/crm/modules/${kind}-appointments`;
+      const data = await request(path);
+      setRows(Array.isArray(data) ? data : data.items || []);
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const moveWorkflow = async (item: any, stage: string, extra: any = {}) => {
     try {
       setSubmitting(item.id);
@@ -538,11 +568,38 @@ function Work({ user }: { user: User }) {
       Alert.alert("Cannot continue", error?.message || "Workflow update failed");
     } finally { setSubmitting(null); }
   };
+  const confirmWorkflow = (item: any, stage: string, extra: any = {}) =>
+    Alert.alert(actionLabels[stage] || "Continue?", "Confirm this workflow update.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Confirm", onPress: () => moveWorkflow(item, stage, extra) },
+    ]);
+  const captureLocation = async () => {
+    if (Platform.OS !== "android") throw new Error("Location tracking is currently available on Android");
+    const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+    if (permission !== PermissionsAndroid.RESULTS.GRANTED) throw new Error("Allow precise location to start the journey");
+    return NativeModules.ScanFeedback.currentLocation();
+  };
+  const startJourney = (item: any) =>
+    Alert.alert("Start journey?", "Your live route will be recorded and visible to administrators until arrival.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Start", onPress: async () => {
+        try {
+          const location = await captureLocation();
+          await moveWorkflow(item, "ON_THE_WAY", { location });
+        } catch (error: any) {
+          Alert.alert("Location required", error?.message || "Unable to get current location");
+        }
+      } },
+    ]);
   const openScanner = async (item: any) => {
     if (!item.labelsGeneratedAt) {
       Alert.alert("Labels not ready", "Ask an administrator to generate, print and attach all tube labels first.");
       return;
     }
+    setScannedTokens([]);
+    setCollectionOrder(item);
+  };
+  const openTubeScanner = async (item: any, specimen: any) => {
     if (Platform.OS === "android") {
       const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
       if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
@@ -550,9 +607,37 @@ function Work({ user }: { user: User }) {
         return;
       }
     }
-    setScannedTokens([]);
     setScanMessage("Hold the printed barcode steady inside the frame");
+    setScanTarget(specimen);
     setScannerOrder(item);
+  };
+  const requestOtp = async (item: any) => {
+    try {
+      setSubmitting(item.id);
+      const result = await request(`/crm/lab-collections/${item.id}/verification-otp`, { method: "POST" });
+      setOtp("");
+      setOtpOrder(item);
+      Alert.alert("OTP sent", `Ask the customer for the 6-digit OTP sent to ${result.destination}.`);
+    } catch (error: any) {
+      Alert.alert("OTP not sent", error?.message || "Check the clinic WhatsApp OTP campaign configuration");
+    } finally { setSubmitting(null); }
+  };
+  const verifyOtp = async () => {
+    if (!otpOrder || otp.length !== 6) return;
+    try {
+      setSubmitting(otpOrder.id);
+      await request(`/crm/lab-collections/${otpOrder.id}/verify-otp`, { method: "POST", body: JSON.stringify({ otp }) });
+      NativeModules.ScanFeedback?.success?.();
+      setOtpOrder(null);
+      await refresh();
+    } catch (error: any) {
+      Alert.alert("Verification failed", error?.message || "Incorrect OTP");
+    } finally { setSubmitting(null); }
+  };
+  const submitPayment = async () => {
+    if (!paymentOrder) return;
+    await moveWorkflow(paymentOrder, "PAYMENT_RECORDED", { payment: { status: "PAID", method: paymentMethod, amount: Number(paymentOrder.amount || 0), transactionId: transactionId || undefined } });
+    setPaymentOrder(null);
   };
   const readTubeCode = (value: string) => {
     if (!scannerOrder) return;
@@ -570,7 +655,11 @@ function Work({ user }: { user: User }) {
     );
     const token = specimen?.qrToken;
     if (!token) {
-      setScanMessage(`Barcode ${scannedValue || "unknown"} does not belong to this order`);
+      setScanMessage("Wrong test tube — this barcode does not belong to the order");
+      return;
+    }
+    if (scanTarget?.qrToken && token !== scanTarget.qrToken) {
+      setScanMessage(`Wrong test tube — scan the tube for ${scanTarget.tests?.join(", ")}`);
       return;
     }
     setScannedTokens((current) => {
@@ -581,6 +670,7 @@ function Work({ user }: { user: User }) {
       NativeModules.ScanFeedback?.success?.();
       Vibration.vibrate(100);
       setScanMessage(`Tube scanned: ${specimen.tests?.join(", ") || specimen.sampleType}`);
+      setTimeout(() => { setScannerOrder(null); setScanTarget(null); }, 350);
       return [...current, token];
     });
   };
@@ -607,6 +697,19 @@ function Work({ user }: { user: User }) {
       .catch(() => setRows([]))
       .finally(() => setBusy(false));
   }, [kind]);
+  useEffect(() => {
+    const active = rows.filter((item) => item.status === "ON_THE_WAY");
+    if (!tech || !active.length) return;
+    const upload = async () => {
+      try {
+        const location = await captureLocation();
+        await Promise.all(active.map((item) => request(`/crm/lab-collections/${item.id}/location`, { method: "PATCH", body: JSON.stringify(location) })));
+      } catch { /* the next interval retries after temporary GPS/network failures */ }
+    };
+    upload();
+    const timer = setInterval(upload, 30000);
+    return () => clearInterval(timer);
+  }, [rows, tech]);
   const filtered = rows.filter((item) =>
     JSON.stringify(item).toLowerCase().includes(search.toLowerCase())
   );
@@ -678,6 +781,7 @@ function Work({ user }: { user: User }) {
       ) : (
         <FlatList
           data={filtered}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pullRefresh} colors={[colors.primary]} tintColor={colors.primary} />}
           contentContainerStyle={{ paddingBottom: 18 }}
           keyExtractor={(x) => x.id}
           ListEmptyComponent={<Empty text="No records found" />}
@@ -715,7 +819,7 @@ function Work({ user }: { user: User }) {
                 <Pressable
                   style={s.collect}
                   disabled={submitting === item.id}
-                  onPress={() => nextStage === "BARCODES_SCANNED" ? openScanner(item) : moveWorkflow(item, nextStage, nextStage === "PAYMENT_RECORDED" ? { payment: { status: Number(item.amount || 0) > 0 ? "PENDING" : "NOT_REQUIRED", amount: Number(item.amount || 0) } } : {})}
+                  onPress={() => nextStage === "ON_THE_WAY" ? startJourney(item) : nextStage === "PATIENT_VERIFIED" ? requestOtp(item) : nextStage === "BARCODES_SCANNED" ? openScanner(item) : nextStage === "PAYMENT_RECORDED" ? (item.paymentStatus === "PAID" ? confirmWorkflow(item, nextStage, { payment: { status: "PAID", amount: Number(item.amount || 0) } }) : setPaymentOrder(item)) : confirmWorkflow(item, nextStage)}
                 >
                   <Ionicons name={nextStage === "BARCODES_SCANNED" ? "scan-outline" : "checkmark-circle-outline"} size={20} color="white" />
                   <Text style={s.primaryText}>{submitting === item.id ? "Updating…" : actionLabels[nextStage]}</Text>
@@ -726,11 +830,24 @@ function Work({ user }: { user: User }) {
           )}
         />
       )}
-      <Modal visible={!!scannerOrder} animationType="slide" onRequestClose={() => setScannerOrder(null)}>
+      <Modal visible={!!collectionOrder} animationType="slide" onRequestClose={() => setCollectionOrder(null)}>
+        <SafeAreaView style={s.listScreen}>
+          <View style={s.scannerHeadLight}><Pressable onPress={() => setCollectionOrder(null)}><Ionicons name="close" size={28} color="#07182A" /></Pressable><View><Text style={s.cardTitle}>Collection details</Text><Text style={s.cardSub}>{collectionOrder?.patient?.name} · {collectionOrder?.title}</Text></View></View>
+          <ScrollView contentContainerStyle={{ padding: 18 }}>
+            <Card style={s.recordCard}><Text style={s.cardTitle}>Payment</Text><Text style={collectionOrder?.paymentStatus === "PAID" ? s.paid : s.cardSub}>{collectionOrder?.paymentStatus === "PAID" ? "PAID" : `Collect ₹${Number(collectionOrder?.amount || 0).toLocaleString("en-IN")}`}</Text></Card>
+            {(collectionOrder?.specimens || []).map((specimen: any) => {
+              const done = scannedTokens.includes(specimen.qrToken);
+              return <Card key={specimen.id} style={s.recordCard}><View style={s.cardTop}><View style={{ flex: 1 }}><Text style={s.cardTitle}>{specimen.tests?.join(", ")}</Text><Text style={s.cardSub}>{specimen.tubeType} · {specimen.sampleType}</Text></View><Ionicons name={done ? "checkmark-circle" : "flask-outline"} size={26} color={done ? colors.primary : colors.muted} /></View><Pressable disabled={done} style={[s.collect, done && { opacity: .45 }]} onPress={() => openTubeScanner(collectionOrder, specimen)}><Ionicons name={done ? "checkmark-done" : "scan-outline"} size={20} color="white" /><Text style={s.primaryText}>{done ? "Scanned" : "Scan this tube"}</Text></Pressable></Card>;
+            })}
+            <Pressable style={[s.collect, scannedTokens.length !== (collectionOrder?.specimens?.length || 0) && { opacity: .45 }]} disabled={scannedTokens.length !== (collectionOrder?.specimens?.length || 0)} onPress={async () => { const order = collectionOrder; setCollectionOrder(null); await moveWorkflow(order, "BARCODES_SCANNED", { barcodeTokens: scannedTokens }); }}><Ionicons name="checkmark-done" size={20} color="white" /><Text style={s.primaryText}>Submit all scanned tubes</Text></Pressable>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+      <Modal visible={!!scannerOrder} animationType="slide" onRequestClose={() => { setScannerOrder(null); setScanTarget(null); }}>
         <SafeAreaView style={s.scannerScreen}>
           <View style={s.scannerHead}>
-            <Pressable onPress={() => setScannerOrder(null)}><Ionicons name="close" size={30} color="white" /></Pressable>
-            <View><Text style={s.scannerTitle}>Scan tube labels</Text><Text style={s.scannerCount}>{scannedTokens.length} of {scannerOrder?.specimens?.length || 0} scanned</Text></View>
+            <Pressable onPress={() => { setScannerOrder(null); setScanTarget(null); }}><Ionicons name="close" size={30} color="white" /></Pressable>
+            <View><Text style={s.scannerTitle}>Scan {scanTarget?.tests?.join(", ") || "tube"}</Text><Text style={s.scannerCount}>{scanTarget?.tubeType}</Text></View>
           </View>
           <Camera
             style={{ flex: 1 }}
@@ -747,11 +864,25 @@ function Work({ user }: { user: User }) {
           />
           <View style={s.scannerFoot}>
             <Text style={s.scannerHelp}>{scanMessage}</Text>
-            <Pressable style={[s.collect, scannedTokens.length !== (scannerOrder?.specimens?.length || 0) && { opacity: 0.45 }]} disabled={scannedTokens.length !== (scannerOrder?.specimens?.length || 0)} onPress={async () => { const order = scannerOrder; setScannerOrder(null); await moveWorkflow(order, "BARCODES_SCANNED", { barcodeTokens: scannedTokens }); }}>
-              <Ionicons name="checkmark-done" size={20} color="white" /><Text style={s.primaryText}>Submit scanned tubes</Text>
-            </Pressable>
           </View>
         </SafeAreaView>
+      </Modal>
+      <Modal visible={!!otpOrder} transparent animationType="fade" onRequestClose={() => setOtpOrder(null)}>
+        <View style={s.modalBackdrop}><View style={s.modalCard}>
+          <Text style={s.cardTitle}>Verify customer</Text>
+          <Text style={s.cardSub}>Enter the 6-digit OTP received by the customer.</Text>
+          <TextInput value={otp} onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 6))} keyboardType="number-pad" maxLength={6} placeholder="6-digit OTP" style={s.formInput} />
+          <Pressable style={[s.collect, otp.length !== 6 && { opacity: .45 }]} disabled={otp.length !== 6 || submitting === otpOrder?.id} onPress={verifyOtp}><Text style={s.primaryText}>Verify OTP</Text></Pressable>
+          <Pressable style={s.toolBtn} onPress={() => setOtpOrder(null)}><Text style={s.toolText}>Cancel</Text></Pressable>
+        </View></View>
+      </Modal>
+      <Modal visible={!!paymentOrder} animationType="slide" onRequestClose={() => setPaymentOrder(null)}>
+        <SafeAreaView style={s.listScreen}><View style={s.scannerHeadLight}><Pressable onPress={() => setPaymentOrder(null)}><Ionicons name="arrow-back" size={26} color="#07182A" /></Pressable><Text style={s.cardTitle}>Collect payment</Text></View><ScrollView contentContainerStyle={{ padding: 18 }}>
+          <Card style={s.recordCard}><Text style={s.cardTitle}>{paymentOrder?.patient?.name}</Text><Text style={s.cardSub}>{paymentOrder?.testNames}</Text><Text style={[s.amount, { marginTop: 15 }]}>Amount due: ₹{Number(paymentOrder?.amount || 0).toLocaleString("en-IN")}</Text></Card>
+          <Text style={s.cardSub}>Payment method</Text><View style={s.segment}>{["CASH", "UPI", "CARD"].map((method) => <Pressable key={method} style={[s.segmentBtn, paymentMethod === method && s.segmentOn]} onPress={() => setPaymentMethod(method)}><Text style={paymentMethod === method ? s.segmentOnText : s.segmentText}>{method}</Text></Pressable>)}</View>
+          {paymentMethod !== "CASH" && <TextInput style={s.formInput} value={transactionId} onChangeText={setTransactionId} placeholder="Transaction / reference number" />}
+          <Pressable style={s.collect} onPress={() => Alert.alert("Confirm payment?", `Confirm receipt of ₹${Number(paymentOrder?.amount || 0).toLocaleString("en-IN")} by ${paymentMethod}.`, [{ text: "Cancel", style: "cancel" }, { text: "Confirm paid", onPress: submitPayment }])}><Ionicons name="wallet-outline" size={20} color="white" /><Text style={s.primaryText}>Confirm payment collected</Text></Pressable>
+        </ScrollView></SafeAreaView>
       </Modal>
     </View>
   );
@@ -1992,10 +2123,14 @@ const pageStyles = StyleSheet.create({
   },
   scannerScreen: { flex: 1, backgroundColor: "#07182A" },
   scannerHead: { minHeight: 82, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 18 },
+  scannerHeadLight: { minHeight: 76, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 15, backgroundColor: "white", borderBottomWidth: 1, borderBottomColor: "#E6EDF2" },
   scannerTitle: { color: "white", fontSize: 21, fontWeight: "800" },
   scannerCount: { color: "#9BE8DF", marginTop: 3, fontWeight: "700" },
   scannerFoot: { padding: 20, backgroundColor: "#07182A" },
   scannerHelp: { color: "white", textAlign: "center", marginBottom: 14 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(7,24,42,.55)", justifyContent: "center", padding: 22 },
+  modalCard: { backgroundColor: "white", borderRadius: 22, padding: 22, gap: 12 },
+  formInput: { height: 54, borderWidth: 1, borderColor: "#D6DFE8", borderRadius: 14, paddingHorizontal: 16, fontSize: 18, color: "#07182A" },
 });
 const profileStyles = StyleSheet.create({
   profileScroll: {

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import argon2 from "argon2";
 import { z } from "zod";
 import bwipjs from "bwip-js";
@@ -20,6 +20,7 @@ import {
   sendPaymentSuccessMessage,
   sendRescheduledMessage,
   sendDiagnosticMessage,
+  sendCollectionOtp,
 } from "../aisensy.js";
 import {
   ensureDiagnosticPaymentLink,
@@ -950,6 +951,11 @@ crmRouter.patch(
           notes: z.string().trim().max(500).optional(),
           barcodeTokens: z.array(z.string()).optional(),
           checklist: z.record(z.boolean()).optional(),
+          location: z.object({
+            latitude: z.number().min(-90).max(90),
+            longitude: z.number().min(-180).max(180),
+            accuracy: z.number().min(0).optional(),
+          }).optional(),
           payment: z
             .object({
               status: z.enum(["PAID", "PENDING", "NOT_REQUIRED"]),
@@ -997,6 +1003,8 @@ crmRouter.patch(
         "Only the assigned lab technician can scan these tube labels",
         "ASSIGNED_TECHNICIAN_REQUIRED"
       );
+    if (body.stage === "ON_THE_WAY" && !body.location)
+      throw new AppError(400, "Current location is required to start the journey", "LOCATION_REQUIRED");
     if (
       ["ACCEPTED_AT_LAB", "REJECTED_AT_LAB"].includes(body.stage) &&
       !isAdmin
@@ -1050,6 +1058,15 @@ crmRouter.patch(
                   paymentCollectedById: req.user!.id,
                 }
               : {}),
+            ...(body.location
+              ? {
+                  technicianLocation: { ...body.location, capturedAt: at },
+                  journeyLocations: [
+                    ...(data.journeyLocations || []),
+                    { ...body.location, capturedAt: at },
+                  ].slice(-500),
+                }
+              : {}),
             workflow: [
               ...(data.workflow || []),
               {
@@ -1075,6 +1092,73 @@ crmRouter.patch(
       updated,
       `Order moved to ${body.stage.replaceAll("_", " ")}`
     );
+  })
+);
+crmRouter.post(
+  "/lab-collections/:id/verification-otp",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req), record = await prisma.moduleRecord.findFirst({ where: { id: req.params.id, tenantId: tid, module: "lab-appointments" } });
+    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
+    const data = record.data as any;
+    if (data.assignedTechnicianId !== req.user!.id) throw new AppError(403, "This order is assigned to another technician", "FORBIDDEN");
+    if (record.status !== "ARRIVED") throw new AppError(409, "Mark the journey as arrived before requesting OTP", "ARRIVAL_REQUIRED");
+    const [patient, clinic] = await Promise.all([
+      prisma.patient.findFirst({ where: { id: data.patientId, tenantId: tid } }),
+      prisma.tenant.findUnique({ where: { id: tid } }),
+    ]);
+    if (!patient || !clinic) throw new AppError(404, "Patient or clinic not found", "NOT_FOUND");
+    const otp = String(randomInt(100000, 1000000));
+    const delivery = await sendCollectionOtp({ appointmentId: record.id, tenantId: tid, patientName: patient.name, patientMobile: patient.mobile, patientNumber: patient.patientNumber, clinicName: clinic.name, clinicPhone: clinic.mobile, doctorName: "Lab technician", departmentName: data.testNames, branchName: "Home collection", appointmentNumber: record.title, startsAt: new Date(data.appointmentAt), amount: Number(data.amount || 0) }, otp);
+    if (!delivery.sent) throw new AppError(502, delivery.reason || "OTP could not be sent", "OTP_DELIVERY_FAILED");
+    await prisma.moduleRecord.update({ where: { id: record.id }, data: { data: { ...data, verificationOtpHash: await argon2.hash(otp), verificationOtpExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), verificationOtpAttempts: 0 } } });
+    await audit(req, "lab.verification_otp.sent", "ModuleRecord", record.id, { destination: patient.mobile.slice(-4) });
+    return ok(res, { destination: `******${patient.mobile.slice(-4)}`, expiresInMinutes: 10 }, "OTP sent to the patient's WhatsApp number");
+  })
+);
+crmRouter.post(
+  "/lab-collections/:id/verify-otp",
+  asyncRoute(async (req, res) => {
+    const otp = z.object({ otp: z.string().regex(/^\d{6}$/) }).parse(req.body).otp;
+    const record = await prisma.moduleRecord.findFirst({ where: { id: req.params.id, tenantId: tenantId(req), module: "lab-appointments" } });
+    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
+    const data = record.data as any;
+    if (data.assignedTechnicianId !== req.user!.id) throw new AppError(403, "This order is assigned to another technician", "FORBIDDEN");
+    if (record.status !== "ARRIVED") throw new AppError(409, "OTP verification is not available at this stage", "INVALID_TRANSITION");
+    if (!data.verificationOtpHash || !data.verificationOtpExpiresAt || new Date(data.verificationOtpExpiresAt).getTime() < Date.now()) throw new AppError(410, "OTP expired. Request a new OTP", "OTP_EXPIRED");
+    if (Number(data.verificationOtpAttempts || 0) >= 5) throw new AppError(429, "Too many incorrect attempts. Request a new OTP", "OTP_LOCKED");
+    if (!(await argon2.verify(data.verificationOtpHash, otp))) {
+      await prisma.moduleRecord.update({ where: { id: record.id }, data: { data: { ...data, verificationOtpAttempts: Number(data.verificationOtpAttempts || 0) + 1 } } });
+      throw new AppError(400, "Incorrect OTP", "OTP_INCORRECT");
+    }
+    const at = new Date().toISOString();
+    const updated = await prisma.moduleRecord.update({ where: { id: record.id }, data: { status: "PATIENT_VERIFIED", data: { ...data, verificationOtpHash: null, verificationOtpExpiresAt: null, verificationOtpAttempts: 0, patientVerifiedAt: at, workflow: [...(data.workflow || []), { stage: "PATIENT_VERIFIED", at, by: req.user!.id, notes: "Customer OTP verified" }] } } });
+    await audit(req, "lab.patient_verified.otp", "ModuleRecord", record.id);
+    return ok(res, updated, "Patient verified successfully");
+  })
+);
+crmRouter.patch(
+  "/lab-collections/:id/location",
+  asyncRoute(async (req, res) => {
+    const body = z.object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180),
+      accuracy: z.number().min(0).optional(),
+    }).parse(req.body);
+    const record = await prisma.moduleRecord.findFirst({
+      where: { id: req.params.id, tenantId: tenantId(req), module: "lab-appointments" },
+    });
+    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
+    const data = record.data as any;
+    if (data.assignedTechnicianId !== req.user!.id)
+      throw new AppError(403, "This journey belongs to another technician", "FORBIDDEN");
+    if (!['ON_THE_WAY', 'ARRIVED'].includes(record.status))
+      throw new AppError(409, "Location can only be recorded during an active journey", "JOURNEY_NOT_ACTIVE");
+    const point = { ...body, capturedAt: new Date().toISOString() };
+    const updated = await prisma.moduleRecord.update({
+      where: { id: record.id },
+      data: { data: { ...data, technicianLocation: point, journeyLocations: [...(data.journeyLocations || []), point].slice(-500) } },
+    });
+    return ok(res, updated, "Technician location recorded");
   })
 );
 crmRouter.get(
@@ -1142,11 +1226,14 @@ crmRouter.get(
       }),
       patientMap = new Map(patients.map((patient) => [patient.id, patient]));
     return ok(res, {
-      items: visible.map((row) => ({
-        ...row,
-        ...(row.data as object),
-        patient: patientMap.get((row.data as any)?.patientId),
-      })),
+      items: visible.map((row) => {
+        const { verificationOtpHash: _otpHash, ...safeData } = row.data as any;
+        return {
+          ...row,
+          ...safeData,
+          patient: patientMap.get((row.data as any)?.patientId),
+        };
+      }),
       total: visible.length,
     });
   })

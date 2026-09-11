@@ -32,6 +32,8 @@ export async function sendDiagnosticMessage(kind:DiagnosticMessageKind,a:Appoint
   if(kind==="cancelled")return sendCampaign(s=>s.campaignDiagnosticCancelled,a,[...common,indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,details?.cancellationReason||"Cancelled by clinic",a.clinicPhone]);
   return sendCampaign(s=>s.campaignDiagnosticRescheduled,a,[...common,indiaDate(old),indiaTime(old),indiaDate(a.startsAt),indiaTime(a.startsAt),a.appointmentNumber,a.clinicPhone]);
 }
+export const sendCollectionOtp = (a: AppointmentMessage, otp: string) =>
+  sendCampaign(() => "careflow_collection_otp", a, [a.patientName, a.clinicName, otp, a.appointmentNumber]);
 export const paymentLinkFor=(appointmentNumber:string)=>`${config.APP_URL.replace(/\/$/,"")}/payment/${encodeURIComponent(appointmentNumber)}`;
 export function appointmentToken(doctorName:string,departmentName:string,departmentCode:string,startsAt:Date,serialNumber:number){const name=doctorName.replace(/^dr\.?\s*/i,"").trim().split(/\s+/),initials=`${name[0]?.[0]||"D"}${name.length>1?name[name.length-1][0]:"R"}`.toUpperCase(),localDate=startsAt.toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}),datePart=`${Number(localDate.slice(8,10))}-${localDate.slice(5,7)}`,specialty=departmentName.replace(/[^a-z]/gi,"").slice(0,5).toUpperCase()||departmentCode.toUpperCase();return `${initials}-${specialty}/${datePart}/${String(serialNumber).padStart(2,"0")}`;}
 export const tokenImageSignature=(appointmentId:string)=>createHmac("sha256",config.JWT_SECRET).update(`appointment-token:${appointmentId}`).digest("hex");
