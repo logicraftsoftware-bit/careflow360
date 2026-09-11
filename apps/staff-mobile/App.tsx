@@ -6,6 +6,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
+  NativeModules,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -15,6 +16,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Vibration,
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -516,6 +518,7 @@ function Work({ user }: { user: User }) {
     [busy, setBusy] = useState(false),
     [scannerOrder, setScannerOrder] = useState<any>(null),
     [scannedTokens, setScannedTokens] = useState<string[]>([]),
+    [scanMessage, setScanMessage] = useState("Hold the printed barcode steady inside the frame"),
     [submitting, setSubmitting] = useState<string | null>(null);
   const activeStages = ["ASSIGNED", "ACCEPTED", "ON_THE_WAY", "ARRIVED", "PATIENT_VERIFIED", "PREPARATION_CHECKED", "BARCODES_SCANNED", "SPECIMENS_COLLECTED", "PAYMENT_RECORDED", "PACKAGED", "SAMPLE_COLLECTED", "IN_TRANSIT", "RECEIVED"];
   const actionLabels: Record<string, string> = {
@@ -548,16 +551,38 @@ function Work({ user }: { user: User }) {
       }
     }
     setScannedTokens([]);
+    setScanMessage("Hold the printed barcode steady inside the frame");
     setScannerOrder(item);
   };
   const readTubeCode = (value: string) => {
     if (!scannerOrder) return;
+    const scannedValue = String(value || "").trim().toUpperCase();
+    const compactBarcode = (token: string) =>
+      (String(token || "").replaceAll("-", "").match(/.{1,2}/g) || [])
+        .slice(0, 12)
+        .map((pair) => String(Number.parseInt(pair, 16) % 10))
+        .join("");
     const specimen = (scannerOrder.specimens || []).find((item: any) =>
-      item.barcodeValue === value ||
-      (value.startsWith(`CF360:${scannerOrder.id}:`) && item.qrToken === value.split(":").at(-1))
+      compactBarcode(item.qrToken) === scannedValue ||
+      String(item.barcodeValue || "").toUpperCase() === scannedValue ||
+      `CF${String(item.qrToken || "").replaceAll("-", "").slice(0, 20)}`.toUpperCase() === scannedValue ||
+      (scannedValue.startsWith(`CF360:${scannerOrder.id}:`.toUpperCase()) && String(item.qrToken).toUpperCase() === scannedValue.split(":").at(-1))
     );
     const token = specimen?.qrToken;
-    if (token) setScannedTokens((current) => current.includes(token) ? current : [...current, token]);
+    if (!token) {
+      setScanMessage(`Barcode ${scannedValue || "unknown"} does not belong to this order`);
+      return;
+    }
+    setScannedTokens((current) => {
+      if (current.includes(token)) {
+        setScanMessage("This tube is already scanned");
+        return current;
+      }
+      NativeModules.ScanFeedback?.success?.();
+      Vibration.vibrate(100);
+      setScanMessage(`Tube scanned: ${specimen.tests?.join(", ") || specimen.sampleType}`);
+      return [...current, token];
+    });
   };
   const choices = tech
     ? [
@@ -707,9 +732,21 @@ function Work({ user }: { user: User }) {
             <Pressable onPress={() => setScannerOrder(null)}><Ionicons name="close" size={30} color="white" /></Pressable>
             <View><Text style={s.scannerTitle}>Scan tube labels</Text><Text style={s.scannerCount}>{scannedTokens.length} of {scannerOrder?.specimens?.length || 0} scanned</Text></View>
           </View>
-          <Camera style={{ flex: 1 }} cameraType={CameraType.Back} scanBarcode showFrame laserColor="#16c9b4" frameColor="white" onReadCode={(event: any) => readTubeCode(event.nativeEvent.codeStringValue)} />
+          <Camera
+            style={{ flex: 1 }}
+            cameraType={CameraType.Back}
+            scanBarcode
+            allowedBarcodeTypes={["code-128"]}
+            scanThrottleDelay={800}
+            showFrame
+            barcodeFrameSize={{ width: 340, height: 180 }}
+            laserColor="#16c9b4"
+            frameColor="white"
+            onReadCode={(event: any) => readTubeCode(event.nativeEvent.codeStringValue)}
+            onError={(event: any) => setScanMessage(event.nativeEvent?.errorMessage || "Camera could not start")}
+          />
           <View style={s.scannerFoot}>
-            <Text style={s.scannerHelp}>Scan every label attached to this order's tubes.</Text>
+            <Text style={s.scannerHelp}>{scanMessage}</Text>
             <Pressable style={[s.collect, scannedTokens.length !== (scannerOrder?.specimens?.length || 0) && { opacity: 0.45 }]} disabled={scannedTokens.length !== (scannerOrder?.specimens?.length || 0)} onPress={async () => { const order = scannerOrder; setScannerOrder(null); await moveWorkflow(order, "BARCODES_SCANNED", { barcodeTokens: scannedTokens }); }}>
               <Ionicons name="checkmark-done" size={20} color="white" /><Text style={s.primaryText}>Submit scanned tubes</Text>
             </Pressable>

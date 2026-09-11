@@ -28,7 +28,10 @@ import {
 export const crmRouter = Router();
 crmRouter.use(auth);
 const tubeBarcodeValue = (token: string) =>
-  `CF${token.replaceAll("-", "").slice(0, 20).toUpperCase()}`;
+  (token.replaceAll("-", "").match(/.{1,2}/g) || [])
+    .slice(0, 12)
+    .map((pair) => String(Number.parseInt(pair, 16) % 10))
+    .join("");
 const defaultSpecimenTubes = [
   ["SST_GOLD", "SST Gold-Top Tube", "Serum", "Gold", "Clot activator and gel", "5 mL"],
   ["PLAIN_RED", "Plain Red-Top Tube", "Serum", "Red", "None / clot activator", "5 mL"],
@@ -893,14 +896,18 @@ crmRouter.get(
     const
       specimens = await Promise.all(
         (data.specimens || []).map(async (specimen: any) => {
-          const barcodeValue = specimen.barcodeValue || tubeBarcodeValue(specimen.qrToken);
+          const barcodeValue = /^\d{12}$/.test(specimen.barcodeValue || "")
+            ? specimen.barcodeValue
+            : tubeBarcodeValue(specimen.qrToken);
           const png = await bwipjs.toBuffer({
             bcid: "code128",
             text: barcodeValue,
-            scale: 3,
-            height: 12,
+            scale: 4,
+            height: 18,
             includetext: true,
             textxalign: "center",
+            paddingwidth: 12,
+            paddingheight: 4,
           });
           return { ...specimen, barcodeValue, barcodeDataUrl: `data:image/png;base64,${png.toString("base64")}` };
         })

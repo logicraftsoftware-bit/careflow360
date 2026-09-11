@@ -34,7 +34,7 @@ export function LabCollectionPage({
       }
       const html = `<html><head><title>${
           result.orderNumber
-        } labels</title><style>@page{margin:8mm}body{font-family:Arial;display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:10px}.label{width:300px;border:1px solid #111;padding:10px;text-align:center;page-break-inside:avoid}.label img{display:block;width:270px;height:82px;object-fit:contain;margin:5px auto}.label b,.label span{display:block;margin:3px;font-size:12px}.label strong{font-size:11px}</style></head><body>${result.specimens
+        } labels</title><style>@page{margin:8mm}body{font-family:Arial;display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:10px}.label{width:340px;border:1px solid #111;padding:12px;text-align:center;page-break-inside:avoid}.label img{display:block;width:310px;height:105px;object-fit:contain;margin:7px auto}.label b,.label span{display:block;margin:3px;font-size:12px}.label strong{font-size:11px}</style></head><body>${result.specimens
           .map(
             (x: any) =>
               `<div class="label"><b>${result.orderNumber}</b><img src="${
@@ -115,7 +115,7 @@ export function LabCollectionPage({
                         className="btn ghost"
                         onClick={() => labels(item)}
                       >
-                        <Barcode /> {item.labelsGeneratedAt && item.specimens?.length ? "Reprint barcodes" : "Generate / print"}
+                        <Barcode /> {item.labelsGeneratedAt && item.specimens?.length ? "Regenerate / print" : "Generate / print"}
                       </button>}
                     </td>}
                   </tr>
