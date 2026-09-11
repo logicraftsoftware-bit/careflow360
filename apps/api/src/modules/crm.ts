@@ -951,11 +951,6 @@ crmRouter.patch(
           notes: z.string().trim().max(500).optional(),
           barcodeTokens: z.array(z.string()).optional(),
           checklist: z.record(z.boolean()).optional(),
-          location: z.object({
-            latitude: z.number().min(-90).max(90),
-            longitude: z.number().min(-180).max(180),
-            accuracy: z.number().min(0).optional(),
-          }).optional(),
           payment: z
             .object({
               status: z.enum(["PAID", "PENDING", "NOT_REQUIRED"]),
@@ -1003,8 +998,6 @@ crmRouter.patch(
         "Only the assigned lab technician can scan these tube labels",
         "ASSIGNED_TECHNICIAN_REQUIRED"
       );
-    if (body.stage === "ON_THE_WAY" && !body.location)
-      throw new AppError(400, "Current location is required to start the journey", "LOCATION_REQUIRED");
     if (
       ["ACCEPTED_AT_LAB", "REJECTED_AT_LAB"].includes(body.stage) &&
       !isAdmin
@@ -1056,15 +1049,6 @@ crmRouter.patch(
                   amount: body.payment.amount ?? data.amount,
                   transactionId: body.payment.transactionId,
                   paymentCollectedById: req.user!.id,
-                }
-              : {}),
-            ...(body.location
-              ? {
-                  technicianLocation: { ...body.location, capturedAt: at },
-                  journeyLocations: [
-                    ...(data.journeyLocations || []),
-                    { ...body.location, capturedAt: at },
-                  ].slice(-500),
                 }
               : {}),
             workflow: [
@@ -1134,31 +1118,6 @@ crmRouter.post(
     const updated = await prisma.moduleRecord.update({ where: { id: record.id }, data: { status: "PATIENT_VERIFIED", data: { ...data, verificationOtpHash: null, verificationOtpExpiresAt: null, verificationOtpAttempts: 0, patientVerifiedAt: at, workflow: [...(data.workflow || []), { stage: "PATIENT_VERIFIED", at, by: req.user!.id, notes: "Customer OTP verified" }] } } });
     await audit(req, "lab.patient_verified.otp", "ModuleRecord", record.id);
     return ok(res, updated, "Patient verified successfully");
-  })
-);
-crmRouter.patch(
-  "/lab-collections/:id/location",
-  asyncRoute(async (req, res) => {
-    const body = z.object({
-      latitude: z.number().min(-90).max(90),
-      longitude: z.number().min(-180).max(180),
-      accuracy: z.number().min(0).optional(),
-    }).parse(req.body);
-    const record = await prisma.moduleRecord.findFirst({
-      where: { id: req.params.id, tenantId: tenantId(req), module: "lab-appointments" },
-    });
-    if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
-    const data = record.data as any;
-    if (data.assignedTechnicianId !== req.user!.id)
-      throw new AppError(403, "This journey belongs to another technician", "FORBIDDEN");
-    if (!['ON_THE_WAY', 'ARRIVED'].includes(record.status))
-      throw new AppError(409, "Location can only be recorded during an active journey", "JOURNEY_NOT_ACTIVE");
-    const point = { ...body, capturedAt: new Date().toISOString() };
-    const updated = await prisma.moduleRecord.update({
-      where: { id: record.id },
-      data: { data: { ...data, technicianLocation: point, journeyLocations: [...(data.journeyLocations || []), point].slice(-500) } },
-    });
-    return ok(res, updated, "Technician location recorded");
   })
 );
 crmRouter.get(

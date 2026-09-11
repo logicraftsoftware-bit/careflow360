@@ -573,24 +573,6 @@ function Work({ user }: { user: User }) {
       { text: "Cancel", style: "cancel" },
       { text: "Confirm", onPress: () => moveWorkflow(item, stage, extra) },
     ]);
-  const captureLocation = async () => {
-    if (Platform.OS !== "android") throw new Error("Location tracking is currently available on Android");
-    const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-    if (permission !== PermissionsAndroid.RESULTS.GRANTED) throw new Error("Allow precise location to start the journey");
-    return NativeModules.ScanFeedback.currentLocation();
-  };
-  const startJourney = (item: any) =>
-    Alert.alert("Start journey?", "Your live route will be recorded and visible to administrators until arrival.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Start", onPress: async () => {
-        try {
-          const location = await captureLocation();
-          await moveWorkflow(item, "ON_THE_WAY", { location });
-        } catch (error: any) {
-          Alert.alert("Location required", error?.message || "Unable to get current location");
-        }
-      } },
-    ]);
   const openScanner = async (item: any) => {
     if (!item.labelsGeneratedAt) {
       Alert.alert("Labels not ready", "Ask an administrator to generate, print and attach all tube labels first.");
@@ -697,19 +679,6 @@ function Work({ user }: { user: User }) {
       .catch(() => setRows([]))
       .finally(() => setBusy(false));
   }, [kind]);
-  useEffect(() => {
-    const active = rows.filter((item) => item.status === "ON_THE_WAY");
-    if (!tech || !active.length) return;
-    const upload = async () => {
-      try {
-        const location = await captureLocation();
-        await Promise.all(active.map((item) => request(`/crm/lab-collections/${item.id}/location`, { method: "PATCH", body: JSON.stringify(location) })));
-      } catch { /* the next interval retries after temporary GPS/network failures */ }
-    };
-    upload();
-    const timer = setInterval(upload, 30000);
-    return () => clearInterval(timer);
-  }, [rows, tech]);
   const filtered = rows.filter((item) =>
     JSON.stringify(item).toLowerCase().includes(search.toLowerCase())
   );
@@ -819,7 +788,7 @@ function Work({ user }: { user: User }) {
                 <Pressable
                   style={s.collect}
                   disabled={submitting === item.id}
-                  onPress={() => nextStage === "ON_THE_WAY" ? startJourney(item) : nextStage === "PATIENT_VERIFIED" ? requestOtp(item) : nextStage === "BARCODES_SCANNED" ? openScanner(item) : nextStage === "PAYMENT_RECORDED" ? (item.paymentStatus === "PAID" ? confirmWorkflow(item, nextStage, { payment: { status: "PAID", amount: Number(item.amount || 0) } }) : setPaymentOrder(item)) : confirmWorkflow(item, nextStage)}
+                  onPress={() => nextStage === "PATIENT_VERIFIED" ? requestOtp(item) : nextStage === "BARCODES_SCANNED" ? openScanner(item) : nextStage === "PAYMENT_RECORDED" ? (item.paymentStatus === "PAID" ? confirmWorkflow(item, nextStage, { payment: { status: "PAID", amount: Number(item.amount || 0) } }) : setPaymentOrder(item)) : confirmWorkflow(item, nextStage)}
                 >
                   <Ionicons name={nextStage === "BARCODES_SCANNED" ? "scan-outline" : "checkmark-circle-outline"} size={20} color="white" />
                   <Text style={s.primaryText}>{submitting === item.id ? "Updating…" : actionLabels[nextStage]}</Text>
