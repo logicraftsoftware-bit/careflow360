@@ -24,9 +24,9 @@ adminRouter.get('/aisensy-integrations',asyncRoute(async(_req,res)=>{
   return ok(res,tenants.map(({aisensyIntegration:stored,...tenant})=>{
     const usesDemoFallback=!stored&&tenant.name.toLowerCase().includes('demo clinic')&&Boolean(config.AISENSY_API_KEY);
     const integration=stored?{
-      apiUrl:stored.apiUrl,hasApiKey:Boolean(stored.apiKeyEncrypted),campaignPaymentPending:stored.campaignPaymentPending,campaignPaymentSuccess:stored.campaignPaymentSuccess,campaignCancelled:stored.campaignCancelled,campaignRescheduled:stored.campaignRescheduled,campaignDiagnosticPending:stored.campaignDiagnosticPending,campaignDiagnosticSuccess:stored.campaignDiagnosticSuccess,campaignDiagnosticCancelled:stored.campaignDiagnosticCancelled,campaignDiagnosticRescheduled:stored.campaignDiagnosticRescheduled,isActive:stored.isActive,updatedAt:stored.updatedAt,
+      apiUrl:stored.apiUrl,hasApiKey:Boolean(stored.apiKeyEncrypted),campaignPaymentPending:stored.campaignPaymentPending,campaignPaymentSuccess:stored.campaignPaymentSuccess,campaignCancelled:stored.campaignCancelled,campaignRescheduled:stored.campaignRescheduled,campaignDiagnosticPending:stored.campaignDiagnosticPending,campaignDiagnosticSuccess:stored.campaignDiagnosticSuccess,campaignDiagnosticCancelled:stored.campaignDiagnosticCancelled,campaignDiagnosticRescheduled:stored.campaignDiagnosticRescheduled,campaignCollectionOtp:stored.campaignCollectionOtp,isActive:stored.isActive,updatedAt:stored.updatedAt,
     }:usesDemoFallback?{
-      apiUrl:config.AISENSY_API_URL,hasApiKey:true,campaignPaymentPending:config.AISENSY_CAMPAIGN_PAYMENT_PENDING||'',campaignPaymentSuccess:config.AISENSY_CAMPAIGN_PAYMENT_SUCCESS||'',campaignCancelled:config.AISENSY_CAMPAIGN_CANCELLED||'',campaignRescheduled:config.AISENSY_CAMPAIGN_RESCHEDULED||'',campaignDiagnosticPending:'careflow_diagnostic_payment_pending',campaignDiagnosticSuccess:'careflow_diagnostic_payment_success',campaignDiagnosticCancelled:'careflow_diagnostic_cancelled',campaignDiagnosticRescheduled:'careflow_diagnostic_rescheduled',isActive:true,fromEnvironment:true,
+      apiUrl:config.AISENSY_API_URL,hasApiKey:true,campaignPaymentPending:config.AISENSY_CAMPAIGN_PAYMENT_PENDING||'',campaignPaymentSuccess:config.AISENSY_CAMPAIGN_PAYMENT_SUCCESS||'',campaignCancelled:config.AISENSY_CAMPAIGN_CANCELLED||'',campaignRescheduled:config.AISENSY_CAMPAIGN_RESCHEDULED||'',campaignDiagnosticPending:'careflow_diagnostic_payment_pending',campaignDiagnosticSuccess:'careflow_diagnostic_payment_success',campaignDiagnosticCancelled:'careflow_diagnostic_cancelled',campaignDiagnosticRescheduled:'careflow_diagnostic_rescheduled',campaignCollectionOtp:'careflow_collection_otp',isActive:true,fromEnvironment:true,
     }:null;
     return {...tenant,integration};
   }));
@@ -40,7 +40,7 @@ adminRouter.put('/tenants/:id/aisensy',asyncRoute(async(req,res)=>{
     campaignPaymentSuccess:z.string().trim().min(2),
     campaignCancelled:z.string().trim().min(2),
     campaignRescheduled:z.string().trim().min(2),
-    campaignDiagnosticPending:z.string().trim().min(2),campaignDiagnosticSuccess:z.string().trim().min(2),campaignDiagnosticCancelled:z.string().trim().min(2),campaignDiagnosticRescheduled:z.string().trim().min(2),
+    campaignDiagnosticPending:z.string().trim().min(2),campaignDiagnosticSuccess:z.string().trim().min(2),campaignDiagnosticCancelled:z.string().trim().min(2),campaignDiagnosticRescheduled:z.string().trim().min(2),campaignCollectionOtp:z.string().trim().min(2),
     isActive:z.boolean().default(true),
   }).parse(req.body);
   const [tenant,existing]=await Promise.all([
@@ -57,7 +57,7 @@ adminRouter.put('/tenants/:id/aisensy',asyncRoute(async(req,res)=>{
     campaignPaymentSuccess:body.campaignPaymentSuccess,
     campaignCancelled:body.campaignCancelled,
     campaignRescheduled:body.campaignRescheduled,
-    campaignDiagnosticPending:body.campaignDiagnosticPending,campaignDiagnosticSuccess:body.campaignDiagnosticSuccess,campaignDiagnosticCancelled:body.campaignDiagnosticCancelled,campaignDiagnosticRescheduled:body.campaignDiagnosticRescheduled,
+    campaignDiagnosticPending:body.campaignDiagnosticPending,campaignDiagnosticSuccess:body.campaignDiagnosticSuccess,campaignDiagnosticCancelled:body.campaignDiagnosticCancelled,campaignDiagnosticRescheduled:body.campaignDiagnosticRescheduled,campaignCollectionOtp:body.campaignCollectionOtp,
     isActive:body.isActive,
     ...(body.apiKey?{apiKeyEncrypted:encryptIntegrationSecret(body.apiKey)}:{}),
   };
