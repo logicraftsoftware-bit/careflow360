@@ -62,7 +62,8 @@ jobs:
             ln -sfn ../../.env apps/api/.env
 
             echo "Installing dependencies..."
-            npm ci --workspace @careflow360/api --workspace @careflow360/web --include-workspace-root
+            npm install --workspace @careflow360/api --workspace @careflow360/web \
+              --include-workspace-root --no-audit --no-fund
 
             echo "Generating Prisma Client..."
             npm run db:generate
@@ -70,8 +71,8 @@ jobs:
             echo "Updating database schema..."
             npm run db:push
 
-            echo "Building application..."
-            npm run build
+            echo "Building API..."
+            npm run build -w @careflow360/api
 
             echo "Restarting API..."
             test -f apps/api/dist/server.js
@@ -96,5 +97,8 @@ jobs:
 
               sleep 3
             done
+
+            echo "Building web application..."
+            npm run build -w @careflow360/web
 
             echo "Deployment completed successfully"
