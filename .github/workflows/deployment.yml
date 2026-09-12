@@ -76,9 +76,13 @@ jobs:
 
             echo "Restarting API..."
             test -f apps/api/dist/server.js
-            pm2 restart careflow360-api --update-env || pm2 start apps/api/dist/server.js \
-              --name careflow360-api \
-              --cwd /var/www/careflow360
+            if pm2 describe careflow360-api >/dev/null 2>&1; then
+              pm2 restart careflow360-api --update-env
+            else
+              pm2 start apps/api/dist/server.js \
+                --name careflow360-api \
+                --cwd /var/www/careflow360
+            fi
 
             pm2 save
 
