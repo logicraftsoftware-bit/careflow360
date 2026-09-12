@@ -1012,8 +1012,8 @@ crmRouter.patch(
         "Only an administrator can accept or reject samples at the lab",
         "ADMIN_REQUIRED"
       );
-    if (body.stage === "ON_THE_WAY" && !body.location)
-      throw new AppError(400, "Current location is required to start the journey", "LOCATION_REQUIRED");
+    if (["ON_THE_WAY", "ARRIVED", "SAMPLE_COLLECTED"].includes(body.stage) && !body.location)
+      throw new AppError(400, "Current location is required for this journey milestone", "LOCATION_REQUIRED");
     const current = String(record.status),
       currentIndex = collectionStages.indexOf(current as any),
       nextIndex = collectionStages.indexOf(body.stage as any);
@@ -1059,8 +1059,8 @@ crmRouter.patch(
                 }
               : {}),
             ...(body.location ? {
-              technicianLocation: { ...body.location, capturedAt: at },
-              journeyLocations: [...(data.journeyLocations || []), { ...body.location, capturedAt: at }].slice(-500),
+              technicianLocation: { ...body.location, capturedAt: at, event: body.stage },
+              journeyLocations: [...(data.journeyLocations || []), { ...body.location, capturedAt: at, event: body.stage }].slice(-500),
             } : {}),
             workflow: [
               ...(data.workflow || []),
@@ -1139,8 +1139,8 @@ crmRouter.patch(
     if (!record) throw new AppError(404, "Lab order not found", "NOT_FOUND");
     const data = record.data as any;
     if (data.assignedTechnicianId !== req.user!.id) throw new AppError(403, "This journey belongs to another technician", "FORBIDDEN");
-    if (record.status !== "ON_THE_WAY") throw new AppError(409, "Location can only be recorded during an active journey", "JOURNEY_NOT_ACTIVE");
-    const point = { ...body, capturedAt: new Date().toISOString() };
+    if (!["ON_THE_WAY", "ARRIVED", "PATIENT_VERIFIED", "PREPARATION_CHECKED", "BARCODES_SCANNED", "SPECIMENS_COLLECTED", "PAYMENT_RECORDED", "PACKAGED"].includes(record.status)) throw new AppError(409, "Location can only be recorded during an active collection journey", "JOURNEY_NOT_ACTIVE");
+    const point = { ...body, capturedAt: new Date().toISOString(), event: "TRACKING", stage: record.status };
     const updated = await prisma.moduleRecord.update({ where: { id: record.id }, data: { data: { ...data, technicianLocation: point, journeyLocations: [...(data.journeyLocations || []), point].slice(-500) } } });
     return ok(res, updated, "Technician location recorded");
   })

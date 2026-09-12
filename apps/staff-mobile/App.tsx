@@ -596,6 +596,19 @@ function Work({ user }: { user: User }) {
         } finally { setSubmitting(null); }
       } },
     ]);
+  const completeLocationMilestone = (item: any, stage: "ARRIVED" | "SAMPLE_COLLECTED") =>
+    Alert.alert(stage === "ARRIVED" ? "Confirm arrival?" : "Submit collection?", stage === "ARRIVED" ? "Your arrival location will be recorded." : "Your final collection location will be recorded and journey tracking will stop.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Confirm", onPress: async () => {
+        try {
+          setSubmitting(item.id);
+          const location = await captureLocation();
+          await moveWorkflow(item, stage, { location });
+        } catch (error: any) {
+          Alert.alert("Location unavailable", error?.message || "Unable to record this journey milestone");
+        } finally { setSubmitting(null); }
+      } },
+    ]);
   const openScanner = async (item: any) => {
     if (!item.labelsGeneratedAt) {
       Alert.alert("Labels not ready", "Ask an administrator to generate, print and attach all tube labels first.");
@@ -703,7 +716,8 @@ function Work({ user }: { user: User }) {
       .finally(() => setBusy(false));
   }, [kind]);
   useEffect(() => {
-    const active = rows.filter((item) => item.status === "ON_THE_WAY");
+    const trackingStages = ["ON_THE_WAY", "ARRIVED", "PATIENT_VERIFIED", "PREPARATION_CHECKED", "BARCODES_SCANNED", "SPECIMENS_COLLECTED", "PAYMENT_RECORDED", "PACKAGED"];
+    const active = rows.filter((item) => trackingStages.includes(item.status));
     if (!tech || !active.length) return;
     const upload = async () => {
       try {
@@ -824,7 +838,7 @@ function Work({ user }: { user: User }) {
                 <Pressable
                   style={s.collect}
                   disabled={submitting === item.id}
-                  onPress={() => nextStage === "ON_THE_WAY" ? startJourney(item) : nextStage === "PATIENT_VERIFIED" ? requestOtp(item) : nextStage === "BARCODES_SCANNED" ? openScanner(item) : nextStage === "PAYMENT_RECORDED" ? (item.paymentStatus === "PAID" ? confirmWorkflow(item, nextStage, { payment: { status: "PAID", amount: Number(item.amount || 0) } }) : setPaymentOrder(item)) : confirmWorkflow(item, nextStage)}
+                  onPress={() => nextStage === "ON_THE_WAY" ? startJourney(item) : nextStage === "ARRIVED" || nextStage === "SAMPLE_COLLECTED" ? completeLocationMilestone(item, nextStage) : nextStage === "PATIENT_VERIFIED" ? requestOtp(item) : nextStage === "BARCODES_SCANNED" ? openScanner(item) : nextStage === "PAYMENT_RECORDED" ? (item.paymentStatus === "PAID" ? confirmWorkflow(item, nextStage, { payment: { status: "PAID", amount: Number(item.amount || 0) } }) : setPaymentOrder(item)) : confirmWorkflow(item, nextStage)}
                 >
                   <Ionicons name={nextStage === "BARCODES_SCANNED" ? "scan-outline" : "checkmark-circle-outline"} size={20} color="white" />
                   <Text style={s.primaryText}>{submitting === item.id ? "Updating…" : actionLabels[nextStage]}</Text>

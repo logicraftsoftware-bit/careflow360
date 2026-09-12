@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Barcode, FlaskConical, MapPin } from "lucide-react";
 import { api, unwrap } from "../api";
+import { JourneyMap } from "../components/JourneyMap";
 
 export function LabCollectionPage({
   state,
 }: {
   state: "assigned" | "collected" | "all";
 }) {
-  const [mapItem, setMapItem] = useState<any>(null);
+  const [mapItemId, setMapItemId] = useState<string | null>(null);
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const admin =
     user.isPlatform ||
@@ -18,10 +19,11 @@ export function LabCollectionPage({
     );
   const { data, isLoading, error } = useQuery({
       queryKey: ["lab-collections", state],
-      queryFn: () =>
-        api.get(`/crm/lab-collections?state=${state}`).then(unwrap),
+      queryFn: () => api.get(`/crm/lab-collections?state=${state}`).then(unwrap),
+      refetchInterval: admin ? 30000 : false,
     }),
     items = data?.items || [],
+    mapItem = items.find((item: any) => item.id === mapItemId),
     all = state === "all",
     canPrint = (item: any) => admin || (item.createdByTechnicianId === user.id && item.assignedTechnicianId === user.id),
     showLabelColumn = items.some(canPrint);
@@ -113,7 +115,7 @@ export function LabCollectionPage({
                         {item.status.replaceAll("_", " ")}
                       </span>
                     </td>
-                    {admin && <td>{item.technicianLocation ? <button className="btn ghost" onClick={() => setMapItem(item)}><MapPin /> View map</button> : <span>Not started</span>}</td>}
+                    {admin && <td>{item.technicianLocation ? <button className="btn ghost" onClick={() => setMapItemId(item.id)}><MapPin /> View map</button> : <span>Not started</span>}</td>}
                     {showLabelColumn && <td>
                       {canPrint(item) && <button
                         className="btn ghost"
@@ -135,8 +137,8 @@ export function LabCollectionPage({
         )}
       </section>
       {mapItem?.technicianLocation && <section className="panel" style={{ marginTop: 16 }}>
-        <div className="page-head"><div><span>TECHNICIAN JOURNEY</span><h2>{mapItem.assignedTechnicianName}</h2><p>{mapItem.journeyLocations?.length || 1} points recorded · updated {new Date(mapItem.technicianLocation.capturedAt).toLocaleString("en-IN")}</p></div><button className="btn ghost" onClick={() => setMapItem(null)}>Close</button></div>
-        <iframe title={`${mapItem.assignedTechnicianName} location`} style={{ width: "100%", height: 420, border: 0, borderRadius: 14 }} src={`https://www.openstreetmap.org/export/embed.html?bbox=${mapItem.technicianLocation.longitude - .01}%2C${mapItem.technicianLocation.latitude - .01}%2C${mapItem.technicianLocation.longitude + .01}%2C${mapItem.technicianLocation.latitude + .01}&layer=mapnik&marker=${mapItem.technicianLocation.latitude}%2C${mapItem.technicianLocation.longitude}`} />
+        <div className="page-head"><div><span>TECHNICIAN JOURNEY</span><h2>{mapItem.assignedTechnicianName}</h2><p>{mapItem.journeyLocations?.length || 1} points recorded · updated {new Date(mapItem.technicianLocation.capturedAt).toLocaleString("en-IN")}</p></div><button className="btn ghost" onClick={() => setMapItemId(null)}>Close</button></div>
+        <JourneyMap points={mapItem.journeyLocations || [mapItem.technicianLocation]} completed={["SAMPLE_COLLECTED", "IN_TRANSIT", "RECEIVED", "ACCEPTED_AT_LAB", "REJECTED_AT_LAB"].includes(mapItem.status)} />
         <a className="btn" target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${mapItem.technicianLocation.latitude},${mapItem.technicianLocation.longitude}`}>Open roadmap</a>
       </section>}
     </div>
