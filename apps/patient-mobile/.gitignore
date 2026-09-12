@@ -1,4 +1,5 @@
 node_modules/
+.idea/
 android/.gradle/
 android/.kotlin/
 android/build/
@@ -9,4 +10,3 @@ ios/build/
 # Ignore an accidental nested copy created while scaffolding; canonical iOS sources are directly under ios/.
 ios/ios/
 *.log
-
