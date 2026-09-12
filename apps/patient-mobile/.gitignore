@@ -1,0 +1,12 @@
+node_modules/
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/.cxx/
+android/app/build/
+ios/Pods/
+ios/build/
+# Ignore an accidental nested copy created while scaffolding; canonical iOS sources are directly under ios/.
+ios/ios/
+*.log
+
