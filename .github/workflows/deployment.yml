@@ -7,6 +7,11 @@ on:
 
   workflow_dispatch:
 
+# Only one process may modify the shared VPS checkout at a time.
+concurrency:
+  group: careflow360-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy to VPS
@@ -57,7 +62,7 @@ jobs:
             ln -sfn ../../.env apps/api/.env
 
             echo "Installing dependencies..."
-            npm ci
+            npm ci --workspace @careflow360/api --workspace @careflow360/web --include-workspace-root
 
             echo "Generating Prisma Client..."
             npm run db:generate
@@ -69,10 +74,27 @@ jobs:
             npm run build
 
             echo "Restarting API..."
-            pm2 restart careflow360-api || pm2 start apps/api/dist/server.js \
+            test -f apps/api/dist/server.js
+            pm2 restart careflow360-api --update-env || pm2 start apps/api/dist/server.js \
               --name careflow360-api \
               --cwd /var/www/careflow360
 
             pm2 save
+
+            echo "Verifying patient API route..."
+            for attempt in 1 2 3 4 5; do
+              if curl --fail --silent http://127.0.0.1:4000/api/patient/clinics >/dev/null; then
+                echo "Patient API is available"
+                break
+              fi
+
+              if [ "$attempt" -eq 5 ]; then
+                echo "Patient API health check failed"
+                pm2 logs careflow360-api --lines 80 --nostream
+                exit 1
+              fi
+
+              sleep 3
+            done
 
             echo "Deployment completed successfully"
