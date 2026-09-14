@@ -88,7 +88,10 @@ jobs:
               --name careflow360-api \
               --cwd /var/www/careflow360
 
-            pm2 save
+            # A read-only/missing PM2 dump location must not turn an otherwise
+            # healthy runtime deployment red. The live health check below is
+            # the authoritative success condition.
+            pm2 save || echo "Warning: PM2 process list could not be persisted"
 
             echo "Verifying API health..."
             # Prisma may need a little time to establish its first production
