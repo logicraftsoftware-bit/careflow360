@@ -134,12 +134,14 @@ export function AppointmentFields({
     search: `${branch.name} ${branch.city} ${branch.id}`,
     raw: branch,
   }));
-  const departmentOptions = departments.map((department: any) => ({
+  const departmentOptions = departments
+    .filter((department: any) => department.branchId === branchId)
+    .map((department: any) => ({
     id: department.id,
     label: `${department.name} · ${department.code}`,
     search: `${department.name} ${department.code} ${department.id}`,
     raw: department,
-  }));
+    }));
   const scheduledDoctorIds = new Set(
     schedules
       .filter((schedule: any) => !branchId || schedule.branchId === branchId)
@@ -257,6 +259,7 @@ export function AppointmentFields({
         value={branchId}
         onChange={(id) => {
           setBranchId(id);
+          setDepartmentId("");
           setDoctorId("");
           setStartsAt("");
         }}
@@ -272,7 +275,12 @@ export function AppointmentFields({
           setDoctorId("");
           setStartsAt("");
         }}
-        placeholder="Search department name or code"
+        placeholder={
+          branchId
+            ? "Search department name or code"
+            : "Select branch first"
+        }
+        disabled={!branchId}
       />
       <SearchSelect
         name="doctorId"
@@ -285,9 +293,11 @@ export function AppointmentFields({
           setStartsAt("");
         }}
         placeholder={
-          branchId ? "Search doctor name or speciality" : "Select branch first"
+          branchId && departmentId
+            ? "Search doctor name or speciality"
+            : "Select branch and department first"
         }
-        disabled={!branchId}
+        disabled={!branchId || !departmentId}
       />
       <div className="wide">
         <SearchSelect

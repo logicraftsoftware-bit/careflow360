@@ -351,6 +351,7 @@ model Branch {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   doctors      DoctorBranch[]
+  departments  Department[]
   appointments Appointment[]
 
   @@unique([tenantId, name])
@@ -361,6 +362,8 @@ model Department {
   id           String        @id @default(auto()) @map("_id") @db.ObjectId
   tenantId     String        @db.ObjectId
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  branchId     String?       @db.ObjectId
+  branch       Branch?       @relation(fields: [branchId], references: [id])
   name         String
   code         String
   description  String?
@@ -373,6 +376,7 @@ model Department {
 
   @@unique([tenantId, code])
   @@index([tenantId])
+  @@index([tenantId, branchId])
 }
 
 model Doctor {

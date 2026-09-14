@@ -78,12 +78,14 @@ export function AppointmentBookingPage({
       search: `${item.name} ${item.city} ${item.id}`,
       raw: item,
     })),
-    departmentOptions: Option[] = departments.map((item: any) => ({
+    departmentOptions: Option[] = departments
+      .filter((item: any) => item.branchId === branchId)
+      .map((item: any) => ({
       id: item.id,
       label: `${item.name} · ${item.code}`,
       search: `${item.name} ${item.code} ${item.id}`,
       raw: item,
-    })),
+      })),
     scheduledDoctorIds = new Set(
       schedules
         .filter(
@@ -307,6 +309,7 @@ export function AppointmentBookingPage({
               value={branchId}
               onChange={(id) => {
                 setBranchId(id);
+                setDepartmentId("");
                 setDoctorId("");
                 setScheduleId("");
               }}
@@ -322,7 +325,12 @@ export function AppointmentBookingPage({
                 setDoctorId("");
                 setScheduleId("");
               }}
-              placeholder="Search department name or code"
+              placeholder={
+                branchId
+                  ? "Search department name or code"
+                  : "Select branch first"
+              }
+              disabled={!branchId}
             />
             <SearchSelect
               name="doctorId"
@@ -334,9 +342,11 @@ export function AppointmentBookingPage({
                 setScheduleId("");
               }}
               placeholder={
-                branchId ? "Search doctor or speciality" : "Select branch first"
+                branchId && departmentId
+                  ? "Search doctor or speciality"
+                  : "Select branch and department first"
               }
-              disabled={!branchId}
+              disabled={!branchId || !departmentId}
             />
             <div className="wide">
               <SearchSelect

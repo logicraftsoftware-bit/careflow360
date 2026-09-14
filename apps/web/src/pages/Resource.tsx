@@ -580,12 +580,13 @@ const configs: Record<string, Config> = {
     title: "Departments",
     description: "Organize clinical specialties.",
     fields: [
+      f("branchId", "Branch", "reference", true, undefined, "/crm/branches"),
       f("name", "Department name", "text", true),
       f("code", "Code", "text", true),
       f("description", "Description", "textarea"),
       stat,
     ],
-    columns: ["name", "code", "description", "status", "updatedAt"],
+    columns: ["branchId", "name", "code", "description", "status", "updatedAt"],
   },
   branches: {
     title: "Branches",

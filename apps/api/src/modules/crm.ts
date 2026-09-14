@@ -81,7 +81,7 @@ const allowedFields: Record<string, string[]> = {
     "email",
     "status",
   ],
-  departments: ["name", "code", "description", "status"],
+  departments: ["branchId", "name", "code", "description", "status"],
   doctors: [
     "departmentId",
     "name",
@@ -1717,6 +1717,12 @@ crmRouter.post(
         "Patient, doctor, branch, department or schedule is invalid",
         "INVALID_BOOKING"
       );
+    if (department.branchId !== branch.id || doctor.departmentId !== department.id)
+      throw new AppError(
+        400,
+        "The selected doctor must belong to the selected branch and department",
+        "INVALID_DOCTOR_SELECTION"
+      );
     const date = schedule.scheduleDate.toISOString().slice(0, 10),
       dayStart = new Date(`${date}T00:00:00+05:30`),
       dayEnd = new Date(dayStart.getTime() + 86400000);
@@ -2021,6 +2027,16 @@ crmRouter.post(
       ...prepared(req.params.resource, req.body, req.user!.id, true),
       tenantId: tid,
     };
+    if (req.params.resource === "departments") {
+      if (!data.branchId)
+        throw new AppError(400, "Please select a branch", "BRANCH_REQUIRED");
+      const branch = await prisma.branch.findFirst({
+        where: { id: data.branchId, tenantId: tid },
+        select: { id: true },
+      });
+      if (!branch)
+        throw new AppError(400, "Selected branch was not found", "INVALID_BRANCH");
+    }
     const row = await model.create({ data });
     await audit(
       req,
@@ -2100,6 +2116,14 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
+    if (req.params.resource === "departments" && data.branchId) {
+      const branch = await prisma.branch.findFirst({
+        where: { id: data.branchId, tenantId: tid },
+        select: { id: true },
+      });
+      if (!branch)
+        throw new AppError(400, "Selected branch was not found", "INVALID_BRANCH");
+    }
     if (req.params.resource === "appointments" && data.startsAt) {
       const appointment = found as any,
         patientId = data.patientId || appointment.patientId,
