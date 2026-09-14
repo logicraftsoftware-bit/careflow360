@@ -939,7 +939,33 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     endpoint = c.fixedStatus ? `${base}?status=${c.fixedStatus}` : base;
   const { data, isLoading, error } = useQuery({
     queryKey: [endpoint],
-    queryFn: () => api.get(endpoint).then(unwrap),
+    queryFn: async () => {
+      const separator = endpoint.includes("?") ? "&" : "?";
+      const first: any = unwrap(
+        await api.get(`${endpoint}${separator}page=1&limit=100`),
+      );
+      if (Array.isArray(first) || !Array.isArray(first?.items)) return first;
+
+      const total = Number(first.total) || first.items.length;
+      const limit = Number(first.limit) || 100;
+      const pageCount = Math.ceil(total / limit);
+      if (pageCount <= 1) return first;
+
+      const remaining = await Promise.all(
+        Array.from({ length: pageCount - 1 }, (_, index) =>
+          api
+            .get(`${endpoint}${separator}page=${index + 2}&limit=${limit}`)
+            .then(unwrap),
+        ),
+      );
+      return {
+        ...first,
+        items: [
+          ...first.items,
+          ...remaining.flatMap((result: any) => result?.items || []),
+        ],
+      };
+    },
   });
   const { data: appointmentLogs = [], isLoading: logsLoading } = useQuery({
     queryKey: ["appointment-logs", logRecord?.id],
