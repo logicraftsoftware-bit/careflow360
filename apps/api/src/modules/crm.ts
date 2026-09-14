@@ -81,7 +81,7 @@ const allowedFields: Record<string, string[]> = {
     "email",
     "status",
   ],
-  departments: ["branchId", "name", "code", "description", "status"],
+  departments: ["branchId", "branchIds", "name", "code", "description", "status"],
   doctors: [
     "departmentId",
     "name",
@@ -212,8 +212,11 @@ function prepared(
     data.leadNumber = `LD-${Date.now().toString(36).toUpperCase()}`;
     data.createdById = userId;
   }
-  if (creating && resource === "patients")
+  if (creating && resource === "patients") {
     data.patientNumber = `PT-${Date.now().toString(36).toUpperCase()}`;
+    if (!String(data.name || "").trim())
+      data.name = `Patient ${String(data.mobile || "").slice(-4)}`;
+  }
   if (creating && resource === "appointments") {
     data.appointmentNumber = `AP-${Date.now().toString(36).toUpperCase()}`;
     if (data.startsAt && !data.endsAt)
@@ -1776,7 +1779,12 @@ crmRouter.post(
         "Patient, doctor, branch, department or schedule is invalid",
         "INVALID_BOOKING"
       );
-    if (department.branchId !== branch.id || doctor.departmentId !== department.id)
+    if (
+      ![...(department.branchIds || []), department.branchId]
+        .filter(Boolean)
+        .includes(branch.id) ||
+      doctor.departmentId !== department.id
+    )
       throw new AppError(
         400,
         "The selected doctor must belong to the selected branch and department",
@@ -2087,14 +2095,18 @@ crmRouter.post(
       tenantId: tid,
     };
     if (req.params.resource === "departments") {
-      if (!data.branchId)
-        throw new AppError(400, "Please select a branch", "BRANCH_REQUIRED");
-      const branch = await prisma.branch.findFirst({
-        where: { id: data.branchId, tenantId: tid },
-        select: { id: true },
+      const branchIds: string[] = Array.isArray(data.branchIds)
+        ? [...new Set<string>(data.branchIds.filter(Boolean) as string[])]
+        : [];
+      if (!branchIds.length)
+        throw new AppError(400, "Please select at least one branch", "BRANCH_REQUIRED");
+      const branchCount = await prisma.branch.count({
+        where: { id: { in: branchIds }, tenantId: tid },
       });
-      if (!branch)
-        throw new AppError(400, "Selected branch was not found", "INVALID_BRANCH");
+      if (branchCount !== branchIds.length)
+        throw new AppError(400, "A selected branch was not found", "INVALID_BRANCH");
+      data.branchIds = branchIds;
+      data.branchId = branchIds[0];
     }
     const row = await model.create({ data });
     await audit(
@@ -2175,13 +2187,19 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
-    if (req.params.resource === "departments" && data.branchId) {
-      const branch = await prisma.branch.findFirst({
-        where: { id: data.branchId, tenantId: tid },
-        select: { id: true },
+    if (req.params.resource === "departments" && data.branchIds) {
+      const branchIds: string[] = Array.isArray(data.branchIds)
+        ? [...new Set<string>(data.branchIds.filter(Boolean) as string[])]
+        : [];
+      if (!branchIds.length)
+        throw new AppError(400, "Please select at least one branch", "BRANCH_REQUIRED");
+      const branchCount = await prisma.branch.count({
+        where: { id: { in: branchIds }, tenantId: tid },
       });
-      if (!branch)
-        throw new AppError(400, "Selected branch was not found", "INVALID_BRANCH");
+      if (branchCount !== branchIds.length)
+        throw new AppError(400, "A selected branch was not found", "INVALID_BRANCH");
+      data.branchIds = branchIds;
+      data.branchId = branchIds[0];
     }
     if (req.params.resource === "appointments" && data.startsAt) {
       const appointment = found as any,

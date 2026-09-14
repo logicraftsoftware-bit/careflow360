@@ -364,6 +364,7 @@ model Department {
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
   branchId     String?       @db.ObjectId
   branch       Branch?       @relation(fields: [branchId], references: [id])
+  branchIds    String[]      @default([]) @db.ObjectId
   name         String
   code         String
   description  String?

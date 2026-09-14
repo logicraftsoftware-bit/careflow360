@@ -135,7 +135,11 @@ export function AppointmentFields({
     raw: branch,
   }));
   const departmentOptions = departments
-    .filter((department: any) => department.branchId === branchId)
+    .filter(
+      (department: any) =>
+        department.branchId === branchId ||
+        department.branchIds?.includes(branchId),
+    )
     .map((department: any) => ({
     id: department.id,
     label: `${department.name} · ${department.code}`,

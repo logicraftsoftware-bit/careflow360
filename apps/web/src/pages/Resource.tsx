@@ -416,9 +416,9 @@ const configs: Record<string, Config> = {
     title: "Patients",
     description: "Maintain isolated patient master records.",
     fields: [
-      f("name", "Patient name", "text", true),
+      f("name", "Patient name"),
       f("mobile", "Mobile", "text", true),
-      f("email", "Email", "email"),
+      f("email", "Email"),
       f("gender", "Gender", "select", false, ["MALE", "FEMALE", "OTHER"]),
       f("dob", "Date of birth", "date"),
       f("address", "Address", "textarea"),
@@ -588,13 +588,13 @@ const configs: Record<string, Config> = {
     title: "Departments",
     description: "Organize clinical specialties.",
     fields: [
-      f("branchId", "Branch", "reference", true, undefined, "/crm/branches"),
+      f("branchIds", "Branches", "multi-reference", true, undefined, "/crm/branches"),
       f("name", "Department name", "text", true),
       f("code", "Code", "text", true),
       f("description", "Description", "textarea"),
       stat,
     ],
-    columns: ["branchId", "name", "code", "description", "status", "updatedAt"],
+    columns: ["branchIds", "name", "code", "description", "status", "updatedAt"],
   },
   branches: {
     title: "Branches",
@@ -791,6 +791,29 @@ function Ref({ field, value }: { field: Field; value?: string }) {
         </option>
       ))}
     </select>
+  );
+}
+function MultiRef({ field, values }: { field: Field; values?: string[] }) {
+  const { data } = useQuery({
+    queryKey: ["multi-ref", field.endpoint],
+    queryFn: () => api.get(`${field.endpoint}?limit=100`).then(unwrap),
+  });
+  const rows = Array.isArray(data) ? data : data?.items || [];
+  const selected = new Set(values || []);
+  return (
+    <div className="multi-ref-list">
+      {rows.map((row: any) => (
+        <label key={row.id} className="multi-ref-option">
+          <input
+            type="checkbox"
+            name={field.name}
+            value={row.id}
+            defaultChecked={selected.has(row.id)}
+          />
+          <span>{row.name || row.title || row.id}</span>
+        </label>
+      ))}
+    </div>
   );
 }
 function DiagnosticTestSearchRef({ field, value }: { field: Field; value?: string }) {
@@ -997,6 +1020,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const referenceEndpoints: Record<string, string> = {
     doctorId: "/crm/doctors",
     branchId: "/crm/branches",
+    branchIds: "/crm/branches",
     departmentId: "/crm/departments",
     patientId: "/crm/patients",
     leadId: "/crm/leads",
@@ -1025,6 +1049,13 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     const referenceRows = Array.isArray(referenceData)
       ? referenceData
       : referenceData?.items || [];
+    if (Array.isArray(raw))
+      return raw
+        .map(
+          (id) =>
+            referenceRows.find((item: any) => item.id === id)?.name || id,
+        )
+        .join(", ");
     const match = referenceRows.find((item: any) => item.id === raw);
     return show(
       match?.name ||
@@ -1230,7 +1261,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     const d = new FormData(e.currentTarget),
       body: any = {};
     for (const x of c.fields) {
-      const v = d.get(x.name);
+      const v = x.type === "multi-reference" ? d.getAll(x.name) : d.get(x.name);
+      if (x.type === "multi-reference" && !(v as FormDataEntryValue[]).length) {
+        if (x.required) window.alert(`Please select ${x.label}`);
+        if (x.required) return;
+      }
       if (x.type === "reference" && v === "") {
         if (x.required) {
           window.alert(`Please select ${x.label}`);
@@ -1754,6 +1789,16 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           </option>
                         ))}
                       </select>
+                    ) : x.type === "multi-reference" ? (
+                      <MultiRef
+                        field={x}
+                        values={
+                          val(edit || {}, x.name) ||
+                          (val(edit || {}, "branchId")
+                            ? [val(edit || {}, "branchId")]
+                            : [])
+                        }
+                      />
                     ) : x.type === "reference" ? (
                       ["labTestId", "radiologyTestId"].includes(x.name) ? (
                         <DiagnosticTestSearchRef field={x} value={val(edit || {}, x.name)} />
@@ -1788,7 +1833,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                             ? "Enter a valid 10-digit Indian mobile number, optionally prefixed with 91 or +91"
                             : undefined
                         }
-                        defaultValue={val(edit || {}, x.name) || ""}
+                        defaultValue={
+                          x.type === "date" && val(edit || {}, x.name)
+                            ? String(val(edit || {}, x.name)).slice(0, 10)
+                            : val(edit || {}, x.name) || ""
+                        }
                       />
                     )}
                     {x.name === "mobile" && (

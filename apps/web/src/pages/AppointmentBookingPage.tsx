@@ -79,7 +79,10 @@ export function AppointmentBookingPage({
       raw: item,
     })),
     departmentOptions: Option[] = departments
-      .filter((item: any) => item.branchId === branchId)
+      .filter(
+        (item: any) =>
+          item.branchId === branchId || item.branchIds?.includes(branchId),
+      )
       .map((item: any) => ({
       id: item.id,
       label: `${item.name} · ${item.code}`,
