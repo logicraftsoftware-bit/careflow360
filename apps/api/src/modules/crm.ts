@@ -168,6 +168,13 @@ const allowedFields: Record<string, string[]> = {
     "internalNotes",
   ],
 };
+function calculatedScheduleEnd(startTime: string, slotMinutes: number, maxPatients: number) {
+  const [hours, minutes] = startTime.split(":").map(Number);
+  const total = hours * 60 + minutes + slotMinutes * maxPatients;
+  if (!Number.isFinite(total) || total >= 24 * 60)
+    throw new AppError(400, "The calculated schedule end time cannot go past midnight", "INVALID_SCHEDULE_DURATION");
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
 function prepared(
   resource: string,
   body: any,
@@ -208,6 +215,8 @@ function prepared(
     data.dayOfWeek === undefined
   )
     data.dayOfWeek = data.scheduleDate.getUTCDay();
+  if (resource === "doctorSchedules" && data.startTime && data.slotMinutes && data.maxPatients)
+    data.endTime = calculatedScheduleEnd(data.startTime, data.slotMinutes, data.maxPatients);
   if (creating && resource === "leads") {
     data.leadNumber = `LD-${Date.now().toString(36).toUpperCase()}`;
     data.createdById = userId;

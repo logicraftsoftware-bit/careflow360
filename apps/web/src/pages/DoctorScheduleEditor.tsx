@@ -22,6 +22,12 @@ const weekDays = [
 ];
 const isoDate = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const calculatedEndTime = (startTime: string, slotMinutes: number, maxPatients: number) => {
+  const [hours, minutes] = startTime.split(":").map(Number);
+  const total = hours * 60 + minutes + slotMinutes * maxPatients;
+  if (!Number.isFinite(total) || total >= 24 * 60) return "Invalid";
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
 
 export function DoctorScheduleEditor({
   schedule,
@@ -38,7 +44,6 @@ export function DoctorScheduleEditor({
   const [selected, setSelected] = useState<Date | null>(null);
   const [form, setForm] = useState({
     startTime: schedule.startTime || "09:00",
-    endTime: schedule.endTime || "17:00",
     slotMinutes: schedule.slotMinutes || 15,
     maxPatients: schedule.maxPatients || 20,
     status: schedule.status || "ACTIVE",
@@ -115,14 +120,12 @@ export function DoctorScheduleEditor({
       existing
         ? {
             startTime: existing.startTime,
-            endTime: existing.endTime,
             slotMinutes: existing.slotMinutes,
             maxPatients: existing.maxPatients,
             status: existing.status,
           }
         : {
             startTime: "09:00",
-            endTime: "17:00",
             slotMinutes: 15,
             maxPatients: 20,
             status: "ACTIVE",
@@ -141,6 +144,7 @@ export function DoctorScheduleEditor({
         dayOfWeek: selected.getDay(),
         scheduleDate: isoDate(selected),
         ...form,
+        endTime: calculatedEndTime(form.startTime, Number(form.slotMinutes), Number(form.maxPatients)),
         slotMinutes: Number(form.slotMinutes),
         maxPatients: Number(form.maxPatients),
       };
@@ -297,18 +301,6 @@ export function DoctorScheduleEditor({
                   }
                 />
               </label>
-              <label>
-                <span>
-                  <Clock /> End time
-                </span>
-                <input
-                  type="time"
-                  value={form.endTime}
-                  onChange={(e) =>
-                    setForm({ ...form, endTime: e.target.value })
-                  }
-                />
-              </label>
               <div className="schedule-form-row">
                 <label>
                   <span>Slot duration</span>
@@ -351,7 +343,11 @@ export function DoctorScheduleEditor({
               <div className="slot-summary">
                 <b>Slot summary</b>
                 <strong>
-                  {form.startTime} – {form.endTime}
+                  {form.startTime} – {calculatedEndTime(
+                    form.startTime,
+                    Number(form.slotMinutes),
+                    Number(form.maxPatients),
+                  )}
                 </strong>
                 <span>
                   {form.slotMinutes}-minute slots ·{" "}
