@@ -84,21 +84,21 @@ jobs:
             if pm2 describe careflow360-api >/dev/null 2>&1; then
               pm2 delete careflow360-api
             fi
-            pm2 start apps/api/dist/server.js \
+            pm2 start /var/www/careflow360/apps/api/dist/server.js \
               --name careflow360-api \
               --cwd /var/www/careflow360
 
             pm2 save
 
-            echo "Verifying patient API route..."
+            echo "Verifying API health..."
             for attempt in 1 2 3 4 5; do
-              if curl --fail --silent http://127.0.0.1:4000/api/patient/clinics >/dev/null; then
-                echo "Patient API is available"
+              if curl --fail --silent http://127.0.0.1:4000/api/health >/dev/null; then
+                echo "API is healthy"
                 break
               fi
 
               if [ "$attempt" -eq 5 ]; then
-                echo "Patient API health check failed"
+                echo "API health check failed"
                 pm2 logs careflow360-api --lines 80 --nostream
                 exit 1
               fi
