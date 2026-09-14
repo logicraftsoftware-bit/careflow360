@@ -799,20 +799,50 @@ function MultiRef({ field, values }: { field: Field; values?: string[] }) {
     queryFn: () => api.get(`${field.endpoint}?limit=100`).then(unwrap),
   });
   const rows = Array.isArray(data) ? data : data?.items || [];
-  const selected = new Set(values || []);
+  const [selectedIds, setSelectedIds] = useState<string[]>(values || []);
+  const selected = new Set(selectedIds);
+  const [search, setSearch] = useState("");
+  const matches = rows.filter((row: any) =>
+    `${row.name || ""} ${row.title || ""} ${row.city || ""}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
   return (
-    <div className="multi-ref-list">
-      {rows.map((row: any) => (
-        <label key={row.id} className="multi-ref-option">
-          <input
-            type="checkbox"
-            name={field.name}
-            value={row.id}
-            defaultChecked={selected.has(row.id)}
-          />
-          <span>{row.name || row.title || row.id}</span>
-        </label>
+    <div className="multi-ref">
+      {selectedIds.map((id) => (
+        <input key={id} type="hidden" name={field.name} value={id} />
       ))}
+      <div className="multi-ref-search">
+        <Search />
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={`Search and select ${field.label.toLowerCase()}`}
+        />
+      </div>
+      <div className="multi-ref-list">
+        {matches.length ? (
+          matches.map((row: any) => (
+            <label key={row.id} className="multi-ref-option">
+              <input
+                type="checkbox"
+                checked={selected.has(row.id)}
+                onChange={(event) =>
+                  setSelectedIds((current) =>
+                    event.target.checked
+                      ? [...new Set([...current, row.id])]
+                      : current.filter((id) => id !== row.id),
+                  )
+                }
+              />
+              <span>{row.name || row.title || row.id}</span>
+            </label>
+          ))
+        ) : (
+          <small className="multi-ref-empty">No matching branches</small>
+        )}
+      </div>
     </div>
   );
 }
