@@ -65,6 +65,11 @@ jobs:
             npm install --workspace @careflow360/api --workspace @careflow360/web \
               --include-workspace-root --no-audit --no-fund
 
+            # Nginx serves apps/web/dist directly. Build it before API maintenance
+            # so a later API restart/health-check failure cannot block web releases.
+            echo "Building web application..."
+            npm run build -w @careflow360/web
+
             echo "Generating Prisma Client..."
             npm run db:generate
 
@@ -100,8 +105,5 @@ jobs:
 
               sleep 3
             done
-
-            echo "Building web application..."
-            npm run build -w @careflow360/web
 
             echo "Deployment completed successfully"
