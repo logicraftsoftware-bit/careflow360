@@ -1722,6 +1722,7 @@ crmRouter.post(
         departmentId: z.string(),
         doctorId: z.string(),
         scheduleId: z.string(),
+        startsAt: z.coerce.date(),
         status: z
           .enum(["DRAFT", "BOOKING_PENDING", "PAYMENT_PENDING", "CONFIRMED"])
           .default("CONFIRMED"),
@@ -1833,18 +1834,32 @@ crmRouter.post(
           "No appointment slots remain for this date",
           "SCHEDULE_FULL"
         );
-      const serialNumber = booked + 1,
-        startsAt = new Date(`${date}T${schedule.startTime}:00+05:30`),
-        slotStart = new Date(
-          startsAt.getTime() + booked * schedule.slotMinutes * 60000
-        ),
+      const startsAt = new Date(`${date}T${schedule.startTime}:00+05:30`),
+        slotStart = body.startsAt,
         scheduleEnd = new Date(`${date}T${schedule.endTime}:00+05:30`);
-      if (slotStart >= scheduleEnd)
+      const offset = slotStart.getTime() - startsAt.getTime();
+      if (
+        offset < 0 ||
+        slotStart >= scheduleEnd ||
+        offset % (schedule.slotMinutes * 60000) !== 0
+      )
         throw new AppError(
-          409,
-          "No appointment slots remain within the doctor's schedule",
-          "SCHEDULE_FULL"
+          400,
+          "The selected time is not a valid slot for this schedule",
+          "INVALID_APPOINTMENT_TIME"
         );
+      const occupied = await tx.appointment.findFirst({
+        where: {
+          tenantId: tid,
+          doctorId: doctor.id,
+          branchId: branch.id,
+          startsAt: slotStart,
+          status: { not: "CANCELLED" },
+        },
+      });
+      if (occupied)
+        throw new AppError(409, "This appointment time was already booked", "SLOT_TAKEN");
+      const serialNumber = Math.floor(offset / (schedule.slotMinutes * 60000)) + 1;
       const paymentComplete =
         body.paymentStatus === "PAID" || body.paymentStatus === "NOT_REQUIRED";
       const token = paymentComplete

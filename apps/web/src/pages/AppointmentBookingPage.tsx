@@ -42,6 +42,7 @@ export function AppointmentBookingPage({
     [departmentId, setDepartmentId] = useState(""),
     [doctorId, setDoctorId] = useState(""),
     [scheduleId, setScheduleId] = useState(""),
+    [appointmentTime, setAppointmentTime] = useState(""),
     [status, setStatus] = useState("CONFIRMED"),
     [paymentStatus, setPaymentStatus] = useState("PENDING"),
     [paymentMethod, setPaymentMethod] = useState(""),
@@ -64,7 +65,10 @@ export function AppointmentBookingPage({
         item.branchId === existingAppointment.branchId &&
         item.scheduleDate?.slice(0, 10) === date,
     );
-    if (schedule) setScheduleId(schedule.id);
+    if (schedule) {
+      setScheduleId(schedule.id);
+      setAppointmentTime(new Date(existingAppointment.startsAt).toISOString());
+    }
   }, [existingAppointment, schedules, patientId]);
   const patientOptions: Option[] = patients.map((item: any) => ({
       id: item.id,
@@ -143,29 +147,47 @@ export function AppointmentBookingPage({
       )
       .sort((a: Option, b: Option) =>
         a.raw.scheduleDate.localeCompare(b.raw.scheduleDate),
-      );
+      ),
+    selectedSchedule = schedules.find((item: any) => item.id === scheduleId),
+    timeOptions: Option[] = selectedSchedule
+      ? Array.from({ length: Number(selectedSchedule.maxPatients || 0) }, (_, index) => {
+          const date = selectedSchedule.scheduleDate.slice(0, 10);
+          const startsAt = new Date(
+            new Date(`${date}T${selectedSchedule.startTime}:00+05:30`).getTime() +
+              index * Number(selectedSchedule.slotMinutes) * 60000,
+          );
+          return {
+            id: startsAt.toISOString(),
+            label: startsAt.toLocaleTimeString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            search: startsAt.toLocaleTimeString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            raw: selectedSchedule,
+          };
+        }).filter(
+          (option) =>
+            !appointments.some(
+              (appointment: any) =>
+                appointment.id !== existingAppointment?.id &&
+                appointment.doctorId === doctorId &&
+                appointment.branchId === branchId &&
+                appointment.status !== "CANCELLED" &&
+                new Date(appointment.startsAt).getTime() ===
+                  new Date(option.id).getTime(),
+            ),
+        )
+      : [];
   const book = useMutation({
       mutationFn: () => {
         if (existingAppointment) {
-          const schedule = schedules.find(
-              (item: any) => item.id === scheduleId,
-            ),
-            date = schedule?.scheduleDate?.slice(0, 10),
-            sameDate = existingAppointment.startsAt?.slice(0, 10) === date;
-          const used = appointments.filter(
-            (item: any) =>
-              item.id !== existingAppointment.id &&
-              item.doctorId === doctorId &&
-              item.branchId === branchId &&
-              item.status !== "CANCELLED" &&
-              item.startsAt?.slice(0, 10) === date,
-          ).length;
-          const startDate = sameDate
-            ? new Date(existingAppointment.startsAt)
-            : new Date(
-                new Date(`${date}T${schedule.startTime}:00+05:30`).getTime() +
-                  used * schedule.slotMinutes * 60000,
-              );
+          const schedule = schedules.find((item: any) => item.id === scheduleId);
+          const startDate = new Date(appointmentTime);
           return api.patch(`/crm/appointments/${existingAppointment.id}`, {
             patientId,
             branchId,
@@ -189,6 +211,7 @@ export function AppointmentBookingPage({
           departmentId,
           doctorId,
           scheduleId,
+          startsAt: appointmentTime,
           status,
           paymentStatus,
           paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
@@ -215,7 +238,8 @@ export function AppointmentBookingPage({
         !branchId ||
         !departmentId ||
         !doctorId ||
-        !scheduleId
+        !scheduleId ||
+        !appointmentTime
       ) {
         window.alert(
           "Please select patient, branch, department, doctor and appointment date",
@@ -305,6 +329,7 @@ export function AppointmentBookingPage({
                 setDepartmentId("");
                 setDoctorId("");
                 setScheduleId("");
+                setAppointmentTime("");
               }}
               placeholder="Search branch name or city"
             />
@@ -317,6 +342,7 @@ export function AppointmentBookingPage({
                 setDepartmentId(id);
                 setDoctorId("");
                 setScheduleId("");
+                setAppointmentTime("");
               }}
               placeholder={
                 branchId
@@ -333,6 +359,7 @@ export function AppointmentBookingPage({
               onChange={(id) => {
                 setDoctorId(id);
                 setScheduleId("");
+                setAppointmentTime("");
               }}
               placeholder={
                 branchId && departmentId
@@ -347,7 +374,10 @@ export function AppointmentBookingPage({
                 label="Available appointment date"
                 options={slotDateOptions}
                 value={scheduleId}
-                onChange={setScheduleId}
+                onChange={(id) => {
+                  setScheduleId(id);
+                  setAppointmentTime("");
+                }}
                 placeholder={
                   doctorId
                     ? "Search date and remaining slots"
@@ -361,6 +391,19 @@ export function AppointmentBookingPage({
                   this doctor, or all slots are full.
                 </div>
               )}
+            </div>
+            <div className="wide">
+              <SearchSelect
+                name="appointmentTime"
+                label="Available appointment time"
+                options={timeOptions}
+                value={appointmentTime}
+                onChange={setAppointmentTime}
+                placeholder={
+                  scheduleId ? "Select an available time slot" : "Select appointment date first"
+                }
+                disabled={!scheduleId}
+              />
             </div>
             <label>
               Status
