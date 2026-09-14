@@ -2060,7 +2060,7 @@ crmRouter.patch(
         where: { id: lead.id },
         data: { status },
       });
-      let patient = await tx.patient.findUnique({ where: { leadId: lead.id } });
+      let patient = await tx.patient.findFirst({ where: { leadId: lead.id } });
       if (status === "CONVERTED" && !patient) {
         patient = await tx.patient.create({
           data: {

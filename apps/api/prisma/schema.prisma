@@ -468,7 +468,7 @@ model Lead {
   createdById    String        @db.ObjectId
   createdBy      User          @relation("LeadCreator", fields: [createdById], references: [id])
   followups      FollowUp[]
-  patient        Patient?
+  patients       Patient[]
   appointments   Appointment[]
   calls          CallRecord[]
   createdAt      DateTime      @default(now())
@@ -501,7 +501,10 @@ model Patient {
   tenantId      String        @db.ObjectId
   tenant        Tenant        @relation(fields: [tenantId], references: [id])
   patientNumber String
-  leadId        String?       @unique @db.ObjectId
+  // A patient may be created directly, without originating from a lead.
+  // A unique MongoDB index on this optional field treats missing values as the
+  // same value and consequently allows only one direct patient.
+  leadId        String?       @db.ObjectId
   lead          Lead?         @relation(fields: [leadId], references: [id])
   name          String
   gender        String?
@@ -519,6 +522,7 @@ model Patient {
   updatedAt     DateTime      @updatedAt
 
   @@unique([tenantId, patientNumber])
+  @@index([leadId])
   @@index([tenantId, mobile])
 }
 
