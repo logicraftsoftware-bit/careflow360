@@ -1628,15 +1628,74 @@ crmRouter.get(
     const tid = tenantId(req);
     const where: any = { tenantId: tid };
     if (typeof req.query.status === "string") where.status = req.query.status;
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       model.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
         orderBy: { createdAt: "desc" },
+        ...(req.params.resource === "auditLogs"
+          ? {
+              include: {
+                actor: {
+                  select: {
+                    id: true,
+                    name: true,
+                    roles: { select: { role: { select: { name: true } } } },
+                  },
+                },
+              },
+            }
+          : {}),
       }),
       model.count({ where }),
     ]);
+    let items =
+      req.params.resource === "auditLogs"
+        ? rawItems.map((item: any) => ({
+            ...item,
+            staffName: item.actor?.name || "System",
+            designation:
+              item.actor?.roles?.map((entry: any) => entry.role.name).join(", ") ||
+              "System",
+          }))
+        : rawItems;
+    if (req.params.resource !== "auditLogs" && rawItems.length) {
+      const ids = rawItems.map((item: any) => item.id);
+      const creationLogs = await prisma.auditLog.findMany({
+        where: {
+          tenantId: tid,
+          entityId: { in: ids },
+          OR: [
+            { action: { endsWith: ".created" } },
+            { action: "appointment.booked" },
+          ],
+        },
+        include: {
+          actor: {
+            select: {
+              name: true,
+              roles: { select: { role: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      const creators = new Map<string, any>();
+      for (const log of creationLogs)
+        if (log.entityId && !creators.has(log.entityId))
+          creators.set(log.entityId, log);
+      items = rawItems.map((item: any) => {
+        const log = creators.get(item.id);
+        return {
+          ...item,
+          createdBy: log?.actor?.name || "System / Legacy",
+          createdByDesignation:
+            log?.actor?.roles?.map((entry: any) => entry.role.name).join(", ") ||
+            "System",
+        };
+      });
+    }
     return ok(res, { items, total, page, limit });
   })
 );

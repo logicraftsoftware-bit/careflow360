@@ -298,7 +298,15 @@ const configs: Record<string, Config> = {
     title: "Audit Logs",
     description: "Review security-relevant activity.",
     fields: [],
-    columns: ["action", "entityType", "entityId", "ipAddress", "createdAt"],
+    columns: [
+      "staffName",
+      "designation",
+      "action",
+      "entityType",
+      "entityId",
+      "ipAddress",
+      "createdAt",
+    ],
     readOnly: true,
     noCreate: true,
   },
@@ -909,6 +917,17 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     ],
     columns: ["title", "description", "status", "updatedAt"],
   };
+  const tableColumns =
+    mode === "tenant" && slug !== "audit-logs"
+      ? [
+          ...c.columns,
+          ...(c.columns.includes("createdBy") ? [] : ["createdBy"]),
+          ...(c.columns.includes("createdByDesignation")
+            ? []
+            : ["createdByDesignation"]),
+          ...(c.columns.includes("createdAt") ? [] : ["createdAt"]),
+        ]
+      : c.columns;
   const qc = useQueryClient(),
     [edit, setEdit] = useState<any>(),
     [view, setView] = useState<any>(),
@@ -988,7 +1007,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const referenceKeys = Object.keys(referenceEndpoints);
   const usedReferenceKeys = new Set([
     ...c.fields.map((field) => field.name),
-    ...c.columns,
+    ...tableColumns,
   ]);
   const referenceQueries = useQueries({
     queries: referenceKeys.map((key) => ({
@@ -1254,9 +1273,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     const blob = new Blob(
         [
           [
-            c.columns.map(label).join(","),
+            tableColumns.map(label).join(","),
             ...all.map((r: any) =>
-              c.columns
+              tableColumns
                 .map((k) => `"${display(r, k).replaceAll('"', '""')}"`)
                 .join(","),
             ),
@@ -1277,7 +1296,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       import("jspdf-autotable"),
     ]);
     const document = new jsPDF({
-      orientation: c.columns.length > 6 ? "landscape" : "portrait",
+      orientation: tableColumns.length > 6 ? "landscape" : "portrait",
     });
     document.setFontSize(16);
     document.text(c.title, 14, 16);
@@ -1289,9 +1308,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     );
     autoTable(document, {
       startY: 27,
-      head: [c.columns.map(label)],
+      head: [tableColumns.map(label)],
       body: all.map((record: any) =>
-        c.columns.map((key) => display(record, key)),
+        tableColumns.map((key) => display(record, key)),
       ),
       styles: { fontSize: 7, cellPadding: 2 },
       headStyles: { fillColor: [37, 99, 235] },
@@ -1550,7 +1569,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               <table>
                 <thead>
                   <tr>
-                    {c.columns.map((k) => (
+                    {tableColumns.map((k) => (
                       <th key={k}>{label(k)}</th>
                     ))}
                     <th>Actions</th>
@@ -1559,7 +1578,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 <tbody>
                   {rows.map((r: any) => (
                     <tr key={r.id}>
-                      {c.columns.map((k) => (
+                      {tableColumns.map((k) => (
                         <td key={k}>
                           <span className={k === "status" ? "status-pill" : ""}>
                             {display(r, k)}
@@ -1873,7 +1892,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               </button>
             </div>
             <dl>
-              {c.columns.map((k) => (
+              {tableColumns.map((k) => (
                 <div key={k}>
                   <dt>{label(k)}</dt>
                   <dd>{display(view, k)}</dd>
