@@ -80,11 +80,11 @@ jobs:
             npm run build -w @careflow360/api
 
             echo "Restarting API..."
-            test -f apps/api/dist/server.js
+            test -f apps/api/dist/src/server.js
             if pm2 describe careflow360-api >/dev/null 2>&1; then
               pm2 delete careflow360-api
             fi
-            pm2 start /var/www/careflow360/apps/api/dist/server.js \
+            pm2 start /var/www/careflow360/apps/api/dist/src/server.js \
               --name careflow360-api \
               --cwd /var/www/careflow360
 
