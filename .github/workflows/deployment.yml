@@ -91,13 +91,15 @@ jobs:
             pm2 save
 
             echo "Verifying API health..."
-            for attempt in 1 2 3 4 5; do
+            # Prisma may need a little time to establish its first production
+            # database connection after PM2 recreates the process.
+            for attempt in $(seq 1 20); do
               if curl --fail --silent http://127.0.0.1:4000/api/health >/dev/null; then
                 echo "API is healthy"
                 break
               fi
 
-              if [ "$attempt" -eq 5 ]; then
+              if [ "$attempt" -eq 20 ]; then
                 echo "API health check failed"
                 pm2 logs careflow360-api --lines 80 --nostream
                 exit 1
