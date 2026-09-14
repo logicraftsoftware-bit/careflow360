@@ -924,6 +924,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [priorityFilter, setPriorityFilter] = useState("ALL"),
     [actionFilter, setActionFilter] = useState("ALL"),
     [doctorFilter, setDoctorFilter] = useState("ALL"),
+    [departmentFilter, setDepartmentFilter] = useState("ALL"),
     [slotFilter, setSlotFilter] = useState("ALL"),
     [paymentFilter, setPaymentFilter] = useState("ALL"),
     [page, setPage] = useState(1);
@@ -1042,6 +1043,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         (cityFilter === "ALL" || r.city === cityFilter) &&
         (priorityFilter === "ALL" || r.priority === priorityFilter) &&
         (doctorFilter === "ALL" || r.doctorId === doctorFilter) &&
+        (departmentFilter === "ALL" ||
+          r.departmentId === departmentFilter) &&
         (slotFilter === "ALL" || r.startsAt === slotFilter) &&
         (paymentFilter === "ALL" || r.paymentStatus === paymentFilter) &&
         actionMatches(r.status) &&
@@ -1073,6 +1076,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     priorityFilter,
     actionFilter,
     doctorFilter,
+    departmentFilter,
     slotFilter,
     paymentFilter,
     slug,
@@ -1235,6 +1239,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     ] as string[],
     appointmentDoctors = [
       ...new Set(sourceRows.map((r: any) => r.doctorId).filter(Boolean)),
+    ] as string[],
+    doctorDepartments = [
+      ...new Set(sourceRows.map((r: any) => r.departmentId).filter(Boolean)),
     ] as string[],
     appointmentSlots = [
       ...new Set(sourceRows.map((r: any) => r.startsAt).filter(Boolean)),
@@ -1442,6 +1449,24 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 {appointmentDoctors.map((doctorId) => (
                   <option key={doctorId} value={doctorId}>
                     {display({ doctorId }, "doctorId")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {slug === "doctors" && (
+            <div className="filter-select">
+              <select
+                value={departmentFilter}
+                onChange={(event) => {
+                  setDepartmentFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All departments</option>
+                {doctorDepartments.map((departmentId) => (
+                  <option key={departmentId} value={departmentId}>
+                    {display({ departmentId }, "departmentId")}
                   </option>
                 ))}
               </select>

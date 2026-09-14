@@ -142,16 +142,10 @@ export function AppointmentFields({
     search: `${department.name} ${department.code} ${department.id}`,
     raw: department,
     }));
-  const scheduledDoctorIds = new Set(
-    schedules
-      .filter((schedule: any) => !branchId || schedule.branchId === branchId)
-      .map((schedule: any) => schedule.doctorId),
-  );
   const doctorOptions = doctors
     .filter(
       (doctor: any) =>
-        (!departmentId || doctor.departmentId === departmentId) &&
-        (!branchId || scheduledDoctorIds.has(doctor.id)),
+        !!departmentId && doctor.departmentId === departmentId,
     )
     .map((doctor: any) => ({
       id: doctor.id,

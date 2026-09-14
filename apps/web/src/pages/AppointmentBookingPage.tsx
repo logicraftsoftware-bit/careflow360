@@ -86,20 +86,10 @@ export function AppointmentBookingPage({
       search: `${item.name} ${item.code} ${item.id}`,
       raw: item,
       })),
-    scheduledDoctorIds = new Set(
-      schedules
-        .filter(
-          (item: any) =>
-            (!branchId || item.branchId === branchId) &&
-            item.status === "ACTIVE",
-        )
-        .map((item: any) => item.doctorId),
-    ),
     doctorOptions: Option[] = doctors
       .filter(
         (item: any) =>
-          (!departmentId || item.departmentId === departmentId) &&
-          (!branchId || scheduledDoctorIds.has(item.id)),
+          !!departmentId && item.departmentId === departmentId,
       )
       .map((item: any) => ({
         id: item.id,
