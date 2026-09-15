@@ -95,11 +95,14 @@ telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
   if(!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
   const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tid}});
   if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
-  let to=body.to.replace(/\D/g,'');if(to.length===10)to=`91${to}`;
-  const response=await fetch(endpoint(integration.apiUrl,'webrtc/click2call'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user_id:user.telecmiAgentId,secret:decryptIntegrationSecret(integration.appSecretEncrypted),to,callerid:integration.businessNumber,webrtc:true,followme:false,extra_params:{crm:true,crm_staff_id:user.id}}),signal:AbortSignal.timeout(20000)});
+  let digitsTo=body.to.replace(/\D/g,'');if(digitsTo.length===10)digitsTo=`91${digitsTo}`;
+  if(digitsTo.length<10||digitsTo.length>15)throw new AppError(400,'Enter a valid phone number with country code','INVALID_PHONE');
+  const callerDigits=integration.businessNumber.replace(/\D/g,''),payload:any={user_id:String(user.telecmiAgentId),secret:decryptIntegrationSecret(integration.appSecretEncrypted),to:Number(digitsTo),webrtc:true,followme:false,extra_params:{crm:true,crm_staff_id:user.id}};
+  if(callerDigits)payload.callerid=Number(callerDigits);
+  const response=await fetch(endpoint(integration.apiUrl,'webrtc/click2call'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(20000)});
   const result:any=await response.json().catch(()=>({}));
   if(!response.ok||result.code&&Number(result.code)!==200)throw new AppError(502,result.msg||result.message||'Unable to start TeleCMI call','TELECMI_CALL_FAILED');
-  await audit(req,'telecmi.call.started','CallRecord',undefined,{agentId:user.telecmiAgentId,to});
+  await audit(req,'telecmi.call.started','CallRecord',undefined,{agentId:user.telecmiAgentId,to:digitsTo,requestId:result.request_id});
   return ok(res,result,'TeleCMI call started');
 }));
 telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{
