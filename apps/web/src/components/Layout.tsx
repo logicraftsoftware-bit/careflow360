@@ -26,7 +26,6 @@ import {
   X,
 } from "lucide-react";
 import { api, unwrap } from "../api";
-import { TelecmiSoftphone } from "./TelecmiSoftphone";
 const tenant = [
   ["Dashboard", "", LayoutDashboard],
   ["Leads", "leads", ClipboardList],
@@ -294,7 +293,6 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
         <div className="content">
           <Outlet />
         </div>
-        {staff && user.roleCodes?.includes("CALL_CENTRE") && <TelecmiSoftphone />}
       </main>
     </div>
   );

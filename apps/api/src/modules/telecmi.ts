@@ -62,9 +62,10 @@ async function storeCdr(tenantId:string,cdr:any,direction:"INBOUND"|"OUTBOUND",a
   const {patient,lead}=await matchContact(tenantId,callerNumber);
   const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||cdr.answeredsec||0),billed=Number(cdr.billedsec||cdr.answeredsec||0),agentExternalId=cdr.agent||cdr.user,status=telecmiCallStatus(cdr,answered);
   const assignedAgent=agentExternalId?await prisma.user.findFirst({where:{tenantId,telecmiAgentId:String(agentExternalId)}}):null;
-  const recording=String(cdr.recording_url||cdr.recording||"");
+  const recording=String(cdr.recording_url||cdr.recording||""),filename=String(cdr.filename||cdr.voicename||"");
+  const recordingUrl=/^https?:\/\//.test(recording)?recording:filename?`/integrations/telecmi/recordings/${encodeURIComponent(filename)}`:undefined;
   const virtualNumber=direction==="INBOUND"?digits(cdr.virtual_number||cdr.did||cdr.to)||undefined:undefined,agentName=cdr.agent_name||cdr.name||assignedAgent?.telecmiAgentName||assignedAgent?.name||agentExternalId||undefined;
-  const common={direction,status,callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber,agentId:assignedAgent?.id,agentExternalId:agentExternalId?String(agentExternalId):undefined,agentName,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:(status==='ANSWERED'||status==='COMPLETED')&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:status==='COMPLETED'&&startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,ivrSelection:cdr.ivr_name||undefined,disposition:cdr.hangup_reason||cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr};
+  const common={direction,status,callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber,agentId:assignedAgent?.id,agentExternalId:agentExternalId?String(agentExternalId):undefined,agentName,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:(status==='ANSWERED'||status==='COMPLETED')&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:status==='COMPLETED'&&startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,ivrSelection:cdr.ivr_name||undefined,disposition:cdr.hangup_reason||cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl,rawPayload:cdr};
   await prisma.callRecord.upsert({where:{provider_externalId:{provider:"TELECMI",externalId}},create:{tenantId,provider:"TELECMI",externalId,...common},update:common});
 }
 
@@ -116,6 +117,22 @@ telecmiRouter.get('/softphone-credentials',auth,asyncRoute(async(req,res)=>{
   res.setHeader('Cache-Control','no-store, private');res.setHeader('Pragma','no-cache');
   await audit(req,'telecmi.softphone.credentials.issued','User',user.id,{agentId:user.telecmiAgentId});
   return ok(res,{userId:String(user.telecmiAgentId),password:String(agent.password),sbcUri:'sbcind.telecmi.com',displayName:user.telecmiAgentName||user.name});
+}));
+telecmiRouter.get('/recordings/:filename',auth,asyncRoute(async(req,res)=>{
+  const tid=tenantId(req),filename=String(req.params.filename||'');
+  if(!/^[a-zA-Z0-9_.-]+\.(mp3|wav)$/i.test(filename))throw new AppError(400,'Invalid TeleCMI recording filename','INVALID_RECORDING');
+  const recordingUrl=`/integrations/telecmi/recordings/${encodeURIComponent(filename)}`;
+  const call=await prisma.callRecord.findFirst({where:{tenantId:tid,provider:'TELECMI',recordingUrl}});
+  if(!call)throw new AppError(404,'Recording not found for this clinic','RECORDING_NOT_FOUND');
+  const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tid}});
+  if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
+  const url=new URL('https://piopiy.telecmi.com/v1/play');
+  url.searchParams.set('appid',integration.appId);url.searchParams.set('token',decryptIntegrationSecret(integration.appSecretEncrypted));url.searchParams.set('file',filename);
+  const response=await fetch(url,{signal:AbortSignal.timeout(20000)});
+  if(!response.ok)throw new AppError(502,'Unable to load TeleCMI recording','TELECMI_RECORDING_FAILED');
+  const audio=Buffer.from(await response.arrayBuffer());
+  res.setHeader('Content-Type',response.headers.get('content-type')||(/\.wav$/i.test(filename)?'audio/wav':'audio/mpeg'));
+  res.setHeader('Content-Disposition',`inline; filename="${filename}"`);res.setHeader('Cache-Control','private, max-age=300');res.send(audio);
 }));
 telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
   const tid=tenantId(req),{user}=await currentTelecmiUser(req),body=z.object({to:z.string().trim().min(7).max(20)}).parse(req.body);

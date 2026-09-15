@@ -1,24 +1,521 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Clock3, Download, ExternalLink, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOutgoing, Search } from "lucide-react";
+import {
+  Clock3,
+  Download,
+  ExternalLink,
+  PhoneCall,
+  PhoneIncoming,
+  PhoneMissed,
+  PhoneOutgoing,
+  Search,
+} from "lucide-react";
 import { api, unwrap } from "../api";
+import { TelecmiSoftphone } from "../components/TelecmiSoftphone";
 import "./CallLogs.css";
-const when=(v?:string)=>v?new Date(v).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"}):"—";
-const duration=(s=0)=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return h?h+"h "+m+"m "+sec+"s":m+"m "+sec+"s"};
-const isoDay=(date:Date)=>{const offset=date.getTimezoneOffset()*60000;return new Date(date.getTime()-offset).toISOString().slice(0,10)};
-function rangeFor(preset:string){const now=new Date(),start=new Date(now),end=new Date(now);if(preset==="YESTERDAY"){start.setDate(start.getDate()-1);end.setDate(end.getDate()-1)}else if(preset==="WEEK")start.setDate(start.getDate()-6);else if(preset==="MONTH")start.setDate(start.getDate()-29);start.setHours(0,0,0,0);end.setHours(23,59,59,999);return {start:isoDay(start),end:isoDay(end)}}
-export function CallLogsPage(){
- const sessionUser=JSON.parse(localStorage.getItem("user")||"{}"),staffPortal=sessionUser.portal==="STAFF";
- const initial=rangeFor("TODAY"),[search,setSearch]=useState(""),[status,setStatus]=useState(""),[direction,setDirection]=useState(""),[agentId,setAgentId]=useState(""),[number,setNumber]=useState(""),[preset,setPreset]=useState("TODAY"),[start,setStart]=useState(initial.start),[end,setEnd]=useState(initial.end);
- const startDate=new Date(start+"T00:00:00").toISOString(),endDate=new Date(end+"T23:59:59.999").toISOString();
- const {data:profile}=useQuery({queryKey:["telecmi-me"],queryFn:()=>api.get("/integrations/telecmi/me").then(unwrap)}),{data:agentData}=useQuery({queryKey:["telecmi-users"],queryFn:()=>api.get("/integrations/telecmi/users").then(unwrap),enabled:Boolean(profile?.isAdmin)}),{data={items:[],total:0,analytics:{}},isLoading,error}=useQuery({queryKey:["telecmi-calls",search,status,direction,agentId,start,end],queryFn:()=>api.get("/integrations/telecmi/calls",{params:{search:search||undefined,status:status||undefined,direction:direction||undefined,agentId:agentId||undefined,startDate,endDate}}).then(unwrap)});
- const call=useMutation({mutationFn:()=>api.post("/integrations/telecmi/make-call",{to:number}),onSuccess:()=>setNumber("")}),a:any=data.analytics||{},hours:any[]=a.byHour||[],maxHour=Math.max(1,...hours.map(x=>x.total));
- const choose=(value:string)=>{setPreset(value);const range=rangeFor(value);setStart(range.start);setEnd(range.end)};
- const exportCsv=()=>{const rows=[["Call ID","Caller","Contact","Direction","Status","Agent","Started","Duration","Disposition"],...data.items.map((x:any)=>[x.externalId,x.callerNumber,x.patient?.name||x.lead?.name||"",x.direction,x.status,x.agentName||"",when(x.startedAt),x.durationSeconds??"",x.disposition||""])],csv=rows.map((r:any[])=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(",")).join("\n"),link=document.createElement("a");link.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));link.download="telecmi-calls-"+start+"-to-"+end+".csv";link.click();URL.revokeObjectURL(link.href)};
- const cards=[[a.totalCalls||0,"Total calls",PhoneCall],[a.answered||0,"Answered",PhoneIncoming],[a.missed||0,"Missed",PhoneMissed],[a.received||0,"Received",PhoneIncoming],[a.outgoing||0,"Outgoing",PhoneOutgoing],[duration(a.totalDurationSeconds),"Total call time",Clock3],[duration(a.averageDurationSeconds),"Average call time",Clock3]];
- return <><div className="page-head"><div><span>IVR &amp; CALL CENTRE</span><h1>{staffPortal?"My TeleCMI Calls":"TeleCMI Call Dashboard"}</h1><p>{staffPortal?"Inbound calls, outbound calls and dialer for your assigned TeleCMI user.":profile?.agentName?"Showing only "+profile.agentName+(profile.extension?" (Ext. "+profile.extension+")":"")+".":"Clinic-wide call analytics, productivity and detailed call history."}</p></div><button className="btn" onClick={exportCsv}><Download/>Export CSV</button></div>
- <section className="panel call-filter-panel"><div className="call-filter-top"><div className="call-presets">{["TODAY","YESTERDAY","WEEK","MONTH"].map(x=><button key={x} className={preset===x?"active":""} onClick={()=>choose(x)}>{x}</button>)}</div><label>From<input type="date" value={start} onChange={e=>{setPreset("CUSTOM");setStart(e.target.value)}}/></label><label>To<input type="date" value={end} min={start} onChange={e=>{setPreset("CUSTOM");setEnd(e.target.value)}}/></label><span>{a.answerRate||0}% answer rate</span></div><div className="call-filter-bottom"><label className="search"><Search/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search phone, agent or call ID..."/></label>{profile?.isAdmin&&<select value={agentId} onChange={e=>setAgentId(e.target.value)}><option value="">All TeleCMI users</option>{(agentData?.items||[]).map((x:any)=><option key={x.id} value={x.id}>{x.name}{x.extension?" · Ext. "+x.extension:""}</option>)}</select>}<select value={direction} onChange={e=>setDirection(e.target.value)}><option value="">All directions</option><option value="INBOUND">Inbound</option><option value="OUTBOUND">Outbound</option></select><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["ANSWERED","COMPLETED","MISSED","ABANDONED","FAILED","RINGING","UNKNOWN"].map(v=><option key={v} value={v}>{v}</option>)}</select></div></section>
- {!staffPortal&&<><section className="call-metrics">{cards.map(([value,label,Icon]:any)=><article key={label}><Icon/><div><b>{value}</b><small>{label}</small></div></article>)}</section><section className="call-analytics-grid"><article className="panel"><div className="panel-head"><h3>Calls by hour</h3><span>Answered and missed</span></div><div className="call-hour-chart">{hours.map(x=><div key={x.hour} title={x.hour+":00 · "+x.total+" calls"}><i style={{height:Math.max(x.total?8:1,x.total/maxHour*100)+"%"}}/><small>{x.hour}</small></div>)}</div></article><article className="panel call-breakdown"><h3>Call breakdown</h3><div><span>Incoming answered<b>{a.incomingAnswered||0}</b></span><span>Incoming missed<b>{a.incomingMissed||0}</b></span><span>Outgoing answered<b>{a.outgoingAnswered||0}</b></span><span>Outgoing missed<b>{a.outgoingMissed||0}</b></span></div></article></section>{profile?.isAdmin&&<section className="panel table-panel call-productivity"><div className="panel-head"><h3>Agent productivity</h3><span>{a.byAgent?.length||0} agents</span></div><div className="table-wrap"><table><thead><tr><th>Agent</th><th>Total</th><th>Inbound Answered</th><th>Inbound Missed</th><th>Outbound Answered</th><th>Outbound Missed</th><th>Talk Time</th></tr></thead><tbody>{(a.byAgent||[]).map((x:any)=><tr key={x.id}><td><b>{x.name}</b><small className="cell-sub">{x.id}</small></td><td>{x.total}</td><td>{x.inboundAnswered}</td><td>{x.inboundMissed}</td><td>{x.outboundAnswered}</td><td>{x.outboundMissed}</td><td>{duration(x.durationSeconds)}</td></tr>)}</tbody></table></div></section>}</>}
- {profile?.canCall&&!staffPortal&&<section className="panel call-dialer"><form className="toolbar call-toolbar" onSubmit={e=>{e.preventDefault();call.mutate()}}><label className="search"><PhoneCall/><input value={number} onChange={e=>setNumber(e.target.value)} placeholder="Enter phone number to call" required minLength={7}/></label><button className="btn" disabled={call.isPending}>{call.isPending?"Connecting…":"Call as "+profile.agentName}</button></form>{call.isSuccess&&<div className="alert success">TeleCMI is calling your registered mobile. Answer it to connect the customer.</div>}{call.error&&<div className="alert error">{(call.error as any).response?.data?.message||"Unable to start call"}</div>}</section>}
- <section className="panel table-panel"><div className="toolbar call-toolbar"><label className="search"><Search/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search phone, agent or call ID..."/></label><select value={direction} onChange={e=>setDirection(e.target.value)}><option value="">All directions</option><option value="INBOUND">Inbound</option><option value="OUTBOUND">Outbound</option></select><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">All statuses</option>{["RINGING","ANSWERED","COMPLETED","MISSED","ABANDONED","FAILED","UNKNOWN"].map(v=><option key={v}>{v}</option>)}</select></div>{isLoading?<div className="state">Loading TeleCMI calls…</div>:error?<div className="state error">{(error as any).response?.data?.message||"Unable to load TeleCMI call logs."}</div>:data.items.length?<div className="table-wrap"><table><thead><tr><th>Caller</th><th>Matched contact</th><th>Direction</th><th>Status</th><th>Agent</th><th>Started</th><th>Duration</th><th>Recording</th></tr></thead><tbody>{data.items.map((x:any)=><tr key={x.id}><td><b>{x.callerNumber}</b><small className="cell-sub">{x.externalId}</small></td><td>{x.patient?.name||x.lead?.name||"Unmatched"}<small className="cell-sub">{x.patient?.patientNumber||x.lead?.leadNumber}</small></td><td>{x.direction}</td><td><span className={"call-badge "+x.status.toLowerCase()}>{x.status}</span></td><td>{x.agentName||"—"}</td><td>{when(x.startedAt||x.createdAt)}</td><td>{duration(x.durationSeconds)}</td><td>{x.recordingUrl?<a className="recording-link" href={x.recordingUrl} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Open</a>:"—"}</td></tr>)}</tbody></table></div>:<div className="empty"><PhoneCall/><h3>No TeleCMI calls in this period</h3><p>Select another date range to view call activity.</p></div>}<div className="call-total">{data.total} call{data.total===1?"":"s"}</div></section></>;
+const when = (v?: string) =>
+  v
+    ? new Date(v).toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "—";
+const duration = (s = 0) => {
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = s % 60;
+  return h ? h + "h " + m + "m " + sec + "s" : m + "m " + sec + "s";
+};
+const isoDay = (date: Date) => {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+};
+function rangeFor(preset: string) {
+  const now = new Date(),
+    start = new Date(now),
+    end = new Date(now);
+  if (preset === "YESTERDAY") {
+    start.setDate(start.getDate() - 1);
+    end.setDate(end.getDate() - 1);
+  } else if (preset === "WEEK") start.setDate(start.getDate() - 6);
+  else if (preset === "MONTH") start.setDate(start.getDate() - 29);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start: isoDay(start), end: isoDay(end) };
+}
+export function CallLogsPage() {
+  const sessionUser = JSON.parse(localStorage.getItem("user") || "{}"),
+    staffPortal = sessionUser.portal === "STAFF";
+  const initial = rangeFor("TODAY"),
+    [search, setSearch] = useState(""),
+    [status, setStatus] = useState(""),
+    [direction, setDirection] = useState(""),
+    [agentId, setAgentId] = useState(""),
+    [number, setNumber] = useState(""),
+    [preset, setPreset] = useState("TODAY"),
+    [start, setStart] = useState(initial.start),
+    [end, setEnd] = useState(initial.end);
+  const startDate = new Date(start + "T00:00:00").toISOString(),
+    endDate = new Date(end + "T23:59:59.999").toISOString();
+  const { data: profile } = useQuery({
+      queryKey: ["telecmi-me"],
+      queryFn: () => api.get("/integrations/telecmi/me").then(unwrap),
+    }),
+    { data: agentData } = useQuery({
+      queryKey: ["telecmi-users"],
+      queryFn: () => api.get("/integrations/telecmi/users").then(unwrap),
+      enabled: Boolean(profile?.isAdmin),
+    }),
+    {
+      data = { items: [], total: 0, analytics: {} },
+      isLoading,
+      error,
+    } = useQuery({
+      queryKey: [
+        "telecmi-calls",
+        search,
+        status,
+        direction,
+        agentId,
+        start,
+        end,
+      ],
+      queryFn: () =>
+        api
+          .get("/integrations/telecmi/calls", {
+            params: {
+              search: search || undefined,
+              status: status || undefined,
+              direction: direction || undefined,
+              agentId: agentId || undefined,
+              startDate,
+              endDate,
+            },
+          })
+          .then(unwrap),
+      refetchInterval: 15000,
+    });
+  const call = useMutation({
+      mutationFn: () =>
+        api.post("/integrations/telecmi/make-call", { to: number }),
+      onSuccess: () => setNumber(""),
+    }),
+    a: any = data.analytics || {},
+    hours: any[] = a.byHour || [],
+    maxHour = Math.max(1, ...hours.map((x) => x.total));
+  const choose = (value: string) => {
+    setPreset(value);
+    const range = rangeFor(value);
+    setStart(range.start);
+    setEnd(range.end);
+  };
+  const exportCsv = () => {
+    const rows = [
+        [
+          "Call ID",
+          "Caller",
+          "Contact",
+          "Direction",
+          "Status",
+          "Agent",
+          "Started",
+          "Duration",
+          "Disposition",
+        ],
+        ...data.items.map((x: any) => [
+          x.externalId,
+          x.callerNumber,
+          x.patient?.name || x.lead?.name || "",
+          x.direction,
+          x.status,
+          x.agentName || "",
+          when(x.startedAt),
+          x.durationSeconds ?? "",
+          x.disposition || "",
+        ]),
+      ],
+      csv = rows
+        .map((r: any[]) =>
+          r.map((v) => '"' + String(v).replaceAll('"', '""') + '"').join(",")
+        )
+        .join("\n"),
+      link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    link.download = "telecmi-calls-" + start + "-to-" + end + ".csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  const openRecording = async (url: string) => {
+    if (/^https?:\/\//.test(url)) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const response = await api.get(url, { responseType: "blob" }),
+      objectUrl = URL.createObjectURL(response.data);
+    window.open(objectUrl, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+  };
+  const cards = [
+    [a.totalCalls || 0, "Total calls", PhoneCall],
+    [a.answered || 0, "Answered", PhoneIncoming],
+    [a.missed || 0, "Missed", PhoneMissed],
+    [a.received || 0, "Received", PhoneIncoming],
+    [a.outgoing || 0, "Outgoing", PhoneOutgoing],
+    [duration(a.totalDurationSeconds), "Total call time", Clock3],
+    [duration(a.averageDurationSeconds), "Average call time", Clock3],
+  ];
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <span>IVR &amp; CALL CENTRE</span>
+          <h1>{staffPortal ? "My TeleCMI Calls" : "TeleCMI Call Dashboard"}</h1>
+          <p>
+            {staffPortal
+              ? "Inbound calls, outbound calls and dialer for your assigned TeleCMI user."
+              : profile?.agentName
+              ? "Showing only " +
+                profile.agentName +
+                (profile.extension ? " (Ext. " + profile.extension + ")" : "") +
+                "."
+              : "Clinic-wide call analytics, productivity and detailed call history."}
+          </p>
+        </div>
+        <button className="btn" onClick={exportCsv}>
+          <Download />
+          Export CSV
+        </button>
+      </div>
+      <section className="panel call-filter-panel">
+        <div className="call-filter-top">
+          <div className="call-presets">
+            {["TODAY", "YESTERDAY", "WEEK", "MONTH"].map((x) => (
+              <button
+                key={x}
+                className={preset === x ? "active" : ""}
+                onClick={() => choose(x)}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
+          <label>
+            From
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => {
+                setPreset("CUSTOM");
+                setStart(e.target.value);
+              }}
+            />
+          </label>
+          <label>
+            To
+            <input
+              type="date"
+              value={end}
+              min={start}
+              onChange={(e) => {
+                setPreset("CUSTOM");
+                setEnd(e.target.value);
+              }}
+            />
+          </label>
+          <span>{a.answerRate || 0}% answer rate</span>
+        </div>
+        <div className="call-filter-bottom">
+          <label className="search">
+            <Search />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search phone, agent or call ID..."
+            />
+          </label>
+          {profile?.isAdmin && (
+            <select
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+            >
+              <option value="">All TeleCMI users</option>
+              {(agentData?.items || []).map((x: any) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                  {x.extension ? " · Ext. " + x.extension : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          <select
+            value={direction}
+            onChange={(e) => setDirection(e.target.value)}
+          >
+            <option value="">All directions</option>
+            <option value="INBOUND">Inbound</option>
+            <option value="OUTBOUND">Outbound</option>
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {[
+              "ANSWERED",
+              "COMPLETED",
+              "MISSED",
+              "ABANDONED",
+              "FAILED",
+              "RINGING",
+              "UNKNOWN",
+            ].map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+      {!staffPortal && (
+        <>
+          <section className="call-metrics">
+            {cards.map(([value, label, Icon]: any) => (
+              <article key={label}>
+                <Icon />
+                <div>
+                  <b>{value}</b>
+                  <small>{label}</small>
+                </div>
+              </article>
+            ))}
+          </section>
+          <section className="call-analytics-grid">
+            <article className="panel">
+              <div className="panel-head">
+                <h3>Calls by hour</h3>
+                <span>Answered and missed</span>
+              </div>
+              <div className="call-hour-chart">
+                {hours.map((x) => (
+                  <div
+                    key={x.hour}
+                    title={x.hour + ":00 · " + x.total + " calls"}
+                  >
+                    <i
+                      style={{
+                        height:
+                          Math.max(x.total ? 8 : 1, (x.total / maxHour) * 100) +
+                          "%",
+                      }}
+                    />
+                    <small>{x.hour}</small>
+                  </div>
+                ))}
+              </div>
+            </article>
+            <article className="panel call-breakdown">
+              <h3>Call breakdown</h3>
+              <div>
+                <span>
+                  Incoming answered<b>{a.incomingAnswered || 0}</b>
+                </span>
+                <span>
+                  Incoming missed<b>{a.incomingMissed || 0}</b>
+                </span>
+                <span>
+                  Outgoing answered<b>{a.outgoingAnswered || 0}</b>
+                </span>
+                <span>
+                  Outgoing missed<b>{a.outgoingMissed || 0}</b>
+                </span>
+              </div>
+            </article>
+          </section>
+          {profile?.isAdmin && (
+            <section className="panel table-panel call-productivity">
+              <div className="panel-head">
+                <h3>Agent productivity</h3>
+                <span>{a.byAgent?.length || 0} agents</span>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Agent</th>
+                      <th>Total</th>
+                      <th>Inbound Answered</th>
+                      <th>Inbound Missed</th>
+                      <th>Outbound Answered</th>
+                      <th>Outbound Missed</th>
+                      <th>Talk Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(a.byAgent || []).map((x: any) => (
+                      <tr key={x.id}>
+                        <td>
+                          <b>{x.name}</b>
+                          <small className="cell-sub">{x.id}</small>
+                        </td>
+                        <td>{x.total}</td>
+                        <td>{x.inboundAnswered}</td>
+                        <td>{x.inboundMissed}</td>
+                        <td>{x.outboundAnswered}</td>
+                        <td>{x.outboundMissed}</td>
+                        <td>{duration(x.durationSeconds)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
+      {staffPortal && sessionUser.roleCodes?.includes("CALL_CENTRE") && (
+        <TelecmiSoftphone />
+      )}
+      {profile?.canCall && !staffPortal && (
+        <section className="panel call-dialer">
+          <form
+            className="toolbar call-toolbar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              call.mutate();
+            }}
+          >
+            <label className="search">
+              <PhoneCall />
+              <input
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                placeholder="Enter phone number to call"
+                required
+                minLength={7}
+              />
+            </label>
+            <button className="btn" disabled={call.isPending}>
+              {call.isPending ? "Connecting…" : "Call as " + profile.agentName}
+            </button>
+          </form>
+          {call.isSuccess && (
+            <div className="alert success">
+              TeleCMI is calling your registered mobile. Answer it to connect
+              the customer.
+            </div>
+          )}
+          {call.error && (
+            <div className="alert error">
+              {(call.error as any).response?.data?.message ||
+                "Unable to start call"}
+            </div>
+          )}
+        </section>
+      )}
+      <section className="panel table-panel">
+        <div className="toolbar call-toolbar">
+          <label className="search">
+            <Search />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search phone, agent or call ID..."
+            />
+          </label>
+          <select
+            value={direction}
+            onChange={(e) => setDirection(e.target.value)}
+          >
+            <option value="">All directions</option>
+            <option value="INBOUND">Inbound</option>
+            <option value="OUTBOUND">Outbound</option>
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {[
+              "RINGING",
+              "ANSWERED",
+              "COMPLETED",
+              "MISSED",
+              "ABANDONED",
+              "FAILED",
+              "UNKNOWN",
+            ].map((v) => (
+              <option key={v}>{v}</option>
+            ))}
+          </select>
+        </div>
+        {isLoading ? (
+          <div className="state">Loading TeleCMI calls…</div>
+        ) : error ? (
+          <div className="state error">
+            {(error as any).response?.data?.message ||
+              "Unable to load TeleCMI call logs."}
+          </div>
+        ) : data.items.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Caller</th>
+                  <th>Matched contact</th>
+                  <th>Direction</th>
+                  <th>Status</th>
+                  <th>Agent</th>
+                  <th>Started</th>
+                  <th>Duration</th>
+                  <th>Recording</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((x: any) => (
+                  <tr key={x.id}>
+                    <td>
+                      <b>{x.callerNumber}</b>
+                      <small className="cell-sub">{x.externalId}</small>
+                    </td>
+                    <td>
+                      {x.patient?.name || x.lead?.name || "Unmatched"}
+                      <small className="cell-sub">
+                        {x.patient?.patientNumber || x.lead?.leadNumber}
+                      </small>
+                    </td>
+                    <td>{x.direction}</td>
+                    <td>
+                      <span className={"call-badge " + x.status.toLowerCase()}>
+                        {x.status}
+                      </span>
+                    </td>
+                    <td>{x.agentName || "—"}</td>
+                    <td>{when(x.startedAt || x.createdAt)}</td>
+                    <td>{duration(x.durationSeconds)}</td>
+                    <td>
+                      {x.recordingUrl ? (
+                        <button
+                          type="button"
+                          className="recording-link"
+                          onClick={() => openRecording(x.recordingUrl)}
+                        >
+                          <ExternalLink size={15} />
+                          Open
+                        </button>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty">
+            <PhoneCall />
+            <h3>No TeleCMI calls in this period</h3>
+            <p>Select another date range to view call activity.</p>
+          </div>
+        )}
+        <div className="call-total">
+          {data.total} call{data.total === 1 ? "" : "s"}
+        </div>
+      </section>
+    </>
+  );
 }
