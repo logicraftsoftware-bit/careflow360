@@ -68,7 +68,6 @@ const masters = [
 ] as const;
 const admin = [
   ["Dashboard", "", LayoutDashboard],
-  ["Registrations", "registrations", ClipboardList],
   ["Tenants / Clinics", "tenants", Building2],
   ["Plans", "plans", WalletCards],
   ["Features & Limits", "features-limits", Settings],

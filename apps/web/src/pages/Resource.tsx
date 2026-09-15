@@ -106,11 +106,9 @@ const configs: Record<string, Config> = {
   },
   tenants: {
     title: "Tenants / Clinics",
-    description: "Manage every clinic account and platform access.",
+    description: "Create, edit, approve and manage every clinic account.",
     fields: [],
     columns: ["name", "ownerName", "email", "mobile", "status", "createdAt"],
-    readOnly: true,
-    noCreate: true,
   },
   plans: {
     title: "Subscription Plans",
@@ -1465,7 +1463,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             <button
               className="btn"
               onClick={() =>
-                slug === "appointments"
+                mode === "admin" && slug === "tenants"
+                  ? navigate("/admin/tenants/new")
+                  : slug === "appointments"
                   ? navigate("/app/appointments/new")
                   : ["lab-appointments", "radiology-appointments"].includes(slug)
                     ? navigate(`/app/${slug}/new`)
@@ -1716,7 +1716,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           {!c.readOnly && (
                             <button
                               onClick={() =>
-                                ["appointments", "lab-appointments", "radiology-appointments"].includes(slug)
+                                mode === "admin" && slug === "tenants"
+                                  ? navigate(`/admin/tenants/${r.id}/edit`)
+                                  : ["appointments", "lab-appointments", "radiology-appointments"].includes(slug)
                                   ? navigate(`/app/${slug}/${r.id}/edit`)
                                   : setEdit(r)
                               }
@@ -1751,7 +1753,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                                 </button>
                               </>
                             )}
-                          {!c.readOnly && slug !== "doctor-schedules" && (
+                          {!c.readOnly &&
+                            slug !== "doctor-schedules" &&
+                            !(mode === "admin" && slug === "tenants") && (
                             <button
                               className="danger"
                               onClick={() =>

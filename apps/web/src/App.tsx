@@ -19,6 +19,7 @@ import { RolePermissionEditorPage, RolesPermissionsPage } from "./pages/RolesPer
 import { StaffPage } from "./pages/Staff";
 import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
 import { LabCollectionPage } from "./pages/LabCollection";
+import { TenantEditorPage } from "./pages/TenantEditor";
 const menus = [
   "leads",
   "interested-leads",
@@ -48,7 +49,6 @@ const menus = [
   "audit-logs",
 ];
 const admin = [
-  "registrations",
   "tenants",
   "plans",
   "features-limits",
@@ -127,6 +127,9 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard mode="admin" />} />
+        <Route path="registrations" element={<Navigate to="/admin/tenants" replace />} />
+        <Route path="tenants/new" element={<TenantEditorPage />} />
+        <Route path="tenants/:id/edit" element={<TenantEditorPage />} />
         <Route path="integrations" element={<AiSensyIntegrationsPage />} />
         <Route path="razorpay" element={<RazorpayIntegrationsPage />} />
         <Route path="exotel" element={<ExotelIntegrationsPage />} />
