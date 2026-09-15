@@ -8,12 +8,24 @@ export const telecmiRouter = Router();
 const digits=(value:unknown)=>{const found=String(value??"").replace(/\D/g,"");return found.length>10?found.slice(-10):found};
 const asDate=(value:unknown)=>{if(value===undefined||value===null||value==="")return undefined;const numeric=Number(value),parsed=Number.isFinite(numeric)?new Date(numeric):new Date(String(value));return Number.isNaN(parsed.getTime())?undefined:parsed};
 const endpoint=(base:string,path:string)=>`${base.replace(/\/$/,"")}/${path}`;
+const userTokenCache=new Map<string,{token:string;expiresAt:number}>();
 
 async function telecmiPost(integration:any,path:string,body:Record<string,unknown>={}){
   const response=await fetch(endpoint(integration.apiUrl,path),{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({appid:Number(integration.appId)||integration.appId,secret:decryptIntegrationSecret(integration.appSecretEncrypted),...body}),signal:AbortSignal.timeout(20000)});
   const result:any=await response.json().catch(()=>({}));
   if(!response.ok||result.code&&Number(result.code)!==200)throw new AppError(502,result.msg||result.message||`TeleCMI ${path} request failed`,`TELECMI_${path.toUpperCase()}_FAILED`);
   return result;
+}
+
+async function telecmiUserToken(integration:any,agentId:string){
+  const cached=userTokenCache.get(agentId);if(cached&&cached.expiresAt>Date.now())return cached.token;
+  const info=await telecmiPost(integration,'user/get',{id:agentId}),agent=info.agent||info.data?.agent;
+  if(!agent?.password)throw new AppError(502,'TeleCMI did not provide login credentials for the assigned user','TELECMI_USER_LOGIN_UNAVAILABLE');
+  const response=await fetch(endpoint(integration.apiUrl,'user/login'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({id:agentId,password:String(agent.password)}),signal:AbortSignal.timeout(20000)});
+  const result:any=await response.json().catch(()=>({}));
+  if(!response.ok||Number(result.code)!==200||!result.token)throw new AppError(502,result.msg||result.message||'Unable to authenticate the TeleCMI user','TELECMI_USER_LOGIN_FAILED');
+  userTokenCache.set(agentId,{token:String(result.token),expiresAt:Date.now()+29*24*60*60*1000});
+  return String(result.token);
 }
 
 export async function listTelecmiUsers(tenant:string){
@@ -97,10 +109,11 @@ telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
   if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
   let digitsTo=body.to.replace(/\D/g,'');if(digitsTo.length===10)digitsTo=`91${digitsTo}`;
   if(digitsTo.length<10||digitsTo.length>15)throw new AppError(400,'Enter a valid phone number with country code','INVALID_PHONE');
-  const callerDigits=integration.businessNumber.replace(/\D/g,''),payload:any={user_id:String(user.telecmiAgentId),secret:decryptIntegrationSecret(integration.appSecretEncrypted),to:Number(digitsTo),webrtc:true,followme:false,extra_params:{crm:true,crm_staff_id:user.id}};
+  let token=await telecmiUserToken(integration,String(user.telecmiAgentId));const callerDigits=integration.businessNumber.replace(/\D/g,''),payload:any={token,to:Number(digitsTo),extra_params:{crm:'true',crm_staff_id:user.id}};
   if(callerDigits)payload.callerid=Number(callerDigits);
-  const response=await fetch(endpoint(integration.apiUrl,'webrtc/click2call'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(20000)});
-  const result:any=await response.json().catch(()=>({}));
+  const send=async()=>{const response=await fetch(endpoint(integration.apiUrl,'click2call'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(20000)});return {response,result:await response.json().catch(()=>({})) as any}};
+  let {response,result}=await send();
+  if(Number(result.code)===404&&/token|authenticate/i.test(String(result.msg||result.message||''))){userTokenCache.delete(String(user.telecmiAgentId));token=await telecmiUserToken(integration,String(user.telecmiAgentId));payload.token=token;({response,result}=await send())}
   if(!response.ok||result.code&&Number(result.code)!==200)throw new AppError(502,result.msg||result.message||'Unable to start TeleCMI call','TELECMI_CALL_FAILED');
   await audit(req,'telecmi.call.started','CallRecord',undefined,{agentId:user.telecmiAgentId,to:digitsTo,requestId:result.request_id});
   return ok(res,result,'TeleCMI call started');
