@@ -106,6 +106,17 @@ telecmiRouter.get('/webhook',receiveTelecmiWebhook);
 telecmiRouter.post('/sync',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),body=z.object({startDate:z.coerce.date(),endDate:z.coerce.date()}).parse(req.body);const result=await syncTelecmiCalls(tid,body.startDate,body.endDate);await audit(req,'telecmi.calls.synced','CallRecord',undefined,result);return ok(res,result,'TeleCMI calls synchronized')}));
 telecmiRouter.get('/users',auth,asyncRoute(async(req,res)=>ok(res,{items:await listTelecmiUsers(tenantId(req))})));
 telecmiRouter.get('/me',auth,asyncRoute(async(req,res)=>{const {user,isAdmin}=await currentTelecmiUser(req);return ok(res,{agentId:user.telecmiAgentId,agentName:user.telecmiAgentName,extension:user.telecmiExtension,isAdmin,canCall:Boolean(user.telecmiAgentId)})}));
+telecmiRouter.get('/softphone-credentials',auth,asyncRoute(async(req,res)=>{
+  const tid=tenantId(req),{user}=await currentTelecmiUser(req);
+  if(!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
+  const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tid}});
+  if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
+  const result=await telecmiPost(integration,'user/get',{id:user.telecmiAgentId}),agent=result.agent||result.data?.agent||result.data;
+  if(!agent?.password)throw new AppError(502,'TeleCMI did not return the assigned user softphone password','TELECMI_SOFTPHONE_CREDENTIALS_UNAVAILABLE');
+  res.setHeader('Cache-Control','no-store, private');res.setHeader('Pragma','no-cache');
+  await audit(req,'telecmi.softphone.credentials.issued','User',user.id,{agentId:user.telecmiAgentId});
+  return ok(res,{userId:String(user.telecmiAgentId),password:String(agent.password),sbcUri:'sbcind.telecmi.com',displayName:user.telecmiAgentName||user.name});
+}));
 telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
   const tid=tenantId(req),{user}=await currentTelecmiUser(req),body=z.object({to:z.string().trim().min(7).max(20)}).parse(req.body);
   if(!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
