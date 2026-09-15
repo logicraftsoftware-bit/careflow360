@@ -178,3 +178,19 @@ adminRouter.put('/tenants/:id/exotel',asyncRoute(async(req,res)=>{
   await audit(req,'tenant.exotel.updated','Tenant',tenant.id,{clinicName:tenant.name,accountSid:row.accountSid,exophone:row.exophone,region:row.region,isActive:row.isActive,apiKeyChanged:Boolean(body.apiKey),apiTokenChanged:Boolean(body.apiToken)});
   return ok(res,{hasApiKey:true,hasApiToken:true,updatedAt:row.updatedAt},'Exotel integration saved');
 }));
+
+adminRouter.get('/telecmi-integrations',asyncRoute(async(_req,res)=>{
+  const tenants=await prisma.tenant.findMany({where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},select:{id:true,name:true,email:true,status:true,telecmiIntegration:true},orderBy:{name:'asc'}});
+  return ok(res,tenants.map(({telecmiIntegration:stored,...tenant})=>({...tenant,integration:stored?{appId:stored.appId,businessNumber:stored.businessNumber,apiUrl:stored.apiUrl,webhookUrl:stored.webhookUrl||'',hasAppSecret:Boolean(stored.appSecretEncrypted),isTestMode:stored.isTestMode,isActive:stored.isActive,updatedAt:stored.updatedAt}:null})));
+}));
+
+adminRouter.put('/tenants/:id/telecmi',asyncRoute(async(req,res)=>{
+  const body=z.object({appId:z.string().trim().min(2).max(200),appSecret:z.string().trim().max(1000).optional().default(''),businessNumber:z.string().trim().min(5).max(30),apiUrl:z.string().url(),webhookUrl:z.union([z.string().url(),z.literal('')]).optional().default(''),isTestMode:z.boolean().default(false),isActive:z.boolean().default(true)}).parse(req.body);
+  const [tenant,existing]=await Promise.all([prisma.tenant.findFirst({where:{id:req.params.id,OR:[{deletedAt:null},{deletedAt:{isSet:false}}]}}),prisma.telecmiIntegration.findUnique({where:{tenantId:req.params.id}})]);
+  if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
+  if(!existing&&!body.appSecret)throw new AppError(400,'TeleCMI App Secret is required','APP_SECRET_REQUIRED');
+  const data={appId:body.appId,businessNumber:body.businessNumber,apiUrl:body.apiUrl,webhookUrl:body.webhookUrl||null,isTestMode:body.isTestMode,isActive:body.isActive,...(body.appSecret?{appSecretEncrypted:encryptIntegrationSecret(body.appSecret)}:{})};
+  const row=await prisma.telecmiIntegration.upsert({where:{tenantId:tenant.id},create:{tenantId:tenant.id,...data,appSecretEncrypted:encryptIntegrationSecret(body.appSecret)},update:data});
+  await audit(req,'tenant.telecmi.updated','Tenant',tenant.id,{clinicName:tenant.name,appId:row.appId,businessNumber:row.businessNumber,apiUrl:row.apiUrl,webhookConfigured:Boolean(row.webhookUrl),isTestMode:row.isTestMode,isActive:row.isActive,appSecretChanged:Boolean(body.appSecret)});
+  return ok(res,{hasAppSecret:true,updatedAt:row.updatedAt},'TeleCMI integration saved');
+}));

@@ -81,6 +81,7 @@ const admin = [
   ["AiSensy", "integrations", MessageCircle],
   ["Razorpay", "razorpay", WalletCards],
   ["Exotel", "exotel", PhoneCall],
+  ["TeleCMI", "telecmi", PhoneCall],
   ["Audit Logs", "audit-logs", FileText],
   ["Platform Settings", "settings", Settings],
 ] as const;
