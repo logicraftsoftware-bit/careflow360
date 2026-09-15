@@ -2,6 +2,7 @@ import { Router } from 'express'; import { z } from 'zod'; import { asyncRoute, 
 import { encryptIntegrationSecret } from '../aisensy.js';
 import { config } from '../config.js';
 import argon2 from 'argon2';
+import { syncTelecmiCalls, telecmiAccountReport } from './telecmi.js';
 export const adminRouter=Router(); adminRouter.use(auth,platformOnly);
 adminRouter.get('/dashboard',asyncRoute(async(_req,res)=>{const [total,active,pending,suspended,leads,appointments]=await Promise.all([prisma.tenant.count(),prisma.tenant.count({where:{status:'ACTIVE'}}),prisma.tenant.count({where:{status:'PENDING_APPROVAL'}}),prisma.tenant.count({where:{status:'SUSPENDED'}}),prisma.lead.count(),prisma.appointment.count()]);return ok(res,{totalTenants:total,activeTenants:active,pendingApprovals:pending,suspendedTenants:suspended,totalLeads:leads,totalAppointments:appointments})}));
 adminRouter.get('/subscriptions',asyncRoute(async(_req,res)=>{
@@ -166,6 +167,16 @@ adminRouter.get('/telecmi-integrations',asyncRoute(async(_req,res)=>{
   const tenants=await prisma.tenant.findMany({where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},select:{id:true,name:true,email:true,status:true,telecmiIntegration:true},orderBy:{name:'asc'}});
   return ok(res,tenants.map(({telecmiIntegration:stored,...tenant})=>({...tenant,integration:stored?{appId:stored.appId,businessNumber:stored.businessNumber,apiUrl:stored.apiUrl,webhookUrl:stored.webhookUrl||'',hasAppSecret:Boolean(stored.appSecretEncrypted),isTestMode:stored.isTestMode,isActive:stored.isActive,updatedAt:stored.updatedAt}:null})));
 }));
+
+adminRouter.get('/telecmi-report',asyncRoute(async(req,res)=>{
+  const query=z.object({from:z.coerce.date().optional(),to:z.coerce.date().optional()}).parse(req.query),from=query.from||new Date(Date.now()-30*86400000),to=query.to||new Date();
+  const [calls,integrations]=await Promise.all([prisma.callRecord.findMany({where:{provider:'TELECMI',startedAt:{gte:from,lte:to}},include:{tenant:{select:{id:true,name:true}},lead:{select:{name:true,leadNumber:true}},patient:{select:{name:true,patientNumber:true}}},orderBy:{startedAt:'desc'},take:1000}),prisma.telecmiIntegration.findMany({include:{tenant:{select:{id:true,name:true}}}})]);
+  const summary=integrations.map(integration=>{const rows=calls.filter(call=>call.tenantId===integration.tenantId);return {tenantId:integration.tenantId,clinic:integration.tenant.name,configured:true,active:integration.isActive,total:rows.length,answered:rows.filter(call=>['ANSWERED','COMPLETED'].includes(call.status)).length,missed:rows.filter(call=>call.status==='MISSED').length,inbound:rows.filter(call=>call.direction==='INBOUND').length,outbound:rows.filter(call=>call.direction==='OUTBOUND').length,totalDurationSeconds:rows.reduce((sum,call)=>sum+(call.durationSeconds||0),0)}});
+  return ok(res,{from,to,summary,calls});
+}));
+
+adminRouter.post('/tenants/:id/telecmi/sync',asyncRoute(async(req,res)=>{const body=z.object({startDate:z.coerce.date(),endDate:z.coerce.date()}).parse(req.body),result=await syncTelecmiCalls(req.params.id,body.startDate,body.endDate);await audit(req,'tenant.telecmi.calls.synced','Tenant',req.params.id,result);return ok(res,result,'TeleCMI reports synchronized')}));
+adminRouter.get('/tenants/:id/telecmi/account-report',asyncRoute(async(req,res)=>{const query=z.object({from:z.coerce.date(),to:z.coerce.date()}).parse(req.query);return ok(res,await telecmiAccountReport(req.params.id,query.from,query.to))}));
 
 adminRouter.put('/tenants/:id/telecmi',asyncRoute(async(req,res)=>{
   const body=z.object({appId:z.string().trim().min(2).max(200),appSecret:z.string().trim().max(1000).optional().default(''),businessNumber:z.string().trim().min(5).max(30),apiUrl:z.string().url(),webhookUrl:z.union([z.string().url(),z.literal('')]).optional().default(''),isTestMode:z.boolean().default(false),isActive:z.boolean().default(true)}).parse(req.body);

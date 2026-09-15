@@ -166,7 +166,7 @@ model TelecmiIntegration {
   appId              String
   appSecretEncrypted String
   businessNumber     String
-  apiUrl              String   @default("https://piopiy.telecmi.com/v1")
+  apiUrl              String   @default("https://rest.telecmi.com/v2")
   webhookUrl          String?
   isTestMode          Boolean  @default(false)
   isActive            Boolean  @default(true)
@@ -604,7 +604,7 @@ model CallRecord {
   id             String        @id @default(auto()) @map("_id") @db.ObjectId
   tenantId       String        @db.ObjectId
   tenant         Tenant        @relation(fields: [tenantId], references: [id])
-  provider       String        @default("KNOWLARITY")
+  provider       String        @default("TELECMI")
   externalId     String
   direction      CallDirection @default(INBOUND)
   status         CallStatus    @default(UNKNOWN)
