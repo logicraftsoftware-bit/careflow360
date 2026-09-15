@@ -31,9 +31,13 @@ export function TenantEditorPage() {
     }));
   }, [tenant]);
   const save = useMutation({
-    mutationFn: () => editing
-      ? api.patch(`/super-admin/tenants/${id}`, form)
-      : api.post("/super-admin/tenants", form),
+    mutationFn: () => {
+      const body = { ...form };
+      if (!body.password) delete body.password;
+      return editing
+        ? api.patch(`/super-admin/tenants/${id}`, body)
+        : api.post("/super-admin/tenants", body);
+    },
     onSuccess: () => navigate("/admin/tenants"),
   });
   const field = (name: string) => ({

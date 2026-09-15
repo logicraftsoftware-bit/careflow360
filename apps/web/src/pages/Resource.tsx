@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import Swal from "sweetalert2";
 type Mode = "tenant" | "admin";
 type Field = {
   name: string;
@@ -1222,8 +1223,50 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         status: string;
         reason?: string;
       }) => api.patch(`/super-admin/tenants/${id}/status`, { status, reason }),
-      onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }),
+      onSuccess: async (_response, variables) => {
+        await qc.invalidateQueries({ queryKey: [endpoint] });
+        await Swal.fire({
+          icon: "success",
+          title: variables.status === "ACTIVE" ? "Clinic activated" : "Clinic suspended",
+          text: "The clinic status was updated successfully.",
+          confirmButtonColor: "#2563eb",
+        });
+      },
+      onError: (tenantError: any) =>
+        Swal.fire({
+          icon: "error",
+          title: "Unable to update clinic",
+          text: tenantError.response?.data?.message || "Please try again.",
+          confirmButtonColor: "#2563eb",
+        }),
     });
+  const updateTenantStatus = async (row: any, status: "ACTIVE" | "SUSPENDED") => {
+    const activating = status === "ACTIVE";
+    const confirmation = await Swal.fire({
+      icon: "warning",
+      title: "Are you sure?",
+      text: activating
+        ? `Activate ${row.name}?`
+        : `Suspend ${row.name}? Clinic users will lose access.`,
+      showCancelButton: true,
+      confirmButtonText: activating ? "Yes, activate" : "Yes, suspend",
+      confirmButtonColor: activating ? "#16a34a" : "#dc2626",
+    });
+    if (!confirmation.isConfirmed) return;
+    let reason: string | undefined;
+    if (!activating) {
+      const reasonPrompt = await Swal.fire({
+        title: "Suspension reason",
+        input: "textarea",
+        inputPlaceholder: "Enter the reason (optional)",
+        showCancelButton: true,
+        confirmButtonText: "Continue",
+      });
+      if (!reasonPrompt.isConfirmed) return;
+      reason = reasonPrompt.value?.trim() || undefined;
+    }
+    tenant.mutate({ id: row.id, status, reason });
+  };
   const leadStatuses = [
     "NEW",
     "CONTACTED",
@@ -1663,7 +1706,14 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 </thead>
                 <tbody>
                   {rows.map((r: any) => (
-                    <tr key={r.id}>
+                    <tr
+                      key={r.id}
+                      className={
+                        mode === "admin" && slug === "tenants" && r.status === "SUSPENDED"
+                          ? "suspended-tenant-row"
+                          : ""
+                      }
+                    >
                       {tableColumns.map((k) => (
                         <td key={k}>
                           <span className={k === "status" ? "status-pill" : ""}>
@@ -1731,23 +1781,14 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                               <>
                                 <button
                                   className="approve"
-                                  onClick={() =>
-                                    tenant.mutate({
-                                      id: r.id,
-                                      status: "ACTIVE",
-                                    })
-                                  }
+                                  disabled={tenant.isPending || r.status === "ACTIVE"}
+                                  onClick={() => updateTenantStatus(r, "ACTIVE")}
                                 >
-                                  Approve
+                                  Active
                                 </button>
                                 <button
-                                  onClick={() =>
-                                    tenant.mutate({
-                                      id: r.id,
-                                      status: "SUSPENDED",
-                                      reason: prompt("Reason") || undefined,
-                                    })
-                                  }
+                                  disabled={tenant.isPending || r.status === "SUSPENDED"}
+                                  onClick={() => updateTenantStatus(r, "SUSPENDED")}
                                 >
                                   Suspend
                                 </button>
