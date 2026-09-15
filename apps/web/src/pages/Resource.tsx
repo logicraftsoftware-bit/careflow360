@@ -998,7 +998,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [doctorFilter, setDoctorFilter] = useState("ALL"),
     [departmentFilter, setDepartmentFilter] = useState("ALL"),
     [appointmentPeriod, setAppointmentPeriod] = useState("ALL"),
-    [appointmentDate, setAppointmentDate] = useState(""),
+    [appointmentDateFrom, setAppointmentDateFrom] = useState(""),
+    [appointmentDateTo, setAppointmentDateTo] = useState(""),
     [paymentFilter, setPaymentFilter] = useState("ALL"),
     [page, setPage] = useState(1);
   const base =
@@ -1114,7 +1115,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         (appointmentPeriod === "PAST" && dateKey < todayKey) ||
         (appointmentPeriod === "TODAY" && dateKey === todayKey) ||
         (appointmentPeriod === "UPCOMING" && dateKey > todayKey);
-      return periodMatches && (!appointmentDate || dateKey === appointmentDate);
+      return (
+        periodMatches &&
+        (!appointmentDateFrom || dateKey >= appointmentDateFrom) &&
+        (!appointmentDateTo || dateKey <= appointmentDateTo)
+      );
     };
     const actionMatches = (status: string) =>
       actionFilter === "ALL" ||
@@ -1170,7 +1175,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     doctorFilter,
     departmentFilter,
     appointmentPeriod,
-    appointmentDate,
+    appointmentDateFrom,
+    appointmentDateTo,
     paymentFilter,
     slug,
   ]);
@@ -1472,7 +1478,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         )}
       </div>
       <section className="panel table-panel">
-        <div className="toolbar">
+        <div className={`toolbar ${slug === "appointments" ? "appointment-toolbar" : ""}`}>
           <div className="search">
             <Search />
             <input
@@ -1583,25 +1589,10 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             </div>
           )}
           {slug === "appointments" && (
-            <div className="filter-select appointment-date-filter">
-              <input
-                type="date"
-                value={appointmentDate}
-                aria-label="Filter appointments by date"
-                onChange={(event) => {
-                  setAppointmentDate(event.target.value);
-                  setPage(1);
-                }}
-              />
-              {appointmentDate && (
-                <button
-                  type="button"
-                  aria-label="Clear appointment date"
-                  onClick={() => setAppointmentDate("")}
-                >
-                  <X />
-                </button>
-              )}
+            <div className="appointment-date-range">
+              <label><span>From</span><input type="date" value={appointmentDateFrom} max={appointmentDateTo || undefined} onChange={(event) => { setAppointmentDateFrom(event.target.value); setPage(1); }} /></label>
+              <label><span>To</span><input type="date" value={appointmentDateTo} min={appointmentDateFrom || undefined} onChange={(event) => { setAppointmentDateTo(event.target.value); setPage(1); }} /></label>
+              {(appointmentDateFrom || appointmentDateTo) && <button type="button" aria-label="Clear appointment date range" onClick={() => { setAppointmentDateFrom(""); setAppointmentDateTo(""); setPage(1); }}><X /></button>}
             </div>
           )}
           {slug === "appointments" && (
