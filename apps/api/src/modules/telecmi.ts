@@ -16,6 +16,22 @@ async function telecmiPost(integration:any,path:string,body:Record<string,unknow
   return result;
 }
 
+export async function listTelecmiUsers(tenant:string){
+  const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tenant}});
+  if(!integration?.isActive)throw new AppError(503,"TeleCMI is not configured or active for this clinic","INTEGRATION_NOT_CONFIGURED");
+  const result=await telecmiPost(integration,'user/all');
+  return (Array.isArray(result.agents)?result.agents:[]).map((agent:any)=>({
+    id:String(agent.agent_id),name:String(agent.name||agent.agent_id),extension:agent.extension===undefined?null:Number(agent.extension),phone:agent.phone?String(agent.phone):null,notify:Boolean(agent.notify),startTime:agent.start_time||null,endTime:agent.end_time||null
+  }));
+}
+
+const adminRoleCodes=new Set(['SUPER_ADMIN','CLINIC_ADMIN','CLINIC_MANAGER','BRANCH_ADMIN','MANAGER']);
+async function currentTelecmiUser(req:any){
+  const user=await prisma.user.findUnique({where:{id:req.user!.id},include:{roles:{include:{role:true}}}});
+  if(!user)throw new AppError(401,'User account not found','UNAUTHENTICATED');
+  return {user,isAdmin:user.roles.some((entry:any)=>adminRoleCodes.has(entry.role.code))};
+}
+
 async function matchContact(tenantId:string,number:string){
   const patient=await prisma.patient.findFirst({where:{tenantId,mobile:{endsWith:number}}});
   const lead=patient?.leadId?await prisma.lead.findUnique({where:{id:patient.leadId}}):await prisma.lead.findFirst({where:{tenantId,mobile:{endsWith:number}}});
@@ -66,4 +82,18 @@ telecmiRouter.post('/webhook',asyncRoute(async(req,res)=>{
 }));
 
 telecmiRouter.post('/sync',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),body=z.object({startDate:z.coerce.date(),endDate:z.coerce.date()}).parse(req.body);const result=await syncTelecmiCalls(tid,body.startDate,body.endDate);await audit(req,'telecmi.calls.synced','CallRecord',undefined,result);return ok(res,result,'TeleCMI calls synchronized')}));
-telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),query=z.object({status:z.string().optional(),direction:z.string().optional(),search:z.string().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query),where:any={tenantId:tid,provider:'TELECMI'};if(query.status)where.status=query.status;if(query.direction)where.direction=query.direction;if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];const[items,total]=await Promise.all([prisma.callRecord.findMany({where,include:{lead:{select:{id:true,name:true,leadNumber:true}},patient:{select:{id:true,name:true,patientNumber:true}}},orderBy:{createdAt:'desc'},skip:(query.page-1)*query.limit,take:query.limit}),prisma.callRecord.count({where})]);return ok(res,{items,total,page:query.page,limit:query.limit})}));
+telecmiRouter.get('/users',auth,asyncRoute(async(req,res)=>ok(res,{items:await listTelecmiUsers(tenantId(req))})));
+telecmiRouter.get('/me',auth,asyncRoute(async(req,res)=>{const {user,isAdmin}=await currentTelecmiUser(req);return ok(res,{agentId:user.telecmiAgentId,agentName:user.telecmiAgentName,extension:user.telecmiExtension,isAdmin,canCall:Boolean(user.telecmiAgentId)})}));
+telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
+  const tid=tenantId(req),{user}=await currentTelecmiUser(req),body=z.object({to:z.string().trim().min(7).max(20)}).parse(req.body);
+  if(!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
+  const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tid}});
+  if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
+  let to=body.to.replace(/\D/g,'');if(to.length===10)to=`91${to}`;
+  const response=await fetch(endpoint(integration.apiUrl,'webrtc/click2call'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user_id:user.telecmiAgentId,secret:decryptIntegrationSecret(integration.appSecretEncrypted),to,callerid:integration.businessNumber,webrtc:true,followme:false,extra_params:{crm:true,crm_staff_id:user.id}}),signal:AbortSignal.timeout(20000)});
+  const result:any=await response.json().catch(()=>({}));
+  if(!response.ok||result.code&&Number(result.code)!==200)throw new AppError(502,result.msg||result.message||'Unable to start TeleCMI call','TELECMI_CALL_FAILED');
+  await audit(req,'telecmi.call.started','CallRecord',undefined,{agentId:user.telecmiAgentId,to});
+  return ok(res,result,'TeleCMI call started');
+}));
+telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),{user,isAdmin}=await currentTelecmiUser(req);if(!isAdmin&&!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');const query=z.object({status:z.string().optional(),direction:z.string().optional(),search:z.string().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query),where:any={tenantId:tid,provider:'TELECMI',...(!isAdmin?{agentExternalId:user.telecmiAgentId}: {})};if(query.status)where.status=query.status;if(query.direction)where.direction=query.direction;if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];const[items,total]=await Promise.all([prisma.callRecord.findMany({where,include:{lead:{select:{id:true,name:true,leadNumber:true}},patient:{select:{id:true,name:true,patientNumber:true}}},orderBy:{createdAt:'desc'},skip:(query.page-1)*query.limit,take:query.limit}),prisma.callRecord.count({where})]);return ok(res,{items,total,page:query.page,limit:query.limit})}));

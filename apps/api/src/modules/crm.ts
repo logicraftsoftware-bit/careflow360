@@ -26,8 +26,19 @@ import {
   ensureDiagnosticPaymentLink,
   ensureRazorpayPaymentLink,
 } from "../razorpay.js";
+import { listTelecmiUsers } from "./telecmi.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
+const isCallCentreRole = (role: string) => /^CALL_(CENTRE|CENTER)(?:_AGENT)?$/.test(role);
+async function resolveTelecmiAgent(tenant:string,role:string,agentId?:string,currentUserId?:string){
+  if(!isCallCentreRole(role))return {telecmiAgentId:null,telecmiAgentName:null,telecmiExtension:null};
+  if(!agentId)throw new AppError(400,'Select a TeleCMI user for the Call Centre Agent','TELECMI_AGENT_REQUIRED');
+  const agents=await listTelecmiUsers(tenant),agent=agents.find((item:{id:string})=>item.id===agentId);
+  if(!agent)throw new AppError(400,'The selected TeleCMI user is unavailable','INVALID_TELECMI_AGENT');
+  const assigned=await prisma.user.findFirst({where:{tenantId:tenant,telecmiAgentId:agent.id,...(currentUserId?{id:{not:currentUserId}}:{})},select:{name:true}});
+  if(assigned)throw new AppError(409,`This TeleCMI user is already assigned to ${assigned.name}`,'TELECMI_AGENT_ASSIGNED');
+  return {telecmiAgentId:agent.id,telecmiAgentName:agent.name,telecmiExtension:agent.extension};
+}
 const tubeBarcodeValue = (token: string) =>
   (token.replaceAll("-", "").match(/.{1,2}/g) || [])
     .slice(0, 12)
@@ -485,6 +496,9 @@ crmRouter.get(
         status: user.status,
         role: user.roles[0]?.role.code || "STAFF",
         lastLoginAt: user.lastLoginAt,
+        telecmiAgentId: user.telecmiAgentId,
+        telecmiAgentName: user.telecmiAgentName,
+        telecmiExtension: user.telecmiExtension,
         createdAt: user.createdAt,
       })),
       total: users.length,
@@ -503,8 +517,10 @@ crmRouter.post(
           password: z.string().min(8),
           role: z.string().trim().min(2),
           status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
+          telecmiAgentId: z.string().trim().optional(),
         })
         .parse(req.body);
+    const telecmiAgent=await resolveTelecmiAgent(tid,body.role,body.telecmiAgentId);
     const roleRecords = await prisma.moduleRecord.findMany({
         where: { tenantId: tid, module: "roles-permissions" },
       }),
@@ -545,6 +561,7 @@ crmRouter.post(
         mobile: body.mobile || null,
         passwordHash: await argon2.hash(body.password),
         status: body.status,
+        ...telecmiAgent,
         roles: { create: { roleId: role.id } },
       },
     });
@@ -552,6 +569,7 @@ crmRouter.post(
       name: user.name,
       email: user.email,
       role: body.role,
+      telecmiAgentId: telecmiAgent.telecmiAgentId,
     });
     return ok(res, { id: user.id }, "Staff account created", 201);
   })
@@ -568,12 +586,14 @@ crmRouter.patch(
           password: z.string().min(8).optional().or(z.literal("")),
           role: z.string().trim().min(2),
           status: z.enum(["ACTIVE", "INACTIVE"]),
+          telecmiAgentId: z.string().trim().optional(),
         })
         .parse(req.body);
     const found = await prisma.user.findFirst({
       where: { id: req.params.id, tenantId: tid, isPlatform: false },
     });
     if (!found) throw new AppError(404, "Staff account not found", "NOT_FOUND");
+    const telecmiAgent=await resolveTelecmiAgent(tid,body.role,body.telecmiAgentId,found.id);
     const role = await prisma.role.upsert({
       where: { tenantId_code: { tenantId: tid, code: body.role } },
       update: {},
@@ -591,6 +611,7 @@ crmRouter.patch(
           email: body.email.toLowerCase(),
           mobile: body.mobile || null,
           status: body.status,
+          ...telecmiAgent,
           ...(body.password
             ? { passwordHash: await argon2.hash(body.password) }
             : {}),
@@ -604,7 +625,7 @@ crmRouter.patch(
       body.password ? "staff.password_reset" : "staff.updated",
       "Staff",
       found.id,
-      { role: body.role }
+      { role: body.role, telecmiAgentId: telecmiAgent.telecmiAgentId }
     );
     return ok(res, { id: found.id }, "Staff account updated");
   })
