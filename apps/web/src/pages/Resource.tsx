@@ -109,7 +109,7 @@ const configs: Record<string, Config> = {
     title: "Tenants / Clinics",
     description: "Create, edit, approve and manage every clinic account.",
     fields: [],
-    columns: ["name", "ownerName", "email", "mobile", "status", "createdAt"],
+    columns: ["name", "ownerName", "email", "mobile", "planName", "status", "createdAt"],
   },
   plans: {
     title: "Subscription Plans",
@@ -996,6 +996,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [actionFilter, setActionFilter] = useState("ALL"),
     [doctorFilter, setDoctorFilter] = useState("ALL"),
     [departmentFilter, setDepartmentFilter] = useState("ALL"),
+    [planFilter, setPlanFilter] = useState("ALL"),
     [appointmentPeriod, setAppointmentPeriod] = useState("ALL"),
     [appointmentDateFrom, setAppointmentDateFrom] = useState(""),
     [appointmentDateTo, setAppointmentDateTo] = useState(""),
@@ -1099,10 +1100,17 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   };
   const sourceRows = useMemo(
     () =>
-      (Array.isArray(data) ? data : data?.items || []).map((r: any) =>
-        r.data ? { ...r, ...r.data } : r,
-      ),
-    [data],
+      (Array.isArray(data) ? data : data?.items || []).map((r: any) => {
+        const row = r.data ? { ...r, ...r.data } : r;
+        if (slug !== "tenants") return row;
+        const subscription = row.subscriptions?.[0];
+        return {
+          ...row,
+          planId: subscription?.planId || "",
+          planName: subscription?.plan?.name || "No plan",
+        };
+      }),
+    [data, slug],
   );
   const all = useMemo(() => {
     const todayKey = clinicDateKey(new Date());
@@ -1141,6 +1149,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         (doctorFilter === "ALL" || r.doctorId === doctorFilter) &&
         (departmentFilter === "ALL" ||
           r.departmentId === departmentFilter) &&
+        (planFilter === "ALL" || r.planId === planFilter) &&
         appointmentDateMatches(r.startsAt) &&
         (paymentFilter === "ALL" || r.paymentStatus === paymentFilter) &&
         actionMatches(r.status) &&
@@ -1173,6 +1182,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     actionFilter,
     doctorFilter,
     departmentFilter,
+    planFilter,
     appointmentPeriod,
     appointmentDateFrom,
     appointmentDateTo,
@@ -1387,6 +1397,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     doctorDepartments = [
       ...new Set(sourceRows.map((r: any) => r.departmentId).filter(Boolean)),
     ] as string[],
+    tenantPlans = [...new Map(
+      sourceRows
+        .filter((row: any) => row.planId)
+        .map((row: any) => [row.planId, row.planName]),
+    ).entries()] as [string, string][],
     paymentStatuses = [
       ...new Set(sourceRows.map((r: any) => r.paymentStatus).filter(Boolean)),
     ] as string[],
@@ -1611,6 +1626,22 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                   <option key={departmentId} value={departmentId}>
                     {display({ departmentId }, "departmentId")}
                   </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {mode === "admin" && slug === "tenants" && (
+            <div className="filter-select">
+              <select
+                value={planFilter}
+                onChange={(event) => {
+                  setPlanFilter(event.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="ALL">All plans</option>
+                {tenantPlans.map(([planId, planName]) => (
+                  <option key={planId} value={planId}>{planName}</option>
                 ))}
               </select>
             </div>
