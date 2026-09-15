@@ -44,14 +44,28 @@ async function matchContact(tenantId:string,number:string){
   return {patient,lead};
 }
 
+function telecmiCallStatus(cdr:any,answered:boolean):'RINGING'|'ANSWERED'|'COMPLETED'|'MISSED'|'ABANDONED'|'FAILED'|'UNKNOWN'{
+  const status=String(cdr.status||cdr.call_status||'').toLowerCase();
+  if(/miss|no.?answer/.test(status))return 'MISSED';
+  if(/fail|reject/.test(status))return 'FAILED';
+  if(/abandon|cancel/.test(status))return 'ABANDONED';
+  if(/wait|start|ring/.test(status))return 'RINGING';
+  if(/answer/.test(status))return String(cdr.type).toLowerCase()==='cdr'||Number(cdr.answeredsec||cdr.duration)>0?'COMPLETED':'ANSWERED';
+  if(/complete|hangup|end/.test(status))return 'COMPLETED';
+  return answered?'COMPLETED':'UNKNOWN';
+}
+
 async function storeCdr(tenantId:string,cdr:any,direction:"INBOUND"|"OUTBOUND",answered:boolean){
   const externalId=String(cdr.conversation_uuid||cdr.cmiuid||cdr.cmiuuid||cdr.call_id||randomUUID());
   const callerNumber=digits(direction==="INBOUND"?cdr.from:cdr.to);
   if(!callerNumber)return;
   const {patient,lead}=await matchContact(tenantId,callerNumber);
-  const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||cdr.answeredsec||0),billed=Number(cdr.billedsec||cdr.answeredsec||0),agentId=cdr.agent||cdr.user;
+  const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||cdr.answeredsec||0),billed=Number(cdr.billedsec||cdr.answeredsec||0),agentExternalId=cdr.agent||cdr.user,status=telecmiCallStatus(cdr,answered);
+  const assignedAgent=agentExternalId?await prisma.user.findFirst({where:{tenantId,telecmiAgentId:String(agentExternalId)}}):null;
   const recording=String(cdr.recording_url||cdr.recording||"");
-  await prisma.callRecord.upsert({where:{provider_externalId:{provider:"TELECMI",externalId}},create:{tenantId,provider:"TELECMI",externalId,direction,status:answered?"COMPLETED":"MISSED",callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber:direction==="INBOUND"?digits(cdr.to)||undefined:undefined,agentExternalId:agentId?String(agentId):undefined,agentName:cdr.agent_name||cdr.name||agentId||undefined,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:answered&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,disposition:cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr},update:{status:answered?"COMPLETED":"MISSED",agentExternalId:agentId?String(agentId):undefined,agentName:cdr.agent_name||cdr.name||agentId||undefined,leadId:lead?.id,patientId:patient?.id,durationSeconds,disposition:cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr}});
+  const virtualNumber=direction==="INBOUND"?digits(cdr.virtual_number||cdr.did||cdr.to)||undefined:undefined,agentName=cdr.agent_name||cdr.name||assignedAgent?.telecmiAgentName||assignedAgent?.name||agentExternalId||undefined;
+  const common={direction,status,callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber,agentId:assignedAgent?.id,agentExternalId:agentExternalId?String(agentExternalId):undefined,agentName,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:(status==='ANSWERED'||status==='COMPLETED')&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:status==='COMPLETED'&&startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,ivrSelection:cdr.ivr_name||undefined,disposition:cdr.hangup_reason||cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr};
+  await prisma.callRecord.upsert({where:{provider_externalId:{provider:"TELECMI",externalId}},create:{tenantId,provider:"TELECMI",externalId,...common},update:common});
 }
 
 export async function syncTelecmiCalls(tenant:string,startDate:Date,endDate:Date){
@@ -73,19 +87,21 @@ export async function telecmiAccountReport(tenant:string,startDate:Date,endDate:
   return {analysis,balance};
 }
 
-telecmiRouter.post('/webhook',asyncRoute(async(req,res)=>{
-  const body:any=req.body?.data||req.body,appId=String(body.app_id||body.appid||'');
+const receiveTelecmiWebhook=asyncRoute(async(req,res)=>{
+  const incoming:any=req.method==='GET'?req.query:req.body,body:any=incoming?.data||incoming,appId=String(body.app_id||body.appid||'');
   const integration=await prisma.telecmiIntegration.findFirst({where:{appId,isActive:true}});
   if(!integration)throw new AppError(401,'Unknown TeleCMI App ID','INVALID_TELECMI_APP');
   const callId=String(body.conversation_uuid||body.cmiuid||body.cmiuuid||body.call_id||body.request_id||randomUUID()),eventId=`${callId}:${body.status||body.call_status||'update'}:${body.leg||'call'}:${body.time||Date.now()}`;
   const duplicate=await prisma.webhookEvent.findUnique({where:{provider_externalId:{provider:'TELECMI',externalId:eventId}}});
   if(duplicate)return ok(res,{accepted:true,duplicate:true});
   const direction=String(body.direction||'inbound').toLowerCase()==='outbound'?'OUTBOUND':'INBOUND';
-  const status=String(body.status||body.call_status||'').toLowerCase(),answered=Boolean(body.billedsec)||/answer|complete|hangup/.test(status)&&!/miss|fail/.test(status);
+  const status=String(body.status||body.call_status||'').toLowerCase(),answered=Boolean(body.billedsec||body.answeredsec)||/answer|complete|hangup/.test(status)&&!/miss|fail/.test(status);
   await prisma.$transaction(async tx=>tx.webhookEvent.create({data:{provider:'TELECMI',externalId:eventId,payload:req.body,processedAt:new Date()}}));
   await storeCdr(integration.tenantId,body,direction,answered);
   return ok(res,{accepted:true},'TeleCMI event processed');
-}));
+});
+telecmiRouter.post('/webhook',receiveTelecmiWebhook);
+telecmiRouter.get('/webhook',receiveTelecmiWebhook);
 
 telecmiRouter.post('/sync',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),body=z.object({startDate:z.coerce.date(),endDate:z.coerce.date()}).parse(req.body);const result=await syncTelecmiCalls(tid,body.startDate,body.endDate);await audit(req,'telecmi.calls.synced','CallRecord',undefined,result);return ok(res,result,'TeleCMI calls synchronized')}));
 telecmiRouter.get('/users',auth,asyncRoute(async(req,res)=>ok(res,{items:await listTelecmiUsers(tenantId(req))})));
