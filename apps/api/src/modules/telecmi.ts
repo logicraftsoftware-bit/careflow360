@@ -19,9 +19,15 @@ async function telecmiPost(integration:any,path:string,body:Record<string,unknow
 export async function listTelecmiUsers(tenant:string){
   const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tenant}});
   if(!integration?.isActive)throw new AppError(503,"TeleCMI is not configured or active for this clinic","INTEGRATION_NOT_CONFIGURED");
-  const result=await telecmiPost(integration,'user/all');
-  return (Array.isArray(result.agents)?result.agents:[]).map((agent:any)=>({
-    id:String(agent.agent_id),name:String(agent.name||agent.agent_id),extension:agent.extension===undefined?null:Number(agent.extension),phone:agent.phone?String(agent.phone):null,notify:Boolean(agent.notify),startTime:agent.start_time||null,endTime:agent.end_time||null
+  let result=await telecmiPost(integration,'user/all');
+  let rows=result.agents||result.data?.agents||result.data;
+  if(!Array.isArray(rows)||rows.length===0){
+    const v3Integration={...integration,apiUrl:integration.apiUrl.replace(/\/v2\/?$/,'/v3')};
+    result=await telecmiPost(v3Integration,'user/list',{page:1,limit:100});
+    rows=result.agents||result.data?.agents||result.data;
+  }
+  return (Array.isArray(rows)?rows:[]).map((agent:any)=>({
+    id:String(agent.agent_id||agent.user_id),name:String(agent.name||[agent.first_name,agent.last_name].filter(Boolean).join(' ')||agent.agent_id||agent.user_id),extension:agent.extension===undefined?null:Number(agent.extension),phone:agent.phone?String(agent.phone):null,notify:Boolean(agent.notify),startTime:agent.start_time||null,endTime:agent.end_time||null
   }));
 }
 
@@ -43,9 +49,9 @@ async function storeCdr(tenantId:string,cdr:any,direction:"INBOUND"|"OUTBOUND",a
   const callerNumber=digits(direction==="INBOUND"?cdr.from:cdr.to);
   if(!callerNumber)return;
   const {patient,lead}=await matchContact(tenantId,callerNumber);
-  const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||0),billed=Number(cdr.billedsec||0);
+  const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||cdr.answeredsec||0),billed=Number(cdr.billedsec||cdr.answeredsec||0),agentId=cdr.agent||cdr.user;
   const recording=String(cdr.recording_url||cdr.recording||"");
-  await prisma.callRecord.upsert({where:{provider_externalId:{provider:"TELECMI",externalId}},create:{tenantId,provider:"TELECMI",externalId,direction,status:answered?"COMPLETED":"MISSED",callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber:direction==="INBOUND"?digits(cdr.to)||undefined:undefined,agentExternalId:cdr.agent?String(cdr.agent):undefined,agentName:cdr.agent_name||cdr.agent||undefined,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:answered&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,disposition:cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr},update:{status:answered?"COMPLETED":"MISSED",agentExternalId:cdr.agent?String(cdr.agent):undefined,agentName:cdr.agent_name||cdr.agent||undefined,leadId:lead?.id,patientId:patient?.id,durationSeconds,disposition:cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr}});
+  await prisma.callRecord.upsert({where:{provider_externalId:{provider:"TELECMI",externalId}},create:{tenantId,provider:"TELECMI",externalId,direction,status:answered?"COMPLETED":"MISSED",callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber:direction==="INBOUND"?digits(cdr.to)||undefined:undefined,agentExternalId:agentId?String(agentId):undefined,agentName:cdr.agent_name||cdr.name||agentId||undefined,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:answered&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,disposition:cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr},update:{status:answered?"COMPLETED":"MISSED",agentExternalId:agentId?String(agentId):undefined,agentName:cdr.agent_name||cdr.name||agentId||undefined,leadId:lead?.id,patientId:patient?.id,durationSeconds,disposition:cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl:/^https?:\/\//.test(recording)?recording:undefined,rawPayload:cdr}});
 }
 
 export async function syncTelecmiCalls(tenant:string,startDate:Date,endDate:Date){
@@ -55,7 +61,7 @@ export async function syncTelecmiCalls(tenant:string,startDate:Date,endDate:Date
   let synced=0;
   for(const [path,direction,answered] of feeds){
     const result=await telecmiPost(integration,path,{start_date:startDate.getTime(),end_date:endDate.getTime(),page:1,limit:100});
-    for(const cdr of result.cdr||[]){await storeCdr(tenant,cdr,direction,answered);synced++}
+    for(const cdr of result.cdr||result.data?.cdr||[]){await storeCdr(tenant,cdr,direction,answered);synced++}
   }
   return {synced};
 }
@@ -96,4 +102,4 @@ telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
   await audit(req,'telecmi.call.started','CallRecord',undefined,{agentId:user.telecmiAgentId,to});
   return ok(res,result,'TeleCMI call started');
 }));
-telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),{user,isAdmin}=await currentTelecmiUser(req);if(!isAdmin&&!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');const query=z.object({status:z.string().optional(),direction:z.string().optional(),search:z.string().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query),where:any={tenantId:tid,provider:'TELECMI',...(!isAdmin?{agentExternalId:user.telecmiAgentId}: {})};if(query.status)where.status=query.status;if(query.direction)where.direction=query.direction;if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];const[items,total]=await Promise.all([prisma.callRecord.findMany({where,include:{lead:{select:{id:true,name:true,leadNumber:true}},patient:{select:{id:true,name:true,patientNumber:true}}},orderBy:{createdAt:'desc'},skip:(query.page-1)*query.limit,take:query.limit}),prisma.callRecord.count({where})]);return ok(res,{items,total,page:query.page,limit:query.limit})}));
+telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),{user,isAdmin}=await currentTelecmiUser(req);if(!isAdmin&&!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');const query=z.object({status:z.string().optional(),direction:z.string().optional(),search:z.string().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query);const end=new Date(),start=new Date(end.getTime()-30*24*60*60*1000);await syncTelecmiCalls(tid,start,end);const where:any={tenantId:tid,provider:'TELECMI',...(!isAdmin?{agentExternalId:user.telecmiAgentId}: {})};if(query.status)where.status=query.status;if(query.direction)where.direction=query.direction;if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];const[items,total]=await Promise.all([prisma.callRecord.findMany({where,include:{lead:{select:{id:true,name:true,leadNumber:true}},patient:{select:{id:true,name:true,patientNumber:true}}},orderBy:{createdAt:'desc'},skip:(query.page-1)*query.limit,take:query.limit}),prisma.callRecord.count({where})]);return ok(res,{items,total,page:query.page,limit:query.limit})}));
