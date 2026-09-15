@@ -28,6 +28,7 @@ const calculatedEndTime = (startTime: string, slotMinutes: number, maxPatients: 
   if (!Number.isFinite(total) || total >= 24 * 60) return "Invalid";
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
+type ScheduleMode = "MONTHLY" | "WEEKLY" | "DAILY";
 
 export function DoctorScheduleEditor({
   schedule,
@@ -42,6 +43,8 @@ export function DoctorScheduleEditor({
     new Date(today.getFullYear(), today.getMonth(), 1),
   );
   const [selected, setSelected] = useState<Date | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("MONTHLY");
+  const [editingSingleDate, setEditingSingleDate] = useState(false);
   const [form, setForm] = useState({
     startTime: schedule.startTime || "09:00",
     slotMinutes: schedule.slotMinutes || 15,
@@ -111,11 +114,33 @@ export function DoctorScheduleEditor({
       return date;
     });
   }, [month]);
+  const selectedDates = useMemo(() => {
+    if (!selected) return [];
+    if (editingSingleDate || scheduleMode === "DAILY") return [selected];
+    if (scheduleMode === "WEEKLY") {
+      const start = new Date(selected);
+      start.setDate(selected.getDate() - selected.getDay());
+      return Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + index);
+        return date;
+      });
+    }
+    return Array.from(
+      { length: new Date(selected.getFullYear(), selected.getMonth() + 1, 0).getDate() },
+      (_, index) => new Date(selected.getFullYear(), selected.getMonth(), index + 1),
+    );
+  }, [selected, scheduleMode, editingSingleDate]);
+  const selectedDateKeys = useMemo(
+    () => new Set(selectedDates.map(isoDate)),
+    [selectedDates],
+  );
   const selectDate = (date: Date) => {
     setSelected(date);
     const existing = schedules.find(
       (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date),
     );
+    setEditingSingleDate(Boolean(existing));
     setForm(
       existing
         ? {
@@ -133,30 +158,32 @@ export function DoctorScheduleEditor({
     );
   };
   const save = useMutation({
-    mutationFn: () => {
-      if (!selected) throw new Error("Select a date first");
-      const existing = schedules.find(
-        (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(selected),
-      );
-      const body = {
-        doctorId: schedule.doctorId,
-        branchId: schedule.branchId,
-        dayOfWeek: selected.getDay(),
-        scheduleDate: isoDate(selected),
-        ...form,
-        endTime: calculatedEndTime(form.startTime, Number(form.slotMinutes), Number(form.maxPatients)),
-        slotMinutes: Number(form.slotMinutes),
-        maxPatients: Number(form.maxPatients),
-      };
-      return existing
-        ? api.patch(`/crm/doctorSchedules/${existing.id}`, body)
-        : api.post("/crm/doctorSchedules", body);
+    mutationFn: async () => {
+      if (!selectedDates.length) throw new Error("Select a date first");
+      await Promise.all(selectedDates.map((date) => {
+        const existing = schedules.find(
+          (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date),
+        );
+        const body = {
+          doctorId: schedule.doctorId,
+          branchId: schedule.branchId,
+          dayOfWeek: date.getDay(),
+          scheduleDate: isoDate(date),
+          ...form,
+          endTime: calculatedEndTime(form.startTime, Number(form.slotMinutes), Number(form.maxPatients)),
+          slotMinutes: Number(form.slotMinutes),
+          maxPatients: Number(form.maxPatients),
+        };
+        return existing
+          ? api.patch(`/crm/doctorSchedules/${existing.id}`, body)
+          : api.post("/crm/doctorSchedules", body);
+      }));
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["doctor-schedule-calendar"] });
       await qc.invalidateQueries({ queryKey: ["/crm/doctorSchedules"] });
       await qc.invalidateQueries({ queryKey: ["/crm/doctor-schedule-roster"] });
-      window.alert("Schedule saved successfully");
+      window.alert(`${selectedDates.length} schedule${selectedDates.length === 1 ? "" : "s"} saved successfully`);
     },
   });
   const remove = useMutation({
@@ -195,7 +222,21 @@ export function DoctorScheduleEditor({
             each calendar date.
           </p>
         </div>
-        <CalendarDays />
+        <div className="schedule-mode-control">
+          <label htmlFor="schedule-mode">Scheduling mode</label>
+          <select
+            id="schedule-mode"
+            value={scheduleMode}
+            onChange={(event) => {
+              setScheduleMode(event.target.value as ScheduleMode);
+              setEditingSingleDate(false);
+            }}
+          >
+            <option value="MONTHLY">Monthly</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="DAILY">Daily</option>
+          </select>
+        </div>
       </div>
       <div className="schedule-layout">
         <section className="schedule-calendar panel">
@@ -235,7 +276,7 @@ export function DoctorScheduleEditor({
                 ),
                 active = !!dateSchedule,
                 outside = date.getMonth() !== month.getMonth(),
-                chosen = selected && isoDate(selected) === isoDate(date);
+                chosen = selectedDateKeys.has(isoDate(date));
               return (
                 <button
                   key={isoDate(date)}
@@ -262,7 +303,9 @@ export function DoctorScheduleEditor({
         </section>
         <aside className="schedule-editor panel">
           <h2>
-            {selected
+            {selected && selectedDates.length > 1
+              ? `${selectedDates.length} dates selected`
+              : selected
               ? selected.toLocaleDateString("en-IN", {
                   weekday: "long",
                   day: "numeric",
@@ -281,13 +324,13 @@ export function DoctorScheduleEditor({
           ) : (
             <>
               <div className="schedule-note">
-                This availability applies only to{" "}
+                This availability applies to{" "}
                 <strong>
-                  {selected.toLocaleDateString("en-IN", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
+                  {selectedDates.length === 1
+                    ? selected.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })
+                    : scheduleMode === "MONTHLY"
+                      ? `all ${selectedDates.length} days of ${selected.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}`
+                      : `${selectedDates[0].toLocaleDateString("en-IN", { day: "numeric", month: "short" })} to ${selectedDates[selectedDates.length - 1].toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`}
                 </strong>
                 .
               </div>
@@ -370,7 +413,7 @@ export function DoctorScheduleEditor({
                   disabled={save.isPending}
                   onClick={() => save.mutate()}
                 >
-                  <Save /> {save.isPending ? "Saving…" : "Save schedule"}
+                  <Save /> {save.isPending ? "Saving…" : `Save ${selectedDates.length > 1 ? `${selectedDates.length} schedules` : "schedule"}`}
                 </button>
                 {selectedSchedule && (
                   <button
