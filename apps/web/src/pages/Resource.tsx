@@ -564,6 +564,7 @@ const configs: Record<string, Config> = {
   "doctor-schedules": {
     title: "Doctor Schedules",
     description: "Configure date-wise doctor availability and patient slots.",
+    noCreate: true,
     fields: [
       f("doctorId", "Doctor", "reference", true, undefined, "/crm/doctors"),
       f("branchId", "Branch", "reference", true, undefined, "/crm/branches"),
@@ -733,7 +734,7 @@ const actual: Record<string, string> = {
   branches: "branches",
   departments: "departments",
   doctors: "doctors",
-  "doctor-schedules": "doctorSchedules",
+  "doctor-schedules": "doctor-schedule-roster",
   leads: "leads",
   "interested-leads": "leads",
   "converted-leads": "leads",
@@ -1150,24 +1151,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         actionMatches(r.status) &&
         JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
     );
-    if (slug !== "doctor-schedules") return filtered;
-    const groups = new Map<string, any[]>();
-    for (const row of filtered) {
-      const key = `${row.doctorId}:${row.branchId}`;
-      groups.set(key, [...(groups.get(key) || []), row]);
-    }
-    return [...groups.values()].map((group) => {
-      const dated = group
-        .filter((item) => item.scheduleDate)
-        .sort((a, b) => a.scheduleDate.localeCompare(b.scheduleDate));
-      return {
-        ...group[0],
-        scheduleCount: dated.length,
-        nextSchedule:
-          dated.find((item) => new Date(item.scheduleDate) >= new Date())
-            ?.scheduleDate || dated[0]?.scheduleDate,
-      };
-    });
+    return filtered;
   }, [
     sourceRows,
     search,

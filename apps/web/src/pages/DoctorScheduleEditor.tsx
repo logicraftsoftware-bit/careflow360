@@ -155,6 +155,7 @@ export function DoctorScheduleEditor({
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["doctor-schedule-calendar"] });
       await qc.invalidateQueries({ queryKey: ["/crm/doctorSchedules"] });
+      await qc.invalidateQueries({ queryKey: ["/crm/doctor-schedule-roster"] });
       window.alert("Schedule saved successfully");
     },
   });
@@ -170,6 +171,7 @@ export function DoctorScheduleEditor({
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["doctor-schedule-calendar"] });
       await qc.invalidateQueries({ queryKey: ["/crm/doctorSchedules"] });
+      await qc.invalidateQueries({ queryKey: ["/crm/doctor-schedule-roster"] });
       setSelected(null);
       window.alert("Schedule deleted successfully");
     },

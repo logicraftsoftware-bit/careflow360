@@ -1642,6 +1642,56 @@ crmRouter.get(
   })
 );
 crmRouter.get(
+  "/doctor-schedule-roster",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const [doctors, branches] = await Promise.all([
+      prisma.doctor.findMany({
+        where: { tenantId: tid },
+        include: {
+          branches: { include: { branch: true } },
+          department: true,
+          schedules: { orderBy: { scheduleDate: "asc" } },
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.branch.findMany({
+        where: { tenantId: tid },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+    const branchById = new Map(branches.map((branch) => [branch.id, branch]));
+    const now = new Date();
+    const items = doctors.flatMap((doctor) => {
+      const explicitBranchIds = doctor.branches.map((entry) => entry.branchId);
+      const departmentBranchIds = doctor.department
+        ? [...doctor.department.branchIds, ...(doctor.department.branchId ? [doctor.department.branchId] : [])]
+        : [];
+      const scheduledBranchIds = doctor.schedules.map((schedule) => schedule.branchId);
+      const assigned = [...new Set([...explicitBranchIds, ...departmentBranchIds, ...scheduledBranchIds])]
+        .filter((branchId) => branchById.has(branchId));
+      const branchIds = assigned.length ? assigned : [branches[0]?.id || ""];
+      return branchIds.map((branchId) => {
+        const schedules = doctor.schedules.filter((schedule) => schedule.branchId === branchId);
+        const dated = schedules.filter((schedule) => schedule.scheduleDate);
+        const nextSchedule = dated.find((schedule) => schedule.scheduleDate! >= now)?.scheduleDate || dated[0]?.scheduleDate;
+        return {
+          id: `${doctor.id}:${branchId}`,
+          doctorId: doctor.id,
+          branchId,
+          status: doctor.status,
+          scheduleCount: dated.length,
+          nextSchedule,
+          createdAt: doctor.createdAt,
+          createdBy: "System / Legacy",
+          createdByDesignation: "Doctor Master",
+        };
+      });
+    });
+    return ok(res, { items, total: items.length, page: 1, limit: 100 });
+  })
+);
+crmRouter.get(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];
