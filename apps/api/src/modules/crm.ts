@@ -460,8 +460,19 @@ crmRouter.get(
 crmRouter.get(
   "/staff-accounts",
   asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const clinic = await prisma.tenant.findUnique({
+      where: { id: tid },
+      select: { email: true },
+    });
     const users = await prisma.user.findMany({
-      where: { tenantId: tenantId(req), isPlatform: false },
+      where: {
+        tenantId: tid,
+        isPlatform: false,
+        ...(clinic?.email
+          ? { email: { not: clinic.email.toLowerCase() } }
+          : {}),
+      },
       include: { roles: { include: { role: true } } },
       orderBy: { createdAt: "desc" },
     });
