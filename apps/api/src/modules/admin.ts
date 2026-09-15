@@ -4,6 +4,22 @@ import { config } from '../config.js';
 import argon2 from 'argon2';
 export const adminRouter=Router(); adminRouter.use(auth,platformOnly);
 adminRouter.get('/dashboard',asyncRoute(async(_req,res)=>{const [total,active,pending,suspended,leads,appointments]=await Promise.all([prisma.tenant.count(),prisma.tenant.count({where:{status:'ACTIVE'}}),prisma.tenant.count({where:{status:'PENDING_APPROVAL'}}),prisma.tenant.count({where:{status:'SUSPENDED'}}),prisma.lead.count(),prisma.appointment.count()]);return ok(res,{totalTenants:total,activeTenants:active,pendingApprovals:pending,suspendedTenants:suspended,totalLeads:leads,totalAppointments:appointments})}));
+adminRouter.get('/subscriptions',asyncRoute(async(_req,res)=>{
+  const [subscriptions,transactions,activity]=await Promise.all([
+    prisma.subscription.findMany({include:{tenant:true,plan:true},orderBy:{createdAt:'desc'}}),
+    prisma.moduleRecord.findMany({where:{module:'transactions'},orderBy:{createdAt:'desc'}}),
+    prisma.auditLog.findMany({where:{entityType:{in:['Subscription','Tenant']}},include:{actor:{select:{name:true,email:true}}},orderBy:{createdAt:'desc'}}),
+  ]);
+  return ok(res,subscriptions.map(subscription=>{
+    const paymentLogs=transactions.filter(transaction=>{
+      const data=transaction.data as Record<string,unknown>;
+      return data.subscriptionId===subscription.id||data.tenantId===subscription.tenantId||data.tenant===subscription.tenant.name||data.clinic===subscription.tenant.name;
+    }).map(transaction=>({id:transaction.id,reference:transaction.title,provider:(transaction.data as any).provider,amount:(transaction.data as any).amount,status:transaction.status,createdAt:transaction.createdAt,updatedAt:transaction.updatedAt}));
+    const amount=subscription.billingCycle==='ANNUAL'?subscription.plan.annualPrice:subscription.plan.monthlyPrice;
+    const activityLogs=activity.filter(log=>log.entityId===subscription.id||log.entityId===subscription.tenantId).map(log=>({id:log.id,action:log.action,performedBy:log.actor?.name||log.actor?.email||'System',metadata:log.metadata,createdAt:log.createdAt}));
+    return {...subscription,tenantName:subscription.tenant.name,ownerName:subscription.tenant.ownerName,ownerEmail:subscription.tenant.email,planName:subscription.plan.name,currency:subscription.plan.currency,amount,paymentStatus:paymentLogs[0]?.status||'NOT_RECORDED',paymentReference:paymentLogs[0]?.reference||null,paymentLogs,activityLogs,invoiceNumber:`CF-${subscription.createdAt.getFullYear()}-${subscription.id.slice(-8).toUpperCase()}`};
+  }));
+}));
 adminRouter.get('/tenants',asyncRoute(async(req,res)=>ok(res,await prisma.tenant.findMany({include:{subscriptions:{include:{plan:true},orderBy:{createdAt:'desc'},take:1}},orderBy:{createdAt:'desc'}}))));
 const tenantInput=z.object({name:z.string().trim().min(2),ownerName:z.string().trim().min(2),email:z.string().email(),mobile:z.string().trim().min(8),password:z.string().min(8).optional(),address:z.string().optional(),city:z.string().optional(),state:z.string().optional(),pin:z.string().optional(),planId:z.string(),billingCycle:z.enum(['MONTHLY','ANNUAL']),status:z.enum(['ACTIVE','TRIAL','PENDING_APPROVAL','SUSPENDED','REJECTED'])});
 adminRouter.get('/tenants/:id',asyncRoute(async(req,res)=>{const tenant=await prisma.tenant.findUnique({where:{id:req.params.id},include:{subscriptions:{orderBy:{createdAt:'desc'},take:1}}});if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');return ok(res,tenant)}));

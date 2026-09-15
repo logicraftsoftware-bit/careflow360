@@ -148,30 +148,23 @@ const configs: Record<string, Config> = {
   },
   subscriptions: {
     title: "Subscriptions",
-    description: "Track clinic subscriptions and renewals.",
-    fields: [
-      f("title", "Reference", "text", true),
-      f("tenant", "Tenant", "text", true),
-      f("plan", "Plan", "text", true),
-      f("billingCycle", "Billing cycle", "select", true, ["MONTHLY", "ANNUAL"]),
-      f("renewalDate", "Renewal date", "date"),
-      f("status", "Status", "select", true, [
-        "TRIAL",
-        "ACTIVE",
-        "PAST_DUE",
-        "SUSPENDED",
-        "CANCELLED",
-        "EXPIRED",
-      ]),
-    ],
+    description: "Track clinic subscriptions, payments, renewals and invoices.",
+    fields: [],
     columns: [
-      "title",
-      "tenant",
-      "plan",
+      "tenantName",
+      "ownerName",
+      "planName",
       "billingCycle",
-      "renewalDate",
+      "amount",
+      "paymentStatus",
+      "paymentReference",
+      "startsAt",
+      "endsAt",
       "status",
+      "createdAt",
     ],
+    readOnly: true,
+    noCreate: true,
   },
   invoices: {
     title: "SaaS Invoices",
@@ -1006,6 +999,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       mode === "admin"
         ? slug === "registrations" || slug === "tenants"
           ? "/super-admin/tenants"
+          : slug === "subscriptions"
+            ? "/super-admin/subscriptions"
           : slug === "plans"
             ? "/super-admin/plans"
             : `/super-admin/modules/${slug}`
@@ -1454,6 +1449,44 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     });
     document.save(`${slug}.pdf`);
   };
+  const downloadSubscriptionInvoice = async (subscription: any) => {
+    const { jsPDF } = await import("jspdf");
+    const document = new jsPDF();
+    const money = new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: subscription.currency || "INR",
+    }).format(Number(subscription.amount) || 0);
+    document.setFontSize(20);
+    document.text("CareFlow360", 16, 20);
+    document.setFontSize(15);
+    document.text("SUBSCRIPTION INVOICE", 16, 32);
+    document.setFontSize(10);
+    const details = [
+      ["Invoice number", subscription.invoiceNumber],
+      ["Invoice date", new Date(subscription.createdAt).toLocaleDateString("en-IN")],
+      ["Clinic", subscription.tenantName],
+      ["Owner", subscription.ownerName],
+      ["Email", subscription.ownerEmail],
+      ["Plan", subscription.planName],
+      ["Billing cycle", label(subscription.billingCycle)],
+      ["Subscription period", `${show(subscription.startsAt)} - ${show(subscription.endsAt)}`],
+      ["Payment reference", show(subscription.paymentReference)],
+      ["Payment status", label(subscription.paymentStatus)],
+    ];
+    details.forEach(([key, value], index) => {
+      const y = 48 + index * 9;
+      document.setFont("helvetica", "bold");
+      document.text(`${key}:`, 16, y);
+      document.setFont("helvetica", "normal");
+      document.text(String(value || "-"), 62, y);
+    });
+    document.setDrawColor(210);
+    document.line(16, 144, 194, 144);
+    document.setFontSize(13);
+    document.setFont("helvetica", "bold");
+    document.text(`Total: ${money}`, 16, 157);
+    document.save(`${subscription.invoiceNumber || "subscription-invoice"}.pdf`);
+  };
   const bulk = useMutation({
     mutationFn: async () => {
       const parsed = parseCsv(bulkCsv);
@@ -1630,7 +1663,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               </select>
             </div>
           )}
-          {mode === "admin" && slug === "tenants" && (
+          {mode === "admin" && ["tenants", "subscriptions"].includes(slug) && (
             <div className="filter-select">
               <select
                 value={planFilter}
@@ -1776,6 +1809,14 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                           <button onClick={() => setView(r)}>
                             <Eye />
                           </button>
+                          {mode === "admin" && slug === "subscriptions" && (
+                            <button
+                              title="Download invoice"
+                              onClick={() => downloadSubscriptionInvoice(r)}
+                            >
+                              <Download />
+                            </button>
+                          )}
                           {slug==="lab-appointments"&&<button title="Assign lab technician" onClick={()=>setAssignRecord(r)}><UserPlus/></button>}
                           {["appointments","lab-appointments","radiology-appointments"].includes(slug) && (
                             <button
@@ -2075,6 +2116,36 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 </div>
               ))}
             </dl>
+            {slug === "subscriptions" && (
+              <div className="subscription-payment-history">
+                <h3>Payment history</h3>
+                {!view.paymentLogs?.length ? (
+                  <p>No payment has been recorded for this subscription.</p>
+                ) : (
+                  <table>
+                    <thead><tr><th>Reference</th><th>Provider</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+                    <tbody>{view.paymentLogs.map((payment: any) => (
+                      <tr key={payment.id}><td>{show(payment.reference)}</td><td>{show(payment.provider)}</td><td>{show(payment.amount)}</td><td>{label(payment.status)}</td><td>{show(payment.createdAt)}</td></tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+            )}
+            {slug === "subscriptions" && (
+              <div className="subscription-payment-history">
+                <h3>Activity history</h3>
+                {!view.activityLogs?.length ? (
+                  <p>No subscription activity has been recorded.</p>
+                ) : (
+                  <table>
+                    <thead><tr><th>Action</th><th>Performed by</th><th>Date and time</th></tr></thead>
+                    <tbody>{view.activityLogs.map((entry: any) => (
+                      <tr key={entry.id}><td>{label(entry.action)}</td><td>{entry.performedBy}</td><td>{show(entry.createdAt)}</td></tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+            )}
             <button className="btn full" onClick={() => setView(undefined)}>
               Close
             </button>
