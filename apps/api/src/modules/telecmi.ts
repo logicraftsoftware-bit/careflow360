@@ -102,4 +102,23 @@ telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
   await audit(req,'telecmi.call.started','CallRecord',undefined,{agentId:user.telecmiAgentId,to});
   return ok(res,result,'TeleCMI call started');
 }));
-telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),{user,isAdmin}=await currentTelecmiUser(req);if(!isAdmin&&!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');const query=z.object({status:z.string().optional(),direction:z.string().optional(),search:z.string().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query);const end=new Date(),start=new Date(end.getTime()-30*24*60*60*1000);await syncTelecmiCalls(tid,start,end);const where:any={tenantId:tid,provider:'TELECMI',...(!isAdmin?{agentExternalId:user.telecmiAgentId}: {})};if(query.status)where.status=query.status;if(query.direction)where.direction=query.direction;if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];const[items,total]=await Promise.all([prisma.callRecord.findMany({where,include:{lead:{select:{id:true,name:true,leadNumber:true}},patient:{select:{id:true,name:true,patientNumber:true}}},orderBy:{createdAt:'desc'},skip:(query.page-1)*query.limit,take:query.limit}),prisma.callRecord.count({where})]);return ok(res,{items,total,page:query.page,limit:query.limit})}));
+telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{
+  const tid=tenantId(req),{user,isAdmin}=await currentTelecmiUser(req);
+  if(!isAdmin&&!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
+  const query=z.object({status:z.string().optional(),direction:z.string().optional(),search:z.string().optional(),startDate:z.coerce.date().optional(),endDate:z.coerce.date().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query);
+  const end=query.endDate||new Date(),start=query.startDate||new Date(end.getTime()-30*24*60*60*1000);
+  await syncTelecmiCalls(tid,start,end);
+  const scope:any={tenantId:tid,provider:'TELECMI',startedAt:{gte:start,lte:end},...(!isAdmin?{agentExternalId:user.telecmiAgentId}:{})},where:any={...scope};
+  if(query.status)where.status=query.status;if(query.direction)where.direction=query.direction;
+  if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];
+  const[items,total,metricRows]=await Promise.all([
+    prisma.callRecord.findMany({where,include:{lead:{select:{id:true,name:true,leadNumber:true}},patient:{select:{id:true,name:true,patientNumber:true}}},orderBy:{startedAt:'desc'},skip:(query.page-1)*query.limit,take:query.limit}),
+    prisma.callRecord.count({where}),
+    prisma.callRecord.findMany({where:scope,select:{direction:true,status:true,durationSeconds:true,startedAt:true,agentExternalId:true,agentName:true}})
+  ]);
+  const answered=(row:any)=>row.status==='ANSWERED'||row.status==='COMPLETED',totalDuration=metricRows.reduce((sum:number,row:any)=>sum+(row.durationSeconds||0),0);
+  const byHour=Array.from({length:24},(_,hour)=>({hour,total:0,answered:0,missed:0})),agentsMap=new Map<string,any>();
+  for(const row of metricRows){const hour=row.startedAt?.getHours()??0,hit=byHour[hour];hit.total++;answered(row)?hit.answered++:hit.missed++;const key=row.agentExternalId||row.agentName||'unassigned',agent=agentsMap.get(key)||{id:key,name:row.agentName||key,total:0,inboundAnswered:0,inboundMissed:0,outboundAnswered:0,outboundMissed:0,durationSeconds:0};agent.total++;agent.durationSeconds+=row.durationSeconds||0;const field=`${row.direction.toLowerCase()}${answered(row)?'Answered':'Missed'}`;agent[field]++;agentsMap.set(key,agent)}
+  const answeredCount=metricRows.filter(answered).length,incoming=metricRows.filter((row:any)=>row.direction==='INBOUND'),outgoing=metricRows.filter((row:any)=>row.direction==='OUTBOUND');
+  return ok(res,{items,total,page:query.page,limit:query.limit,analytics:{totalCalls:metricRows.length,answered:answeredCount,missed:metricRows.length-answeredCount,received:incoming.length,outgoing:outgoing.length,incomingAnswered:incoming.filter(answered).length,incomingMissed:incoming.filter((row:any)=>!answered(row)).length,outgoingAnswered:outgoing.filter(answered).length,outgoingMissed:outgoing.filter((row:any)=>!answered(row)).length,totalDurationSeconds:totalDuration,averageDurationSeconds:answeredCount?Math.round(totalDuration/answeredCount):0,answerRate:metricRows.length?Math.round(answeredCount*100/metricRows.length):0,byHour,byAgent:[...agentsMap.values()].sort((a,b)=>b.total-a.total)}})
+}));
