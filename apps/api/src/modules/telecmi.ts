@@ -31,11 +31,11 @@ export async function listTelecmiUsers(tenant:string){
   }));
 }
 
-const adminRoleCodes=new Set(['SUPER_ADMIN','CLINIC_ADMIN','CLINIC_MANAGER','BRANCH_ADMIN','MANAGER']);
 async function currentTelecmiUser(req:any){
-  const user=await prisma.user.findUnique({where:{id:req.user!.id},include:{roles:{include:{role:true}}}});
+  const user=await prisma.user.findUnique({where:{id:req.user!.id},include:{tenant:true}});
   if(!user)throw new AppError(401,'User account not found','UNAUTHENTICATED');
-  return {user,isAdmin:user.roles.some((entry:any)=>adminRoleCodes.has(entry.role.code))};
+  const isAdmin=user.isPlatform||Boolean(user.tenant&&user.email.trim().toLowerCase()===user.tenant.email.trim().toLowerCase());
+  return {user,isAdmin};
 }
 
 async function matchContact(tenantId:string,number:string){
