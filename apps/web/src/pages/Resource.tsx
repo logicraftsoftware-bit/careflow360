@@ -997,7 +997,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [actionFilter, setActionFilter] = useState("ALL"),
     [doctorFilter, setDoctorFilter] = useState("ALL"),
     [departmentFilter, setDepartmentFilter] = useState("ALL"),
-    [slotFilter, setSlotFilter] = useState("ALL"),
+    [appointmentPeriod, setAppointmentPeriod] = useState("ALL"),
+    [appointmentDate, setAppointmentDate] = useState(""),
     [paymentFilter, setPaymentFilter] = useState("ALL"),
     [page, setPage] = useState(1);
   const base =
@@ -1104,6 +1105,17 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [data],
   );
   const all = useMemo(() => {
+    const todayKey = clinicDateKey(new Date());
+    const appointmentDateMatches = (startsAt: string) => {
+      if (slug !== "appointments") return true;
+      const dateKey = clinicDateKey(startsAt);
+      const periodMatches =
+        appointmentPeriod === "ALL" ||
+        (appointmentPeriod === "PAST" && dateKey < todayKey) ||
+        (appointmentPeriod === "TODAY" && dateKey === todayKey) ||
+        (appointmentPeriod === "UPCOMING" && dateKey > todayKey);
+      return periodMatches && (!appointmentDate || dateKey === appointmentDate);
+    };
     const actionMatches = (status: string) =>
       actionFilter === "ALL" ||
       (actionFilter === "FOLLOW_UP" &&
@@ -1125,7 +1137,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         (doctorFilter === "ALL" || r.doctorId === doctorFilter) &&
         (departmentFilter === "ALL" ||
           r.departmentId === departmentFilter) &&
-        (slotFilter === "ALL" || r.startsAt === slotFilter) &&
+        appointmentDateMatches(r.startsAt) &&
         (paymentFilter === "ALL" || r.paymentStatus === paymentFilter) &&
         actionMatches(r.status) &&
         JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
@@ -1157,7 +1169,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     actionFilter,
     doctorFilter,
     departmentFilter,
-    slotFilter,
+    appointmentPeriod,
+    appointmentDate,
     paymentFilter,
     slug,
   ]);
@@ -1327,9 +1340,6 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     doctorDepartments = [
       ...new Set(sourceRows.map((r: any) => r.departmentId).filter(Boolean)),
     ] as string[],
-    appointmentSlots = [
-      ...new Set(sourceRows.map((r: any) => r.startsAt).filter(Boolean)),
-    ].sort() as string[],
     paymentStatuses = [
       ...new Set(sourceRows.map((r: any) => r.paymentStatus).filter(Boolean)),
     ] as string[],
@@ -1559,19 +1569,39 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           {slug === "appointments" && (
             <div className="filter-select">
               <select
-                value={slotFilter}
+                value={appointmentPeriod}
                 onChange={(event) => {
-                  setSlotFilter(event.target.value);
+                  setAppointmentPeriod(event.target.value);
                   setPage(1);
                 }}
               >
-                <option value="ALL">All appointment slots</option>
-                {appointmentSlots.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {show(slot)}
-                  </option>
-                ))}
+                <option value="ALL">All appointment dates</option>
+                <option value="PAST">Previous appointments</option>
+                <option value="TODAY">Today’s appointments</option>
+                <option value="UPCOMING">Upcoming appointments</option>
               </select>
+            </div>
+          )}
+          {slug === "appointments" && (
+            <div className="filter-select appointment-date-filter">
+              <input
+                type="date"
+                value={appointmentDate}
+                aria-label="Filter appointments by date"
+                onChange={(event) => {
+                  setAppointmentDate(event.target.value);
+                  setPage(1);
+                }}
+              />
+              {appointmentDate && (
+                <button
+                  type="button"
+                  aria-label="Clear appointment date"
+                  onClick={() => setAppointmentDate("")}
+                >
+                  <X />
+                </button>
+              )}
             </div>
           )}
           {slug === "appointments" && (
