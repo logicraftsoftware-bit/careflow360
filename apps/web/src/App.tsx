@@ -17,7 +17,6 @@ import { PaymentLogsPage } from "./pages/PaymentLogs";
 import { DiagnosticAppointmentBookingPage } from "./pages/DiagnosticAppointmentBooking";
 import { RolePermissionEditorPage, RolesPermissionsPage } from "./pages/RolesPermissions";
 import { StaffPage } from "./pages/Staff";
-import { ExotelIntegrationsPage } from "./pages/ExotelIntegrations";
 import { LabCollectionPage } from "./pages/LabCollection";
 import { TenantEditorPage } from "./pages/TenantEditor";
 import { TelecmiIntegrationsPage } from "./pages/TelecmiIntegrations";
@@ -62,7 +61,6 @@ const admin = [
   "announcements",
   "integrations",
   "razorpay",
-  "exotel",
   "telecmi",
   "audit-logs",
   "settings",
@@ -134,9 +132,8 @@ export default function App() {
         <Route path="tenants/:id/edit" element={<TenantEditorPage />} />
         <Route path="integrations" element={<AiSensyIntegrationsPage />} />
         <Route path="razorpay" element={<RazorpayIntegrationsPage />} />
-        <Route path="exotel" element={<ExotelIntegrationsPage />} />
         <Route path="telecmi" element={<TelecmiIntegrationsPage />} />
-        {admin.filter((x) => !["integrations", "razorpay", "exotel", "telecmi"].includes(x)).map((x) => (
+        {admin.filter((x) => !["integrations", "razorpay", "telecmi"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}
