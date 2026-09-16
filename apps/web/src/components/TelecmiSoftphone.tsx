@@ -13,12 +13,16 @@ export function TelecmiSoftphone(){
     let active=true,phone:PIOPIY|null=null;
     api.get("/integrations/telecmi/softphone-credentials").then(unwrap).then((credentials:any)=>{
       if(!active)return;
-      phone=new PIOPIY({name:credentials.displayName,debug:false,autoplay:true,autoReboot:true,ringTime:60});client.current=phone;
+      phone=new PIOPIY({name:credentials.displayName,debug:true,autoplay:true,autoReboot:true,ringTime:60});client.current=phone;
       phone.on("login",()=>{api.post("/integrations/telecmi/status",{status:"online"}).then(()=>{if(active){setAgentStatus("online");setState("ready");setMessage("Softphone ready · Online");}}).catch((error:any)=>{if(active){setState("error");setMessage(error.response?.data?.message||"Unable to set TeleCMI status online");setOpen(true);}});});
       phone.on("loginFailed",(event)=>{setState("error");setMessage(event.status||"TeleCMI login failed");setOpen(true);});
-      phone.on("inComingCall",call=>{setIncoming(call);setState("incoming");setMessage(`Incoming call from ${call.name||call.from}`);setOpen(true);});
+      const receiveIncoming=(call:any)=>{const incomingCall=call as PiopiyIncomingCall;setIncoming(incomingCall);setState("incoming");setMessage(`Incoming call from ${incomingCall.name||incomingCall.from||"customer"}`);setOpen(true);};
+      phone.on("inComingCall",receiveIncoming);
+      // TeleCMI SDK releases have used both spellings; listening to the alias is
+      // harmless and prevents an SDK-version mismatch from hiding the call UI.
+      (phone as any).on("incomingCall",receiveIncoming);
       phone.on("trying",()=>{setState("calling");setMessage("Starting call…");setOpen(true);});
-      phone.on("ringing",event=>{setState(current=>current==="incoming"?current:"calling");setMessage(event.type==="incoming"?"Incoming call":"Customer is ringing…");});
+      phone.on("ringing",event=>{const payload:any=event,isIncoming=String(payload.type||payload.direction||"").toLowerCase().includes("incoming");if(isIncoming){receiveIncoming(payload);return}setState(current=>current==="incoming"?current:"calling");setMessage("Customer is ringing…");});
       phone.on("answered",()=>{setState("active");setMessage("Call connected");setIncoming(null);});
       const ended=(event:any)=>{setState("ended");setMessage(event?.status||"Call ended");setIncoming(null);setMuted(false);setHeld(false);setTimeout(()=>active&&setState("ready"),2500);};
       phone.on("ended",ended);phone.on("hangup",ended);
