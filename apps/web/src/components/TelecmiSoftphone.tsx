@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import PIOPIY, { type PiopiyIncomingCall } from "@telecmi/piopiyjs";
+import Connly from "connly";
 import { Mic, MicOff, Pause, Phone, PhoneCall, PhoneIncoming, PhoneOff, Play, X } from "lucide-react";
 import { api, unwrap } from "../api";
 import "./TelecmiSoftphone.css";
@@ -8,13 +9,21 @@ type PhoneState="connecting"|"ready"|"incoming"|"calling"|"active"|"ended"|"erro
 type AgentStatus="online"|"offline"|"break";
 
 export function TelecmiSoftphone(){
-  const client=useRef<PIOPIY|null>(null),[state,setState]=useState<PhoneState>("connecting"),[agentStatus,setAgentStatus]=useState<AgentStatus>("offline"),[statusBusy,setStatusBusy]=useState(false),[incoming,setIncoming]=useState<PiopiyIncomingCall|null>(null),[open,setOpen]=useState(false),[number,setNumber]=useState(""),[transferTo,setTransferTo]=useState(""),[muted,setMuted]=useState(false),[held,setHeld]=useState(false),[message,setMessage]=useState("Connecting TeleCMI softphone…");
+  const client=useRef<PIOPIY|null>(null),connlyClient=useRef<Connly|null>(null),connlyConnected=useRef(false),[state,setState]=useState<PhoneState>("connecting"),[agentStatus,setAgentStatus]=useState<AgentStatus>("offline"),[statusBusy,setStatusBusy]=useState(false),[incoming,setIncoming]=useState<PiopiyIncomingCall|null>(null),[open,setOpen]=useState(false),[number,setNumber]=useState(""),[transferTo,setTransferTo]=useState(""),[muted,setMuted]=useState(false),[held,setHeld]=useState(false),[message,setMessage]=useState("Connecting TeleCMI softphone…");
   useEffect(()=>{
-    let active=true,phone:PIOPIY|null=null;
+    let active=true,phone:PIOPIY|null=null,presence:Connly|null=null,sipReady=false,presenceReady=false;
+    const markReady=()=>{if(active&&sipReady&&presenceReady){setState("ready");setMessage("Softphone ready · Online");}};
     api.get("/integrations/telecmi/softphone-credentials").then(unwrap).then((credentials:any)=>{
       if(!active)return;
+      presence=new Connly(credentials.connlyServerUrl,credentials.connlyToken);connlyClient.current=presence;
+      presence.onConnect(({isConnected})=>{if(!active||!isConnected)return;connlyConnected.current=true;presenceReady=true;presence?.setStatus("online");setAgentStatus("online");markReady();});
+      presence.onDisconnect(()=>{if(!active)return;connlyConnected.current=false;presenceReady=false;setAgentStatus("offline");setState("connecting");setMessage("Reconnecting Connly presence…");});
+      presence.onError((event:any)=>{if(!active)return;console.error("[Connly] connection error",event);setState("error");setMessage(event?.message||"Connly presence connection failed");setOpen(true);});
+      presence.connect();
+      presence.onStatus((event:any)=>{if(!active)return;const status=String(event?.status||event?.data?.status||"").toLowerCase();if(status==="online"||status==="offline"||status==="break")setAgentStatus(status);});
+      presence.onCallAction((event:any)=>{if(!active)return;console.info("[Connly] call action",event);const action=String(event?.action||event?.status||event?.type||"").toLowerCase();if(action.includes("incoming")||action.includes("ring")){setMessage("Incoming call notification received…");setOpen(true);}});
       phone=new PIOPIY({name:credentials.displayName,debug:true,autoplay:true,autoReboot:true,ringTime:60});client.current=phone;
-      phone.on("login",()=>{api.post("/integrations/telecmi/status",{status:"online"}).then(()=>{if(active){setAgentStatus("online");setState("ready");setMessage("Softphone ready · Online");}}).catch((error:any)=>{if(active){setState("error");setMessage(error.response?.data?.message||"Unable to set TeleCMI status online");setOpen(true);}});});
+      phone.on("login",()=>{sipReady=true;markReady();});
       phone.on("loginFailed",(event)=>{setState("error");setMessage(event.status||"TeleCMI login failed");setOpen(true);});
       const receiveIncoming=(call:any)=>{const incomingCall=call as PiopiyIncomingCall;setIncoming(incomingCall);setState("incoming");setMessage(`Incoming call from ${incomingCall.name||incomingCall.from||"customer"}`);setOpen(true);};
       phone.on("inComingCall",receiveIncoming);
@@ -31,7 +40,7 @@ export function TelecmiSoftphone(){
       phone.on("sbc_logout",event=>{setState("error");setMessage(event.reason||"Softphone signed out");setOpen(true);});
       phone.login(credentials.userId,credentials.password,credentials.sbcUri);
     }).catch((error:any)=>{if(active&&error.response?.status!==403){setState("error");setMessage(error.response?.data?.message||"Unable to start TeleCMI softphone");setOpen(true);}});
-    return()=>{active=false;if(phone)phone.logout();client.current=null;};
+    return()=>{active=false;if(presence)presence.disconnect();if(phone)phone.logout();connlyConnected.current=false;connlyClient.current=null;client.current=null;};
   },[]);
   const dial=async()=>{let target=number.replace(/\D/g,"");if(target.length===10)target=`91${target}`;if(target.length<10){setMessage("Enter a valid phone number");setState("error");return}try{await navigator.mediaDevices.getUserMedia({audio:true});client.current?.call(target,{extra_param:"careflow360"});}catch{setState("error");setMessage("Allow microphone access to make calls");}};
   const answer=async()=>{try{await navigator.mediaDevices.getUserMedia({audio:true});client.current?.answer();setMessage("Connecting call…");}catch{setState("error");setMessage("Allow microphone access to answer calls");}};
@@ -39,7 +48,7 @@ export function TelecmiSoftphone(){
   const toggleMute=()=>{muted?client.current?.unMute():client.current?.mute();setMuted(!muted);};
   const toggleHold=()=>{held?client.current?.unHold():client.current?.hold();setHeld(!held);};
   const transfer=()=>{const target=transferTo.replace(/\D/g,"");if(!target)return;client.current?.transfer(target,response=>setMessage(response?.error?`Transfer failed: ${response.error}`:"Transfer started"));};
-  const changeAgentStatus=async(status:AgentStatus)=>{setStatusBusy(true);try{await api.post("/integrations/telecmi/status",{status});setAgentStatus(status);if(state==="error")setState("ready");setMessage(status==="online"?"Softphone ready · Online":status==="break"?"On break · Incoming calls paused":"Offline · Incoming calls paused");}catch(error:any){setMessage(error.response?.data?.message||"Unable to update TeleCMI status");setState("error");}finally{setStatusBusy(false);}};
+  const changeAgentStatus=async(status:AgentStatus)=>{setStatusBusy(true);try{if(!connlyClient.current||!connlyConnected.current)throw new Error("Connly presence is not connected");connlyClient.current.setStatus(status);setAgentStatus(status);setMessage(status==="online"?"Softphone ready · Online":status==="break"?"On break · Incoming calls paused":"Offline · Incoming calls paused");await api.post("/integrations/telecmi/status",{status}).catch(error=>console.warn("TeleCMI REST status mirror failed",error));if(state==="error"&&status==="online")setState("ready");}catch(error:any){setMessage(error?.message||"Unable to update Connly agent status");setState("error");}finally{setStatusBusy(false);}};
   if(state==="connecting"&&!open)return <button className="softphone-launch connecting" title={message} onClick={()=>setOpen(true)}><PhoneCall/></button>;
   return <div className={`softphone ${open?"open":""}`}>
     {!open?<button className={state==="incoming"?"softphone-launch ringing":"softphone-launch"} onClick={()=>setOpen(true)}>{state==="incoming"?<PhoneIncoming/>:<PhoneCall/>}<span>{state==="incoming"?incoming?.name||incoming?.from:"Softphone"}</span></button>:<section className="softphone-panel">
