@@ -2,18 +2,379 @@ import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { History, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { api, unwrap } from "../api";
-type Staff={id:string;name:string;email:string;mobile?:string;role:string;status:string;lastLoginAt?:string;telecmiAgentId?:string;telecmiAgentName?:string;telecmiExtension?:number};
-const isCallCentre=(role:string)=>/^CALL_(CENTRE|CENTER)(?:_AGENT)?$/.test(role);
-export function StaffPage(){
- const qc=useQueryClient(),[search,setSearch]=useState(""),[open,setOpen]=useState(false),[edit,setEdit]=useState<Staff|null>(null),[activity,setActivity]=useState<Staff|null>(null),[formRole,setFormRole]=useState("");
- const {data,isLoading,error}=useQuery({queryKey:["staff-accounts"],queryFn:()=>api.get("/crm/staff-accounts").then(unwrap)}),{data:roleData}=useQuery({queryKey:["staff-role-options"],queryFn:()=>api.get("/crm/modules/roles-permissions").then(unwrap)});
- const staff:Staff[]=data?.items||[],roles=(roleData?.items||[]).map((x:any)=>({code:x.data?.code||x.title.toUpperCase().replace(/\W+/g,"_"),name:x.title})),callCentre=isCallCentre(formRole);
- const {data:agents,isLoading:agentsLoading,error:agentsError}=useQuery({queryKey:["telecmi-users"],queryFn:()=>api.get("/integrations/telecmi/users").then(unwrap),enabled:open&&callCentre});
- const {data:activityData,isLoading:activityLoading}=useQuery({queryKey:["staff-activity",activity?.id],queryFn:()=>api.get(`/crm/staff-accounts/${activity!.id}/activity`).then(unwrap),enabled:!!activity});
- const save=useMutation({mutationFn:(payload:object)=>edit?api.patch(`/crm/staff-accounts/${edit.id}`,payload):api.post("/crm/staff-accounts",payload),onSuccess:()=>{qc.invalidateQueries({queryKey:["staff-accounts"]});setOpen(false);setEdit(null)}}),remove=useMutation({mutationFn:(id:string)=>api.delete(`/crm/staff-accounts/${id}`),onSuccess:()=>qc.invalidateQueries({queryKey:["staff-accounts"]})});
- const submit=(e:FormEvent<HTMLFormElement>)=>{e.preventDefault();save.mutate(Object.fromEntries(new FormData(e.currentTarget)))};
- const filtered=staff.filter(x=>JSON.stringify(x).toLowerCase().includes(search.toLowerCase()));
- return <div><div className="page-head"><div><span>CLINIC MANAGEMENT</span><h1>Staff</h1><p>Create secure staff logins, assign roles and review activity.</p></div><button className="btn" onClick={()=>{setEdit(null);setFormRole(roles[0]?.code||"");setOpen(true)}}><Plus/> Add Staff</button></div><section className="panel table-panel"><div className="toolbar"><div className="search"><Search/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search staff…"/></div></div>{isLoading?<div className="state">Loading staff…</div>:error?<div className="state error">Unable to load staff accounts.</div>:<div className="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Mobile</th><th>Role</th><th>TeleCMI User</th><th>Last login</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filtered.map(x=><tr key={x.id}><td><b>{x.name}</b></td><td>{x.email}</td><td>{x.mobile||"—"}</td><td>{x.role.replaceAll("_"," ")}</td><td>{x.telecmiAgentName?<>{x.telecmiAgentName}<small className="cell-sub">Extension {x.telecmiExtension||"—"}</small></>:"—"}</td><td>{x.lastLoginAt?new Date(x.lastLoginAt).toLocaleString("en-IN"):"Never"}</td><td><span className="status-pill">{x.status}</span></td><td><div className="row-actions"><button title="Activity logs" onClick={()=>setActivity(x)}><History/></button><button title="Edit / reset password" onClick={()=>{setEdit(x);setFormRole(x.role);setOpen(true)}}><Pencil/></button><button className="danger" title="Delete" onClick={()=>confirm(`Delete ${x.name}?`)&&remove.mutate(x.id)}><Trash2/></button></div></td></tr>)}</tbody></table></div>}</section>
- {open&&<div className="modal-bg"><form className="modal" onSubmit={submit}><div className="modal-head"><div><h2>{edit?"Edit Staff / Reset Password":"Create Staff Login"}</h2><p>{edit?"Leave password blank to keep the current password.":"The staff member will use these credentials on Staff Login."}</p></div><button type="button" className="icon" onClick={()=>setOpen(false)}><X/></button></div><div className="modal-grid"><label>Full name<input name="name" required defaultValue={edit?.name||""}/></label><label>Email<input name="email" type="email" required defaultValue={edit?.email||""}/></label><label>Mobile<input name="mobile" defaultValue={edit?.mobile||""}/></label><label>Role<select name="role" required value={formRole} onChange={e=>setFormRole(e.target.value)}><option value="" disabled>Select role</option>{roles.map((r:any)=><option key={r.code} value={r.code}>{r.name}</option>)}</select></label>{callCentre&&<label style={{gridColumn:"1 / -1"}}>TeleCMI user<select name="telecmiAgentId" required defaultValue={edit?.telecmiAgentId||""}><option value="">{agentsLoading?"Loading TeleCMI users…":"Select TeleCMI user"}</option>{(agents?.items||[]).map((a:any)=><option key={a.id} value={a.id}>{a.name}{a.extension?` · Extension ${a.extension}`:""}{a.phone?` · ${a.phone}`:""}</option>)}</select>{agentsError&&<small className="error">Unable to load users. Check the clinic TeleCMI integration.</small>}</label>}<label>Password {edit?"(optional)":"*"}<input name="password" type="password" minLength={8} required={!edit} autoComplete="new-password" placeholder={edit?"Enter to reset password":"Minimum 8 characters"}/></label><label>Status<select name="status" defaultValue={edit?.status||"ACTIVE"}><option>ACTIVE</option><option>INACTIVE</option></select></label></div>{save.error&&<div className="alert error">{(save.error as any).response?.data?.message||"Unable to save staff account"}</div>}<div className="modal-actions"><button type="button" className="btn ghost" onClick={()=>setOpen(false)}>Cancel</button><button className="btn" disabled={save.isPending||agentsLoading}>{save.isPending?"Saving…":"Save Staff"}</button></div></form></div>}
- {activity&&<div className="modal-bg"><div className="modal activity-modal"><div className="modal-head"><div><h2>{activity.name} — Activity Logs</h2><p>Most recent 100 actions performed by this staff account.</p></div><button className="icon" onClick={()=>setActivity(null)}><X/></button></div>{activityLoading?<div className="state">Loading activity…</div>:<div className="staff-activity-list">{(activityData?.items||[]).map((log:any)=><article key={log.id}><History/><div><b>{log.action.replaceAll("."," ")}</b><small>{log.entityType}{log.entityId?` · ${log.entityId}`:""}</small></div><time>{new Date(log.createdAt).toLocaleString("en-IN")}</time></article>)}{!activityData?.items?.length&&<div className="empty">No activity recorded yet.</div>}</div>}</div></div>}</div>;
+type Staff = {
+  id: string;
+  name: string;
+  email: string;
+  mobile?: string;
+  role: string;
+  status: string;
+  lastLoginAt?: string;
+  telecmiAgentId?: string;
+  telecmiAgentName?: string;
+  telecmiExtension?: number;
+  telecmiLoginEmail?: string;
+};
+const isCallCentre = (role: string) =>
+  /^CALL_(CENTRE|CENTER)(?:_AGENT)?$/.test(role);
+export function StaffPage() {
+  const qc = useQueryClient(),
+    [search, setSearch] = useState(""),
+    [open, setOpen] = useState(false),
+    [edit, setEdit] = useState<Staff | null>(null),
+    [activity, setActivity] = useState<Staff | null>(null),
+    [formRole, setFormRole] = useState("");
+  const { data, isLoading, error } = useQuery({
+      queryKey: ["staff-accounts"],
+      queryFn: () => api.get("/crm/staff-accounts").then(unwrap),
+    }),
+    { data: roleData } = useQuery({
+      queryKey: ["staff-role-options"],
+      queryFn: () => api.get("/crm/modules/roles-permissions").then(unwrap),
+    });
+  const staff: Staff[] = data?.items || [],
+    roles = (roleData?.items || []).map((x: any) => ({
+      code: x.data?.code || x.title.toUpperCase().replace(/\W+/g, "_"),
+      name: x.title,
+    })),
+    callCentre = isCallCentre(formRole);
+  const {
+    data: agents,
+    isLoading: agentsLoading,
+    error: agentsError,
+  } = useQuery({
+    queryKey: ["telecmi-users"],
+    queryFn: () => api.get("/integrations/telecmi/users").then(unwrap),
+    enabled: open && callCentre,
+  });
+  const { data: activityData, isLoading: activityLoading } = useQuery({
+    queryKey: ["staff-activity", activity?.id],
+    queryFn: () =>
+      api.get(`/crm/staff-accounts/${activity!.id}/activity`).then(unwrap),
+    enabled: !!activity,
+  });
+  const save = useMutation({
+      mutationFn: (payload: object) =>
+        edit
+          ? api.patch(`/crm/staff-accounts/${edit.id}`, payload)
+          : api.post("/crm/staff-accounts", payload),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["staff-accounts"] });
+        setOpen(false);
+        setEdit(null);
+      },
+    }),
+    remove = useMutation({
+      mutationFn: (id: string) => api.delete(`/crm/staff-accounts/${id}`),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ["staff-accounts"] }),
+    });
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    save.mutate(Object.fromEntries(new FormData(e.currentTarget)));
+  };
+  const filtered = staff.filter((x) =>
+    JSON.stringify(x).toLowerCase().includes(search.toLowerCase())
+  );
+  return (
+    <div>
+      <div className="page-head">
+        <div>
+          <span>CLINIC MANAGEMENT</span>
+          <h1>Staff</h1>
+          <p>Create secure staff logins, assign roles and review activity.</p>
+        </div>
+        <button
+          className="btn"
+          onClick={() => {
+            setEdit(null);
+            setFormRole(roles[0]?.code || "");
+            setOpen(true);
+          }}
+        >
+          <Plus /> Add Staff
+        </button>
+      </div>
+      <section className="panel table-panel">
+        <div className="toolbar">
+          <div className="search">
+            <Search />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search staff…"
+            />
+          </div>
+        </div>
+        {isLoading ? (
+          <div className="state">Loading staff…</div>
+        ) : error ? (
+          <div className="state error">Unable to load staff accounts.</div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Mobile</th>
+                  <th>Role</th>
+                  <th>TeleCMI User</th>
+                  <th>Last login</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((x) => (
+                  <tr key={x.id}>
+                    <td>
+                      <b>{x.name}</b>
+                    </td>
+                    <td>{x.email}</td>
+                    <td>{x.mobile || "—"}</td>
+                    <td>{x.role.replaceAll("_", " ")}</td>
+                    <td>
+                      {x.telecmiAgentName ? (
+                        <>
+                          {x.telecmiAgentName}
+                          <small className="cell-sub">
+                            Extension {x.telecmiExtension || "—"}
+                          </small>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
+                      {x.lastLoginAt
+                        ? new Date(x.lastLoginAt).toLocaleString("en-IN")
+                        : "Never"}
+                    </td>
+                    <td>
+                      <span className="status-pill">{x.status}</span>
+                    </td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          title="Activity logs"
+                          onClick={() => setActivity(x)}
+                        >
+                          <History />
+                        </button>
+                        <button
+                          title="Edit / reset password"
+                          onClick={() => {
+                            setEdit(x);
+                            setFormRole(x.role);
+                            setOpen(true);
+                          }}
+                        >
+                          <Pencil />
+                        </button>
+                        <button
+                          className="danger"
+                          title="Delete"
+                          onClick={() =>
+                            confirm(`Delete ${x.name}?`) && remove.mutate(x.id)
+                          }
+                        >
+                          <Trash2 />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      {open && (
+        <div className="modal-bg">
+          <form className="modal" onSubmit={submit}>
+            <div className="modal-head">
+              <div>
+                <h2>
+                  {edit ? "Edit Staff / Reset Password" : "Create Staff Login"}
+                </h2>
+                <p>
+                  {edit
+                    ? "Leave password blank to keep the current password."
+                    : "The staff member will use these credentials on Staff Login."}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="icon"
+                onClick={() => setOpen(false)}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-grid">
+              <label>
+                Full name
+                <input name="name" required defaultValue={edit?.name || ""} />
+              </label>
+              <label>
+                Email
+                <input
+                  name="email"
+                  type="email"
+                  required
+                  defaultValue={edit?.email || ""}
+                />
+              </label>
+              <label>
+                Mobile
+                <input name="mobile" defaultValue={edit?.mobile || ""} />
+              </label>
+              <label>
+                Role
+                <select
+                  name="role"
+                  required
+                  value={formRole}
+                  onChange={(e) => setFormRole(e.target.value)}
+                >
+                  <option value="" disabled>
+                    Select role
+                  </option>
+                  {roles.map((r: any) => (
+                    <option key={r.code} value={r.code}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {callCentre && (
+                <label style={{ gridColumn: "1 / -1" }}>
+                  TeleCMI user
+                  <select
+                    name="telecmiAgentId"
+                    required
+                    defaultValue={edit?.telecmiAgentId || ""}
+                  >
+                    <option value="">
+                      {agentsLoading
+                        ? "Loading TeleCMI users…"
+                        : "Select TeleCMI user"}
+                    </option>
+                    {(agents?.items || []).map((a: any) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                        {a.extension ? ` · Extension ${a.extension}` : ""}
+                        {a.phone ? ` · ${a.phone}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {agentsError && (
+                    <small className="error">
+                      Unable to load users. Check the clinic TeleCMI
+                      integration.
+                    </small>
+                  )}
+                </label>
+              )}
+              {callCentre && (
+                <label style={{ gridColumn: "1 / -1" }}>
+                  TeleCMI login email
+                  <input
+                    name="telecmiLoginEmail"
+                    type="email"
+                    required
+                    defaultValue={edit?.telecmiLoginEmail || ""}
+                    placeholder="Email used to sign in to TeleCMI"
+                  />
+                  <small>
+                    Required for Connly Online status and incoming calls.
+                  </small>
+                </label>
+              )}
+              <label>
+                Password {edit ? "(optional)" : "*"}
+                <input
+                  name="password"
+                  type="password"
+                  minLength={8}
+                  required={!edit}
+                  autoComplete="new-password"
+                  placeholder={
+                    edit ? "Enter to reset password" : "Minimum 8 characters"
+                  }
+                />
+              </label>
+              <label>
+                Status
+                <select name="status" defaultValue={edit?.status || "ACTIVE"}>
+                  <option>ACTIVE</option>
+                  <option>INACTIVE</option>
+                </select>
+              </label>
+            </div>
+            {save.error && (
+              <div className="alert error">
+                {(save.error as any).response?.data?.message ||
+                  "Unable to save staff account"}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => setOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={save.isPending || agentsLoading}
+              >
+                {save.isPending ? "Saving…" : "Save Staff"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {activity && (
+        <div className="modal-bg">
+          <div className="modal activity-modal">
+            <div className="modal-head">
+              <div>
+                <h2>{activity.name} — Activity Logs</h2>
+                <p>Most recent 100 actions performed by this staff account.</p>
+              </div>
+              <button className="icon" onClick={() => setActivity(null)}>
+                <X />
+              </button>
+            </div>
+            {activityLoading ? (
+              <div className="state">Loading activity…</div>
+            ) : (
+              <div className="staff-activity-list">
+                {(activityData?.items || []).map((log: any) => (
+                  <article key={log.id}>
+                    <History />
+                    <div>
+                      <b>{log.action.replaceAll(".", " ")}</b>
+                      <small>
+                        {log.entityType}
+                        {log.entityId ? ` · ${log.entityId}` : ""}
+                      </small>
+                    </div>
+                    <time>
+                      {new Date(log.createdAt).toLocaleString("en-IN")}
+                    </time>
+                  </article>
+                ))}
+                {!activityData?.items?.length && (
+                  <div className="empty">No activity recorded yet.</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -576,6 +576,7 @@ crmRouter.get(
         telecmiAgentId: user.telecmiAgentId,
         telecmiAgentName: user.telecmiAgentName,
         telecmiExtension: user.telecmiExtension,
+        telecmiLoginEmail: user.telecmiLoginEmail,
         createdAt: user.createdAt,
       })),
       total: users.length,
@@ -595,6 +596,7 @@ crmRouter.post(
           role: z.string().trim().min(2),
           status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
           telecmiAgentId: z.string().trim().optional(),
+          telecmiLoginEmail: z.string().trim().email().optional().or(z.literal("")),
         })
         .parse(req.body);
     const telecmiAgent=await resolveTelecmiAgent(tid,body.role,body.telecmiAgentId);
@@ -639,6 +641,7 @@ crmRouter.post(
         passwordHash: await argon2.hash(body.password),
         status: body.status,
         ...telecmiAgent,
+        telecmiLoginEmail: telecmiAgent.telecmiAgentId ? body.telecmiLoginEmail?.toLowerCase() || null : null,
         roles: { create: { roleId: role.id } },
       },
     });
@@ -664,6 +667,7 @@ crmRouter.patch(
           role: z.string().trim().min(2),
           status: z.enum(["ACTIVE", "INACTIVE"]),
           telecmiAgentId: z.string().trim().optional(),
+          telecmiLoginEmail: z.string().trim().email().optional().or(z.literal("")),
         })
         .parse(req.body);
     const found = await prisma.user.findFirst({
@@ -689,6 +693,7 @@ crmRouter.patch(
           mobile: body.mobile || null,
           status: body.status,
           ...telecmiAgent,
+          telecmiLoginEmail: telecmiAgent.telecmiAgentId ? body.telecmiLoginEmail?.toLowerCase() || null : null,
           ...(body.password
             ? { passwordHash: await argon2.hash(body.password) }
             : {}),
