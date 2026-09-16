@@ -427,6 +427,7 @@ model DoctorSchedule {
   branchId    String       @db.ObjectId
   dayOfWeek   Int
   scheduleDate DateTime?
+  sessionPeriod String?    @default("MORNING")
   startTime   String
   endTime     String
   slotMinutes Int          @default(15)

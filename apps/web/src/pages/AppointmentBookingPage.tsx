@@ -122,12 +122,14 @@ export function AppointmentBookingPage({
               appointment.doctorId === doctorId &&
               appointment.branchId === branchId &&
               appointment.status !== "CANCELLED" &&
-              appointment.startsAt?.slice(0, 10) === date,
+              appointment.startsAt?.slice(0, 10) === date &&
+              new Date(appointment.startsAt).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }) >= item.startTime &&
+              new Date(appointment.startsAt).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }) < item.endTime,
           ).length,
           remaining = Math.max(0, item.maxPatients - used);
         return {
           id: item.id,
-          label: `${new Date(item.scheduleDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} (${remaining} slots left)`,
+          label: `${item.sessionPeriod === "EVENING" ? "Evening" : "Morning"} · ${new Date(item.scheduleDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} (${remaining} slots left)`,
           search: `${date} ${remaining}`,
           raw: { ...item, remaining },
         };

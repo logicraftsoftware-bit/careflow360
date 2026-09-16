@@ -110,6 +110,7 @@ const allowedFields: Record<string, string[]> = {
     "branchId",
     "dayOfWeek",
     "scheduleDate",
+    "sessionPeriod",
     "startTime",
     "endTime",
     "slotMinutes",
@@ -1906,7 +1907,9 @@ crmRouter.post(
       );
     const date = schedule.scheduleDate.toISOString().slice(0, 10),
       dayStart = new Date(`${date}T00:00:00+05:30`),
-      dayEnd = new Date(dayStart.getTime() + 86400000);
+      dayEnd = new Date(dayStart.getTime() + 86400000),
+      sessionStart = new Date(`${date}T${schedule.startTime}:00+05:30`),
+      sessionEnd = new Date(`${date}T${schedule.endTime}:00+05:30`);
     const result = await prisma.$transaction(async (tx) => {
       const duplicate = await tx.appointment.findFirst({
         where: {
@@ -1928,7 +1931,7 @@ crmRouter.post(
           tenantId: tid,
           doctorId: doctor.id,
           branchId: branch.id,
-          startsAt: { gte: dayStart, lt: dayEnd },
+          startsAt: { gte: sessionStart, lt: sessionEnd },
           status: { not: "CANCELLED" },
         },
       });
@@ -1938,9 +1941,9 @@ crmRouter.post(
           "No appointment slots remain for this date",
           "SCHEDULE_FULL"
         );
-      const startsAt = new Date(`${date}T${schedule.startTime}:00+05:30`),
+      const startsAt = sessionStart,
         slotStart = body.startsAt,
-        scheduleEnd = new Date(`${date}T${schedule.endTime}:00+05:30`);
+        scheduleEnd = sessionEnd;
       const offset = slotStart.getTime() - startsAt.getTime();
       if (
         offset < 0 ||

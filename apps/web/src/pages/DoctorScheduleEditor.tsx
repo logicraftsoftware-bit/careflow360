@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, unwrap } from "../api";
+import "./DoctorScheduleEditor.css";
 
 const weekDays = [
   "Sunday",
@@ -29,6 +30,23 @@ const calculatedEndTime = (startTime: string, slotMinutes: number, maxPatients: 
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
 type ScheduleMode = "MONTHLY" | "WEEKLY" | "DAILY";
+type SessionPeriod = "MORNING" | "EVENING";
+type SessionForm = { startTime: string; slotMinutes: number; maxPatients: number; status: string };
+const defaultSessionForms: Record<SessionPeriod, SessionForm> = {
+  MORNING: { startTime: "09:00", slotMinutes: 15, maxPatients: 20, status: "ACTIVE" },
+  EVENING: { startTime: "17:00", slotMinutes: 15, maxPatients: 20, status: "ACTIVE" },
+};
+function SessionFields({ period, form, onChange }: { period: SessionPeriod; form: SessionForm; onChange: (change: Partial<SessionForm>) => void }) {
+  return <section className="session-form"><h3>{period === "MORNING" ? "Morning" : "Evening"} availability</h3>
+    <label><span><Clock /> Start time</span><input type="time" value={form.startTime} onChange={(event) => onChange({ startTime: event.target.value })}/></label>
+    <div className="schedule-form-row">
+      <label><span>Slot duration</span><select value={form.slotMinutes} onChange={(event) => onChange({ slotMinutes: Number(event.target.value) })}>{[10,15,20,30,45,60].map(value => <option key={value} value={value}>{value} minutes</option>)}</select></label>
+      <label><span>Maximum patients</span><input type="number" min="1" value={form.maxPatients} onChange={(event) => onChange({ maxPatients: Number(event.target.value) })}/></label>
+    </div>
+    <label><span>Status</span><select value={form.status} onChange={(event) => onChange({ status: event.target.value })}><option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option></select></label>
+    <div className="slot-summary"><b>{period.toLowerCase()} slot summary</b><strong>{form.startTime} – {calculatedEndTime(form.startTime, form.slotMinutes, form.maxPatients)}</strong><span>{form.slotMinutes}-minute slots · {form.maxPatients} maximum patients</span></div>
+  </section>;
+}
 
 export function DoctorScheduleEditor({
   schedule,
@@ -45,12 +63,10 @@ export function DoctorScheduleEditor({
   const [selected, setSelected] = useState<Date | null>(null);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("MONTHLY");
   const [editingSingleDate, setEditingSingleDate] = useState(false);
-  const [form, setForm] = useState({
-    startTime: schedule.startTime || "09:00",
-    slotMinutes: schedule.slotMinutes || 15,
-    maxPatients: schedule.maxPatients || 20,
-    status: schedule.status || "ACTIVE",
-  });
+  const [enabledSessions, setEnabledSessions] = useState<Record<SessionPeriod, boolean>>({ MORNING: true, EVENING: false });
+  const [forms, setForms] = useState<Record<SessionPeriod, SessionForm>>(defaultSessionForms);
+  const form = forms.MORNING;
+  const setForm = (next: SessionForm) => setForms((current) => ({ ...current, MORNING: next }));
   const { data: schedulesData } = useQuery({
     queryKey: [
       "doctor-schedule-calendar",
@@ -112,6 +128,7 @@ export function DoctorScheduleEditor({
     ).length;
   const remainingForDate = (date: string, maximum: number) =>
     Math.max(0, Number(maximum) - bookedForDate(date));
+  const sessionOf = (item: any): SessionPeriod => item.sessionPeriod === "EVENING" ? "EVENING" : "MORNING";
   const cells = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1),
       start = new Date(first);
@@ -145,38 +162,32 @@ export function DoctorScheduleEditor({
   );
   const selectDate = (date: Date) => {
     setSelected(date);
-    const existing = schedules.find(
-      (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date),
-    );
-    setEditingSingleDate(Boolean(existing));
-    setForm(
-      existing
-        ? {
-            startTime: existing.startTime,
-            slotMinutes: existing.slotMinutes,
-            maxPatients: existing.maxPatients,
-            status: existing.status,
-          }
-        : {
-            startTime: "09:00",
-            slotMinutes: 15,
-            maxPatients: 20,
-            status: "ACTIVE",
-          },
-    );
+    const existing = schedules.filter((item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date));
+    setEditingSingleDate(existing.length > 0);
+    const morning = existing.find((item: any) => sessionOf(item) === "MORNING");
+    const evening = existing.find((item: any) => sessionOf(item) === "EVENING");
+    setEnabledSessions(existing.length ? { MORNING: Boolean(morning), EVENING: Boolean(evening) } : { MORNING: true, EVENING: false });
+    setForms({
+      MORNING: morning ? { startTime: morning.startTime, slotMinutes: morning.slotMinutes, maxPatients: morning.maxPatients, status: morning.status } : defaultSessionForms.MORNING,
+      EVENING: evening ? { startTime: evening.startTime, slotMinutes: evening.slotMinutes, maxPatients: evening.maxPatients, status: evening.status } : defaultSessionForms.EVENING,
+    });
   };
   const save = useMutation({
     mutationFn: async () => {
       if (!selectedDates.length) throw new Error("Select a date first");
-      await Promise.all(selectedDates.map((date) => {
+      const periods = (Object.keys(enabledSessions) as SessionPeriod[]).filter(period => enabledSessions[period]);
+      if (!periods.length) throw new Error("Select morning, evening, or both");
+      await Promise.all(selectedDates.flatMap((date) => periods.map((period) => {
+        const form = forms[period];
         const existing = schedules.find(
-          (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date),
+          (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date) && sessionOf(item) === period,
         );
         const body = {
           doctorId: schedule.doctorId,
           branchId: schedule.branchId,
           dayOfWeek: date.getDay(),
           scheduleDate: isoDate(date),
+          sessionPeriod: period,
           ...form,
           endTime: calculatedEndTime(form.startTime, Number(form.slotMinutes), Number(form.maxPatients)),
           slotMinutes: Number(form.slotMinutes),
@@ -185,20 +196,22 @@ export function DoctorScheduleEditor({
         return existing
           ? api.patch(`/crm/doctorSchedules/${existing.id}`, body)
           : api.post("/crm/doctorSchedules", body);
-      }));
+      })));
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["doctor-schedule-calendar"] });
       await qc.invalidateQueries({ queryKey: ["/crm/doctorSchedules"] });
       await qc.invalidateQueries({ queryKey: ["/crm/doctor-schedule-roster"] });
-      window.alert(`${selectedDates.length} schedule${selectedDates.length === 1 ? "" : "s"} saved successfully`);
+      const sessionCount = Object.values(enabledSessions).filter(Boolean).length;
+      const count = selectedDates.length * sessionCount;
+      window.alert(`${count} session${count === 1 ? "" : "s"} saved successfully`);
     },
   });
   const remove = useMutation({
-    mutationFn: () => {
+    mutationFn: (period: SessionPeriod) => {
       if (!selected) throw new Error("Select a scheduled date first");
       const existing = schedules.find(
-        (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(selected),
+        (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(selected) && sessionOf(item) === period,
       );
       if (!existing) throw new Error("No schedule exists for this date");
       return api.delete(`/crm/doctorSchedules/${existing.id}`);
@@ -211,11 +224,7 @@ export function DoctorScheduleEditor({
       window.alert("Schedule deleted successfully");
     },
   });
-  const selectedSchedule = selected
-    ? schedules.find(
-        (item: any) => item.scheduleDate?.slice(0, 10) === isoDate(selected),
-      )
-    : null;
+  const selectedSchedule = selected ? schedules.find((item: any) => item.scheduleDate?.slice(0, 10) === isoDate(selected) && sessionOf(item) === "MORNING") : null;
   return (
     <div className="schedule-page">
       <button className="schedule-back" onClick={onBack}>
@@ -277,12 +286,12 @@ export function DoctorScheduleEditor({
           </div>
           <div className="calendar-days">
             {cells.map((date) => {
-              const dateSchedule = schedules.find(
+              const dateSchedules = schedules.filter(
                   (item: any) =>
                     item.scheduleDate?.slice(0, 10) === isoDate(date) &&
                     item.status === "ACTIVE",
                 ),
-                active = !!dateSchedule,
+                active = dateSchedules.length > 0,
                 outside = date.getMonth() !== month.getMonth(),
                 chosen = selectedDateKeys.has(isoDate(date));
               return (
@@ -294,12 +303,9 @@ export function DoctorScheduleEditor({
                   <span>{date.getDate()}</span>
                   {active && (
                     <i>
-                      Available{" "}
+                      {dateSchedules.map(sessionOf).map((x: SessionPeriod) => x === "MORNING" ? "Morning" : "Evening").join(" + ")}{" "}
                       <em>
-                        {remainingForDate(
-                          isoDate(date),
-                          dateSchedule.maxPatients,
-                        )}{" "}
+                        {dateSchedules.reduce((sum: number, item: any) => sum + item.maxPatients, 0)}{" "}
                         slots
                       </em>
                     </i>
@@ -342,6 +348,15 @@ export function DoctorScheduleEditor({
                 </strong>
                 .
               </div>
+              <div className="session-selectors">
+                {(["MORNING", "EVENING"] as SessionPeriod[]).map((period) => (
+                  <label key={period} className={enabledSessions[period] ? "selected" : ""}>
+                    <input type="checkbox" checked={enabledSessions[period]} onChange={(event) => setEnabledSessions({ ...enabledSessions, [period]: event.target.checked })}/>
+                    {period === "MORNING" ? "Morning session" : "Evening session"}
+                  </label>
+                ))}
+              </div>
+              {enabledSessions.MORNING && <section className="session-form"><h3>Morning availability</h3>
               <label>
                 <span>
                   <Clock /> Start time
@@ -408,6 +423,9 @@ export function DoctorScheduleEditor({
                   remaining of {form.maxPatients}
                 </span>
               </div>
+              </section>}
+              {enabledSessions.EVENING && <SessionFields period="EVENING" form={forms.EVENING} onChange={(change) => setForms({ ...forms, EVENING: { ...forms.EVENING, ...change } })} />}
+              {selected && schedules.some((item: any) => item.scheduleDate?.slice(0, 10) === isoDate(selected) && sessionOf(item) === "EVENING") && <button className="delete-session" disabled={remove.isPending} onClick={() => window.confirm(`Delete the evening session for ${selected.toLocaleDateString("en-IN")}?`) && remove.mutate("EVENING")}><Trash2 /> Delete evening session</button>}
               {(save.error || remove.error) && (
                 <div className="alert error">
                   {((save.error || remove.error) as any).response?.data
@@ -430,7 +448,7 @@ export function DoctorScheduleEditor({
                     onClick={() =>
                       window.confirm(
                         `Delete the schedule for ${selected.toLocaleDateString("en-IN")}?`,
-                      ) && remove.mutate()
+                      ) && remove.mutate("MORNING")
                     }
                   >
                     <Trash2 /> Delete
@@ -458,6 +476,7 @@ export function DoctorScheduleEditor({
                   }}
                 >
                   <b>
+                    {sessionOf(item) === "MORNING" ? "Morning · " : "Evening · "}
                     {new Date(item.scheduleDate).toLocaleDateString("en-IN", {
                       weekday: "short",
                       day: "numeric",
