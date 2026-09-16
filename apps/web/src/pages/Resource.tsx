@@ -1246,24 +1246,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         ),
     }),
     ivrCall = useMutation({
-      mutationFn: (to: string) =>
-        api.post("/integrations/telecmi/make-call", { to }),
-      onSuccess: () =>
-        void Swal.fire({
-          icon: "success",
-          title: "IVR call started",
-          text: "The call is being connected through your assigned TeleCMI user.",
-          timer: 2200,
-          showConfirmButton: false,
-        }),
-      onError: (callError: any) =>
-        void Swal.fire({
-          icon: "error",
-          title: "Unable to start IVR call",
-          text:
-            callError.response?.data?.message ||
-            "Check the TeleCMI user assignment and Online status.",
-        }),
+      mutationFn: async (to: string) => {
+        window.dispatchEvent(
+          new CustomEvent("telecmi:dial", { detail: { number: to } }),
+        );
+      },
     }),
     assignLab=useMutation({mutationFn:({id,technicianId}:{id:string;technicianId:string})=>api.patch(`/crm/lab-appointments/${id}/assign`,{technicianId}),onSuccess:()=>{setAssignRecord(undefined);qc.invalidateQueries({queryKey:[endpoint]})}}),
     tenant = useMutation({
