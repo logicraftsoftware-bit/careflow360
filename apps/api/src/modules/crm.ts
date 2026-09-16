@@ -2560,6 +2560,9 @@ crmRouter.patch(
     }
     if (req.params.resource === "appointments") {
       const appointment = found as any;
+      const attendanceFinal = ["CHECKED_IN", "IN_CONSULTATION", "COMPLETED", "NO_SHOW"].includes(
+        appointment.status
+      );
       if (data.status === "CANCELLED")
         data.cancellationReason = z
           .string()
@@ -2568,10 +2571,10 @@ crmRouter.patch(
           .max(250)
           .parse(req.body.cancellationReason || "Cancelled by clinic");
       if (data.paymentStatus === "PENDING") {
-        data.status = "PAYMENT_PENDING";
+        if (!attendanceFinal) data.status = "PAYMENT_PENDING";
         data.token = null;
         data.paymentConfirmedAt = null;
-      } else if (["PAID", "NOT_REQUIRED"].includes(data.paymentStatus)) {
+      } else if (["PAID", "PARTIALLY_PAID", "NOT_REQUIRED"].includes(data.paymentStatus)) {
         const [doctor, department] = await Promise.all([
           prisma.doctor.findFirst({
             where: { id: data.doctorId || appointment.doctorId, tenantId: tid },
@@ -2589,7 +2592,10 @@ crmRouter.patch(
             "Doctor or department is invalid",
             "INVALID_APPOINTMENT"
           );
-        if (!appointment.token)
+        if (
+          data.paymentStatus !== "PARTIALLY_PAID" &&
+          !appointment.token
+        )
           data.token = appointmentToken(
             doctor.name,
             department.name,
@@ -2597,10 +2603,11 @@ crmRouter.patch(
             data.startsAt || appointment.startsAt,
             appointment.serialNumber || 1
           );
-        data.status = "CONFIRMED";
-        if (data.paymentStatus === "PAID") {
-          data.paymentConfirmedAt = new Date();
-          if (appointment.paymentStatus !== "PAID") {
+        if (!attendanceFinal)
+          data.status = data.paymentStatus === "PARTIALLY_PAID" ? "PAYMENT_PENDING" : "CONFIRMED";
+        if (["PAID", "PARTIALLY_PAID"].includes(data.paymentStatus)) {
+          if (data.paymentStatus === "PAID") data.paymentConfirmedAt = new Date();
+          if (appointment.paymentStatus !== data.paymentStatus) {
             const paymentMethod = z
               .enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"])
               .parse(req.body.paymentMethod);
@@ -2616,6 +2623,19 @@ crmRouter.patch(
                 "UTR or transaction number is required",
                 "PAYMENT_REFERENCE_REQUIRED"
               );
+            const paymentAmount = z.coerce
+              .number()
+              .positive()
+              .parse(req.body.paymentAmount ?? appointment.amount);
+            if (
+              data.paymentStatus === "PARTIALLY_PAID" &&
+              paymentAmount >= Number(appointment.amount)
+            )
+              throw new AppError(
+                400,
+                "Partial payment must be less than the consultation fee",
+                "INVALID_PARTIAL_PAYMENT"
+              );
             data.payments = {
               create: {
                 tenantId: tid,
@@ -2628,8 +2648,8 @@ crmRouter.patch(
                     .max(500)
                     .optional()
                     .parse(req.body.paymentRemarks) || null,
-                amount: Number(data.amount ?? appointment.amount),
-                status: "PAID",
+                amount: paymentAmount,
+                status: data.paymentStatus,
                 secureToken: randomUUID(),
                 confirmedAt: new Date(),
                 collectedById: req.user!.id,

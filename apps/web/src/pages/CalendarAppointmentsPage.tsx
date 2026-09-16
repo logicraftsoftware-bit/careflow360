@@ -1,82 +1,40 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, ChevronRight, Search, Stethoscope, UserX } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Download, FileText, Search, Stethoscope, UserX, X } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, unwrap } from "../api";
 import "./CalendarAppointmentsPage.css";
 
-const dateLabel = (date: string) =>
-  new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-
-const timeLabel = (value: string) =>
-  new Date(value).toLocaleTimeString("en-IN", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
-
-const titleCase = (value: string) =>
-  String(value || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+const timeLabel = (value: string) => new Date(value).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
+const titleCase = (value: string) => String(value || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+const attendanceLabel = (status: string) => ["CHECKED_IN", "IN_CONSULTATION", "COMPLETED"].includes(status) ? "Checked in" : status === "NO_SHOW" ? "Absent" : "Awaiting";
 
 export function CalendarAppointmentsPage() {
   const { date = "", doctorId } = useParams();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [attendance, setAttendance] = useState("ALL");
-  const [payment, setPayment] = useState("ALL");
-  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
-  const from = validDate ? new Date(`${date}T00:00:00+05:30`) : new Date();
-  const to = new Date(from.getTime() + 86400000);
-  const queryKey = ["calendar-appointment-day", date];
-  const { data: raw = [], isLoading, error } = useQuery({
-    queryKey,
-    queryFn: () =>
-      api
-        .get(`/crm/appointments/calendar?from=${from.toISOString()}&to=${to.toISOString()}`)
-        .then(unwrap),
-    enabled: validDate,
-  });
+  const navigate = useNavigate(), queryClient = useQueryClient();
+  const [search, setSearch] = useState(""), [attendance, setAttendance] = useState("ALL"), [payment, setPayment] = useState("ALL");
+  const [paymentEdit, setPaymentEdit] = useState<any>(), [paymentMethod, setPaymentMethod] = useState(""), [paymentReference, setPaymentReference] = useState(""), [paymentAmount, setPaymentAmount] = useState(""), [paymentRemarks, setPaymentRemarks] = useState("");
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date), from = validDate ? new Date(`${date}T00:00:00+05:30`) : new Date(), to = new Date(from.getTime() + 86400000), queryKey = ["calendar-appointment-day", date];
+  const { data: raw = [], isLoading, error } = useQuery({ queryKey, queryFn: () => api.get(`/crm/appointments/calendar?from=${from.toISOString()}&to=${to.toISOString()}`).then(unwrap), enabled: validDate });
   const appointments = (raw as any[]).filter((item) => item.status !== "CANCELLED");
   const doctors = useMemo(() => {
     const grouped = new Map<string, any>();
     for (const appointment of appointments) {
-      const current = grouped.get(appointment.doctor.id) || {
-        ...appointment.doctor,
-        department: appointment.department?.name,
-        branches: new Set<string>(),
-        appointments: [],
-      };
+      const current = grouped.get(appointment.doctor.id) || { ...appointment.doctor, department: appointment.department?.name, branches: new Set<string>(), appointments: [] };
       if (appointment.branch?.name) current.branches.add(appointment.branch.name);
-      current.appointments.push(appointment);
-      grouped.set(appointment.doctor.id, current);
+      current.appointments.push(appointment); grouped.set(appointment.doctor.id, current);
     }
     return [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [appointments]);
   const selectedDoctor = doctors.find((doctor) => doctor.id === doctorId);
-  const updateAttendance = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "CHECKED_IN" | "NO_SHOW" }) =>
-      api.patch(`/crm/appointments/${id}`, { status }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
-    onError: (updateError: any) =>
-      window.alert(updateError.response?.data?.message || "Unable to update attendance"),
-  });
+  const updateAttendance = useMutation({ mutationFn: ({ id, status }: { id: string; status: "CHECKED_IN" | "NO_SHOW" }) => api.patch(`/crm/appointments/${id}`, { status }), onSuccess: () => queryClient.invalidateQueries({ queryKey }), onError: (updateError: any) => window.alert(updateError.response?.data?.message || "Unable to update attendance") });
+  const updatePayment = useMutation({ mutationFn: (body: any) => api.patch(`/crm/appointments/${paymentEdit.appointment.id}`, body), onSuccess: async () => { setPaymentEdit(undefined); await queryClient.invalidateQueries({ queryKey }); }, onError: (paymentError: any) => window.alert(paymentError.response?.data?.message || "Unable to update payment status") });
   const filtered = useMemo(() => {
     const text = search.trim().toLowerCase();
     return (selectedDoctor?.appointments || []).filter((item: any) => {
-      const matchesSearch = !text || [item.patient?.name, item.patient?.patientNumber, item.patient?.mobile]
-        .some((value) => String(value || "").toLowerCase().includes(text));
-      const matchesAttendance =
-        attendance === "ALL" ||
-        (attendance === "CHECKED_IN" && ["CHECKED_IN", "IN_CONSULTATION", "COMPLETED"].includes(item.status)) ||
-        (attendance === "NO_SHOW" && item.status === "NO_SHOW") ||
-        (attendance === "WAITING" && !["CHECKED_IN", "NO_SHOW", "COMPLETED"].includes(item.status));
+      const matchesSearch = !text || [item.patient?.name, item.patient?.patientNumber, item.patient?.mobile].some((value) => String(value || "").toLowerCase().includes(text));
+      const matchesAttendance = attendance === "ALL" || (attendance === "CHECKED_IN" && ["CHECKED_IN", "IN_CONSULTATION", "COMPLETED"].includes(item.status)) || (attendance === "NO_SHOW" && item.status === "NO_SHOW") || (attendance === "WAITING" && !["CHECKED_IN", "IN_CONSULTATION", "NO_SHOW", "COMPLETED"].includes(item.status));
       return matchesSearch && matchesAttendance && (payment === "ALL" || item.paymentStatus === payment);
     });
   }, [selectedDoctor, search, attendance, payment]);
@@ -84,48 +42,23 @@ export function CalendarAppointmentsPage() {
   if (!validDate) return <div className="state error">Invalid calendar date.</div>;
   if (isLoading) return <div className="state">Loading appointments...</div>;
   if (error) return <div className="state error">{(error as any)?.response?.data?.message || "Unable to load appointments"}</div>;
-
-  if (!doctorId) return (
-    <div className="calendar-drilldown">
-      <button className="schedule-back" onClick={() => navigate("/app/calendar")}><ArrowLeft /> Back to calendar</button>
-      <div className="page-head"><div><span>APPOINTMENT ROSTER</span><h1>{dateLabel(date)}</h1><p>{appointments.length} appointment{appointments.length === 1 ? "" : "s"} across {doctors.length} doctor{doctors.length === 1 ? "" : "s"}.</p></div></div>
-      {doctors.length ? <div className="doctor-roster-grid">{doctors.map((doctor) => (
-        <button key={doctor.id} onClick={() => navigate(`/app/calendar/${date}/${doctor.id}`)}>
-          <span className="doctor-roster-icon"><Stethoscope /></span>
-          <span><strong>{doctor.name}</strong><small>{doctor.department || "Department not assigned"}</small><em>{[...doctor.branches].join(", ")}</em></span>
-          <b>{doctor.appointments.length}<small>patients</small></b><ChevronRight />
-        </button>
-      ))}</div> : <div className="panel calendar-no-results">No doctor appointments are booked on this date.</div>}
-    </div>
-  );
-
+  if (!doctorId) return <div className="calendar-drilldown"><button className="schedule-back" onClick={() => navigate("/app/calendar")}><ArrowLeft /> Back to calendar</button><div className="page-head"><div><span>APPOINTMENT ROSTER</span><h1>{dateLabel(date)}</h1><p>{appointments.length} appointment{appointments.length === 1 ? "" : "s"} across {doctors.length} doctor{doctors.length === 1 ? "" : "s"}.</p></div></div>{doctors.length ? <div className="doctor-roster-grid">{doctors.map((doctor) => <button key={doctor.id} onClick={() => navigate(`/app/calendar/${date}/${doctor.id}`)}><span className="doctor-roster-icon"><Stethoscope /></span><span><strong>{doctor.name}</strong><small>{doctor.department || "Department not assigned"}</small><em>{[...doctor.branches].join(", ")}</em></span><b>{doctor.appointments.length}<small>patients</small></b><ChevronRight /></button>)}</div> : <div className="panel calendar-no-results">No doctor appointments are booked on this date.</div>}</div>;
   if (!selectedDoctor) return <div className="state error">Doctor appointments were not found for this date.</div>;
+
   const paymentOptions = [...new Set(selectedDoctor.appointments.map((item: any) => item.paymentStatus))] as string[];
-  return (
-    <div className="calendar-drilldown">
-      <button className="schedule-back" onClick={() => navigate(`/app/calendar/${date}`)}><ArrowLeft /> Back to doctors</button>
-      <div className="page-head"><div><span>DAILY PATIENT LIST</span><h1>{selectedDoctor.name}</h1><p>{dateLabel(date)} · {selectedDoctor.department || "Doctor appointments"}</p></div></div>
-      <div className="appointment-colour-legend">
-        <b>Colour guide:</b><span><i className="waiting" />Awaiting</span><span><i className="checked" />Checked in</span><span><i className="absent" />Absent</span><span><i className="paid" />Paid</span><span><i className="pending" />Payment pending</span><span><i className="partial" />Partially paid</span><span><i className="not-required" />Payment not required</span>
-      </div>
-      <section className="panel patient-roster">
-        <div className="patient-roster-tools">
-          <label><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient name, ID or phone number" /></label>
-          <select value={attendance} onChange={(event) => setAttendance(event.target.value)}><option value="ALL">All attendance</option><option value="WAITING">Awaiting</option><option value="CHECKED_IN">Checked in</option><option value="NO_SHOW">Absent</option></select>
-          <select value={payment} onChange={(event) => setPayment(event.target.value)}><option value="ALL">All payment statuses</option>{paymentOptions.map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select>
-        </div>
-        <div className="patient-roster-summary">Showing <b>{filtered.length}</b> of {selectedDoctor.appointments.length} patients</div>
-        <div className="patient-roster-list">{filtered.map((appointment: any) => {
-          const attendanceClass = ["CHECKED_IN", "IN_CONSULTATION", "COMPLETED"].includes(appointment.status) ? "checked" : appointment.status === "NO_SHOW" ? "absent" : "waiting";
-          return <article key={appointment.id} className={attendanceClass}>
-            <time>{timeLabel(appointment.startsAt)}</time>
-            <div className="patient-roster-person"><strong>{appointment.patient?.name || "Patient"}</strong><span>{appointment.patient?.patientNumber || "No patient ID"} · {appointment.patient?.mobile || "No phone number"}</span></div>
-            <span className={`attendance-badge ${attendanceClass}`}>{attendanceClass === "checked" ? "Checked in" : attendanceClass === "absent" ? "Absent" : "Awaiting"}</span>
-            <span className={`payment-badge ${String(appointment.paymentStatus).toLowerCase()}`}>{titleCase(appointment.paymentStatus)}</span>
-            <div className="patient-roster-actions"><button className="checkin" disabled={updateAttendance.isPending || appointment.status === "CHECKED_IN"} onClick={() => updateAttendance.mutate({ id: appointment.id, status: "CHECKED_IN" })}><Check /> Check in</button><button className="absent" disabled={updateAttendance.isPending || appointment.status === "NO_SHOW"} onClick={() => updateAttendance.mutate({ id: appointment.id, status: "NO_SHOW" })}><UserX /> Absent</button></div>
-          </article>;
-        })}{!filtered.length && <div className="calendar-no-results">No patients match the selected filters.</div>}</div>
-      </section>
-    </div>
-  );
+  const openPayment = (appointment: any, status: string) => { if (status === appointment.paymentStatus) return; setPaymentEdit({ appointment, status }); setPaymentMethod(""); setPaymentReference(""); setPaymentAmount(status === "PAID" ? String(appointment.amount || "") : ""); setPaymentRemarks(""); };
+  const exportRows = filtered.map((item: any) => [timeLabel(item.startsAt), item.patient?.name || "Patient", item.patient?.patientNumber || "", item.patient?.mobile || "", attendanceLabel(item.status), titleCase(item.paymentStatus), Number(item.amount || 0).toFixed(2)]);
+  const exportCsv = () => { const rows = [["Time", "Patient", "Patient ID", "Phone", "Attendance", "Payment status", "Consultation fee"], ...exportRows], csv = rows.map((row) => row.map((cell: any) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n"), url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })), link = document.createElement("a"); link.href = url; link.download = `${selectedDoctor.name}-${date}-patients.csv`; link.click(); URL.revokeObjectURL(url); };
+  const exportPdf = async () => { const [{ jsPDF }, { default: autoTable }] = await Promise.all([import("jspdf"), import("jspdf-autotable")]); const document = new jsPDF({ orientation: "landscape" }); document.setFontSize(16); document.text(`${selectedDoctor.name} - Patient roster`, 14, 16); document.setFontSize(10); document.text(dateLabel(date), 14, 23); autoTable(document, { startY: 29, head: [["Time", "Patient", "Patient ID", "Phone", "Attendance", "Payment status", "Fee"]], body: exportRows, styles: { fontSize: 8 }, headStyles: { fillColor: [5, 150, 105] } }); document.save(`${selectedDoctor.name}-${date}-patients.pdf`); };
+  const submitPayment = (event: React.FormEvent) => { event.preventDefault(); const financial = ["PAID", "PARTIALLY_PAID"].includes(paymentEdit.status); if (financial && !paymentMethod) return window.alert("Select a payment method"); if (financial && paymentMethod !== "CASH" && !paymentReference.trim()) return window.alert("Enter the payment reference number"); updatePayment.mutate({ paymentStatus: paymentEdit.status, ...(financial ? { paymentMethod, utrNumber: paymentReference.trim() || undefined, paymentAmount: Number(paymentAmount), paymentRemarks: paymentRemarks.trim() || undefined } : {}) }); };
+
+  return <div className="calendar-drilldown">
+    <button className="schedule-back" onClick={() => navigate(`/app/calendar/${date}`)}><ArrowLeft /> Back to doctors</button>
+    <div className="page-head roster-page-head"><div><span>DAILY PATIENT LIST</span><h1>{selectedDoctor.name}</h1><p>{dateLabel(date)} · {selectedDoctor.department || "Doctor appointments"}</p></div><div className="roster-export-actions"><button className="btn ghost" onClick={exportCsv}><Download /> Export CSV</button><button className="btn" onClick={exportPdf}><FileText /> Export PDF</button></div></div>
+    <div className="appointment-colour-legend"><b>Colour guide:</b><span><i className="waiting" />Awaiting</span><span><i className="checked" />Checked in</span><span><i className="absent" />Absent</span><span><i className="paid" />Paid</span><span><i className="pending" />Payment pending</span><span><i className="partial" />Partially paid</span><span><i className="not-required" />Payment not required</span></div>
+    <section className="panel patient-roster"><div className="patient-roster-tools"><label><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient name, ID or phone number" /></label><select value={attendance} onChange={(event) => setAttendance(event.target.value)}><option value="ALL">All attendance</option><option value="WAITING">Awaiting</option><option value="CHECKED_IN">Checked in</option><option value="NO_SHOW">Absent</option></select><select value={payment} onChange={(event) => setPayment(event.target.value)}><option value="ALL">All payment statuses</option>{paymentOptions.map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></div><div className="patient-roster-summary">Showing <b>{filtered.length}</b> of {selectedDoctor.appointments.length} patients</div>
+      <div className="patient-roster-list">{filtered.map((appointment: any) => { const attendanceClass = ["CHECKED_IN", "IN_CONSULTATION", "COMPLETED"].includes(appointment.status) ? "checked" : appointment.status === "NO_SHOW" ? "absent" : "waiting"; return <article key={appointment.id} className={attendanceClass}><time>{timeLabel(appointment.startsAt)}</time><div className="patient-roster-person"><strong>{appointment.patient?.name || "Patient"}</strong><span>{appointment.patient?.patientNumber || "No patient ID"} · {appointment.patient?.mobile || "No phone number"}</span></div><span className={`attendance-badge ${attendanceClass}`}>{attendanceLabel(appointment.status)}</span><select aria-label={`Payment status for ${appointment.patient?.name || "patient"}`} className={`payment-status-select ${String(appointment.paymentStatus).toLowerCase()}`} value={appointment.paymentStatus} onChange={(event) => openPayment(appointment, event.target.value)}><option value="PENDING">Pending</option><option value="PARTIALLY_PAID">Partially paid</option><option value="PAID">Paid</option><option value="NOT_REQUIRED">Not required</option><option value="FAILED">Failed</option><option value="REFUNDED">Refunded</option></select><div className="patient-roster-actions"><button className="checkin" disabled={updateAttendance.isPending || appointment.status === "CHECKED_IN"} onClick={() => updateAttendance.mutate({ id: appointment.id, status: "CHECKED_IN" })}><Check /> Check in</button><button className="absent" disabled={updateAttendance.isPending || appointment.status === "NO_SHOW"} onClick={() => updateAttendance.mutate({ id: appointment.id, status: "NO_SHOW" })}><UserX /> Absent</button></div></article>; })}{!filtered.length && <div className="calendar-no-results">No patients match the selected filters.</div>}</div>
+    </section>
+    {paymentEdit && <div className="modal-bg"><form className="modal roster-payment-modal" onSubmit={submitPayment}><div className="modal-head"><div><small>PAYMENT UPDATE</small><h2>{paymentEdit.appointment.patient?.name}</h2><p>{paymentEdit.appointment.patient?.patientNumber} · Fee ₹{Number(paymentEdit.appointment.amount || 0).toLocaleString("en-IN")}</p></div><button type="button" className="icon" onClick={() => setPaymentEdit(undefined)}><X /></button></div><div className="payment-modal-status">Change payment status to <b>{titleCase(paymentEdit.status)}</b></div>{["PAID", "PARTIALLY_PAID"].includes(paymentEdit.status) && <div className="modal-grid"><label>Payment method<select required value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="">Select method</option><option value="CASH">Cash</option><option value="UPI">UPI</option><option value="CARD">Card</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CHEQUE">Cheque</option></select></label><label>Amount collected<input required type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label><label>Reference / transaction number<input required={paymentMethod !== "CASH"} value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder={paymentMethod === "CASH" ? "Optional for cash" : "Required"} /></label><label>Payment remarks<input value={paymentRemarks} onChange={(event) => setPaymentRemarks(event.target.value)} placeholder="Optional remarks" /></label></div>}<div className="modal-actions"><button type="button" className="btn ghost" onClick={() => setPaymentEdit(undefined)}>Cancel</button><button className="btn" disabled={updatePayment.isPending}>{updatePayment.isPending ? "Updating..." : "Confirm payment update"}</button></div></form></div>}
+  </div>;
 }
