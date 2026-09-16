@@ -38,6 +38,8 @@
 .patient-roster-actions { display: flex; justify-content: flex-end; gap: 7px; }
 .patient-roster-actions button { display: inline-flex; align-items: center; gap: 5px; border-radius: 8px; padding: 8px 10px; font-size: 11px; font-weight: 700; background: #fff; }
 .patient-roster-actions svg { width: 15px; }.patient-roster-actions .checkin { border: 1px solid #86efac; color: #047857; }.patient-roster-actions .absent { border: 1px solid #fecaca; color: #b91c1c; }.patient-roster-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.patient-roster-actions .followup { border: 1px solid #bfdbfe; color: #1d4ed8; }
+.followup-modal-grid { grid-template-columns: 1fr !important; margin-top: 18px; }.followup-modal-grid textarea { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 11px; resize: vertical; font: inherit; }
 .calendar-no-results { padding: 55px 20px; text-align: center; color: #64748b; }
 .roster-payment-modal { max-width: 620px; }
 .roster-payment-modal .modal-head small { color: #2563eb; font-size: 10px; font-weight: 800; letter-spacing: .1em; }

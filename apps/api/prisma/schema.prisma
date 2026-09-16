@@ -405,6 +405,7 @@ model Doctor {
   schedules          DoctorSchedule[]
   leads              Lead[]
   appointments       Appointment[]
+  followups          FollowUp[]
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -495,8 +496,14 @@ model Lead {
 model FollowUp {
   id             String    @id @default(auto()) @map("_id") @db.ObjectId
   tenantId       String    @db.ObjectId
-  leadId         String    @db.ObjectId
-  lead           Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId         String?   @db.ObjectId
+  lead           Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  patientId      String?   @db.ObjectId
+  patient        Patient?  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointmentId  String?   @db.ObjectId
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  doctorId       String?   @db.ObjectId
+  doctor         Doctor?   @relation(fields: [doctorId], references: [id])
   staffId        String    @db.ObjectId
   scheduledAt    DateTime
   type           String
@@ -507,6 +514,8 @@ model FollowUp {
   createdAt      DateTime  @default(now())
 
   @@index([tenantId, scheduledAt])
+  @@index([tenantId, patientId])
+  @@index([tenantId, appointmentId])
 }
 
 model Patient {
@@ -531,6 +540,7 @@ model Patient {
   status        RecordStatus  @default(ACTIVE)
   appointments  Appointment[]
   calls         CallRecord[]
+  followups     FollowUp[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
@@ -564,6 +574,7 @@ model Appointment {
   cancellationReason String?
   paymentConfirmedAt DateTime?
   payments           Payment[]
+  followups          FollowUp[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 

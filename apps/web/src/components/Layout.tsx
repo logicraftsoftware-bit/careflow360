@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   Building2,
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -32,6 +33,7 @@ const tenant = [
   ["Patients", "patients", Users],
   ["Appointments", "appointments", CalendarDays],
   ["Calendar", "calendar", CalendarDays],
+  ["Patient Follow-ups", "patient-followups", CalendarClock],
   ["Reports", "reports", FileText],
   ["Payments", "payments", WalletCards],
   ["IVR Call Logs", "call-logs", PhoneCall],
@@ -99,6 +101,8 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
         : path,
     canRead = (path: string) =>
       !staff ||
+      (path === "patient-followups" &&
+        (permissions.has("calendar.read") || permissions.has("calendar.manage"))) ||
       (path === "lab-collection" &&
         user.roleCodes?.includes("LAB_TECHNICIAN")) ||
       permissions.has(`${key(path)}.read`) ||

@@ -1740,6 +1740,62 @@ crmRouter.get(
   })
 );
 crmRouter.get(
+  "/patient-followups",
+  asyncRoute(async (req, res) => {
+    const from = z.coerce.date().parse(req.query.from),
+      to = z.coerce.date().parse(req.query.to);
+    if (to <= from || to.getTime() - from.getTime() > 370 * 86400000)
+      throw new AppError(400, "Invalid follow-up date range", "INVALID_DATE_RANGE");
+    const items = await prisma.followUp.findMany({
+      where: { tenantId: tenantId(req), patientId: { not: null }, scheduledAt: { gte: from, lt: to } },
+      include: {
+        patient: { select: { id: true, name: true, patientNumber: true, mobile: true, email: true } },
+        doctor: { select: { id: true, name: true } },
+        appointment: { select: { id: true, appointmentNumber: true, startsAt: true } },
+      },
+      orderBy: { scheduledAt: "asc" },
+    });
+    return ok(res, items);
+  })
+);
+crmRouter.post(
+  "/patient-followups",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req), body = z.object({
+      appointmentId: z.string().min(1),
+      scheduledAt: z.coerce.date(),
+      remarks: z.string().trim().max(1000).optional(),
+    }).parse(req.body);
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: body.appointmentId, tenantId: tid },
+      select: { id: true, patientId: true, doctorId: true, leadId: true },
+    });
+    if (!appointment) throw new AppError(404, "Appointment not found", "NOT_FOUND");
+    const row = await prisma.followUp.create({ data: {
+      tenantId: tid, appointmentId: appointment.id, patientId: appointment.patientId,
+      doctorId: appointment.doctorId, leadId: appointment.leadId, staffId: req.user!.id,
+      scheduledAt: body.scheduledAt, type: "PATIENT_CALL", remarks: body.remarks || null,
+      status: "PENDING",
+    }});
+    await audit(req, "patient.followup.created", "FollowUp", row.id, { appointmentId: appointment.id, scheduledAt: row.scheduledAt });
+    return ok(res, row, "Follow-up scheduled", 201);
+  })
+);
+crmRouter.patch(
+  "/patient-followups/:id/status",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req), body = z.object({
+      status: z.enum(["PENDING", "COMPLETED", "MISSED", "CANCELLED"]),
+      outcome: z.string().trim().max(1000).optional(),
+    }).parse(req.body);
+    const found = await prisma.followUp.findFirst({ where: { id: req.params.id, tenantId: tid, patientId: { not: null } } });
+    if (!found) throw new AppError(404, "Patient follow-up not found", "NOT_FOUND");
+    const row = await prisma.followUp.update({ where: { id: found.id }, data: { status: body.status, outcome: body.outcome || undefined } });
+    await audit(req, `patient.followup.${body.status.toLowerCase()}`, "FollowUp", row.id, { status: body.status });
+    return ok(res, row, "Follow-up status updated");
+  })
+);
+crmRouter.get(
   "/doctor-schedule-roster",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);

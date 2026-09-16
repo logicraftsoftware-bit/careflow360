@@ -7,7 +7,7 @@ import { api, unwrap } from "../api";
 type Role={id:string;title:string;status:string;data?:{code?:string;permissions?:string[]|string}};
 const modules=[
  ["Dashboard","dashboard"],["Meta Ads","meta-ads"],["Leads","leads"],["Interested Leads","interested-leads"],["Converted Leads","converted-leads"],["Patients","patients"],
- ["Doctor Appointments","doctor-appointments"],["Lab Appointments","lab-appointments"],["Radiology Appointments","radiology-appointments"],["Calendar","calendar"],["Reports","reports"],["Payments","payments"],
+ ["Doctor Appointments","doctor-appointments"],["Lab Appointments","lab-appointments"],["Radiology Appointments","radiology-appointments"],["Calendar","calendar"],["Patient Follow-ups","patient-followups"],["Reports","reports"],["Payments","payments"],
  ["IVR Call Logs","call-logs"],["WhatsApp","whatsapp"],["Audit Logs","audit-logs"],["Settings","settings"],["Departments","departments"],["Branches","branches"],["Doctors","doctors"],
  ["Doctor Schedule","doctor-schedules"],["Staff","staff"],["Roles & Permission","roles-permissions"],["Lab Master","lab"],["Specimen Tube Master","specimen-tubes"],["Radiology Master","radiology"],["Lab Collection","lab-collection"],
 ] as const;

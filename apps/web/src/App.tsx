@@ -21,6 +21,7 @@ import { LabCollectionPage } from "./pages/LabCollection";
 import { TenantEditorPage } from "./pages/TenantEditor";
 import { TelecmiIntegrationsPage } from "./pages/TelecmiIntegrations";
 import { CalendarAppointmentsPage } from "./pages/CalendarAppointmentsPage";
+import { PatientFollowupsPage } from "./pages/PatientFollowupsPage";
 const menus = [
   "leads",
   "interested-leads",
@@ -95,6 +96,7 @@ export default function App() {
         <Route index element={<Dashboard mode="tenant" />} />
         <Route path="calendar/:date" element={<CalendarAppointmentsPage />} />
         <Route path="calendar/:date/:doctorId" element={<CalendarAppointmentsPage />} />
+        <Route path="patient-followups" element={<PatientFollowupsPage />} />
         <Route path="appointments/new" element={<AppointmentBookingPage />} />
         <Route path="appointments/:id/edit" element={<AppointmentEditPage />} />
         <Route path="lab-appointments/new" element={<DiagnosticAppointmentBookingPage kind="lab" />} />
