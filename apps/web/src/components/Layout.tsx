@@ -19,6 +19,7 @@ import {
   MessageCircle,
   PhoneCall,
   ScanLine,
+  Search,
   Settings,
   ShieldCheck,
   Stethoscope,
@@ -27,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api, unwrap } from "../api";
+import "./Layout.css";
 const tenant = [
   ["Dashboard", "", LayoutDashboard],
   ["Leads", "leads", ClipboardList],
@@ -127,7 +129,8 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
     [leadOpen, setLeadOpen] = useState(leadActive),
     [appointmentOpen, setAppointmentOpen] = useState(appointmentActive),
     [collectionOpen, setCollectionOpen] = useState(collectionActive),
-    [masterOpen, setMasterOpen] = useState(masterActive);
+    [masterOpen, setMasterOpen] = useState(masterActive),
+    [masterSearch, setMasterSearch] = useState("");
   useEffect(() => {
     if (leadActive) setLeadOpen(true);
     if (appointmentActive) setAppointmentOpen(true);
@@ -147,7 +150,8 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
     active: boolean,
     expanded: boolean,
     toggle: () => void,
-    items: readonly (readonly [string, string, any])[]
+    items: readonly (readonly [string, string, any])[],
+    searchable = false
   ) => (
     <div className={`nav-group${active ? " active" : ""}`}>
       <button type="button" className="nav-group-toggle" onClick={toggle}>
@@ -157,12 +161,14 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
       </button>
       {expanded && (
         <div className="nav-submenu">
-          {items.map(([label, path, ItemIcon]) => (
+          {searchable && <label className="master-menu-search"><Search size={14} /><input aria-label="Search Master Data" value={masterSearch} onChange={(event) => setMasterSearch(event.target.value)} placeholder="Search master data..." /></label>}
+          {items.filter(([label]) => !searchable || label.toLowerCase().includes(masterSearch.trim().toLowerCase())).map(([label, path, ItemIcon]) => (
             <NavLink to={path} key={path} onClick={() => setOpen(false)}>
               <ItemIcon size={16} />
               <span>{label}</span>
             </NavLink>
           ))}
+          {searchable && !items.some(([label]) => label.toLowerCase().includes(masterSearch.trim().toLowerCase())) && <small className="master-menu-empty">No matching master data</small>}
         </div>
       )}
     </div>
@@ -257,7 +263,8 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
                 masterActive,
                 masterOpen,
                 () => setMasterOpen((v) => !v),
-                masterItems
+                masterItems,
+                true
               )}
           </nav>
         </aside>
