@@ -425,7 +425,39 @@ async function notifyDiagnostic(
 crmRouter.get(
   "/dashboard",
   asyncRoute(async (req, res) => {
-    const tid = tenantId(req),
+    const tid = tenantId(req);
+    const user = await prisma.user.findFirst({
+      where: { id: req.user!.id, tenantId: tid },
+      include: {
+        roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
+      },
+    });
+    if (!user) throw new AppError(404, "User account not found", "NOT_FOUND");
+    const adminRole = user.roles.some(({ role }: any) =>
+      ["SUPER_ADMIN", "CLINIC_ADMIN", "CLINIC_MANAGER", "BRANCH_ADMIN", "MANAGER"].includes(role.code)
+    );
+    const configuredRoles = await prisma.moduleRecord.findMany({
+      where: { tenantId: tid, module: "roles-permissions" },
+    });
+    const dashboardAllowed =
+      adminRole ||
+      user.roles.some(({ role }: any) => {
+        const configured = configuredRoles.find(
+          (record) => (record.data as any)?.code === role.code
+        );
+        const raw = configured
+          ? (configured.data as any)?.permissions
+          : role.permissions.map((entry: any) => entry.permission.key);
+        const permissions = Array.isArray(raw)
+          ? raw
+          : typeof raw === "string"
+          ? raw.split(",").map((item: string) => item.trim())
+          : [];
+        return permissions.includes("dashboard.read") || permissions.includes("dashboard.manage");
+      });
+    if (!dashboardAllowed)
+      throw new AppError(403, "Dashboard permission is required", "FORBIDDEN");
+    const
       start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
