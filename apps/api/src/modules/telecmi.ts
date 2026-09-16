@@ -49,11 +49,12 @@ async function updateTelecmiUserStatus(tenant:string,agentId:string,status:'onli
   return {status:String(result.status||status).toLowerCase(),message:result.msg||'Status updated successfully'};
 }
 
-async function connlyToken(emailId:string,password:string){
-  const response=await fetch('https://api.connle.com/agent/login',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({email_id:emailId,password}),signal:AbortSignal.timeout(20000)});
+async function connlyToken(integration:any,agentId:string,password:string){
+  const apiV2=integration.apiUrl.replace(/\/v3\/?$/,'/v2');
+  const response=await fetch(endpoint(apiV2,'user/login'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({id:agentId,password}),signal:AbortSignal.timeout(20000)});
   const result:any=await response.json().catch(()=>({}));
   const token=result.token||result.data?.token;
-  if(!response.ok||Number(result.code)!==200||!token)throw new AppError(502,result.msg||result.message||'Unable to create Connly agent session','CONNLY_LOGIN_FAILED');
+  if(!response.ok||Number(result.code)!==200||!token)throw new AppError(502,result.msg||result.message||'Unable to create TeleCMI agent session','TELECMI_USER_LOGIN_FAILED');
   return String(token);
 }
 
@@ -140,9 +141,7 @@ telecmiRouter.get('/softphone-credentials',auth,asyncRoute(async(req,res)=>{
   if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
   const result=await telecmiPost(integration,'user/get',{id:user.telecmiAgentId}),agent=result.agent||result.data?.agent||result.data;
   if(!agent?.password)throw new AppError(502,'TeleCMI did not return the assigned user softphone password','TELECMI_SOFTPHONE_CREDENTIALS_UNAVAILABLE');
-  const emailId=String(agent.email_id||agent.email||user.email||'').trim();
-  if(!emailId)throw new AppError(502,'TeleCMI did not return the assigned user email required by Connly','CONNLY_EMAIL_UNAVAILABLE');
-  const token=await connlyToken(emailId,String(agent.password));
+  const token=await connlyToken(integration,String(user.telecmiAgentId),String(agent.password));
   res.setHeader('Cache-Control','no-store, private');res.setHeader('Pragma','no-cache');
   await audit(req,'telecmi.softphone.credentials.issued','User',user.id,{agentId:user.telecmiAgentId});
   return ok(res,{userId:String(user.telecmiAgentId),password:String(agent.password),sbcUri:'sbcind.telecmi.com',displayName:user.telecmiAgentName||user.name,connlyToken:token,connlyServerUrl:'https://socket.connle.com'});
