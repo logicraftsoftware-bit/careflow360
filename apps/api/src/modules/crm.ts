@@ -1833,6 +1833,7 @@ crmRouter.get(
           id: `${doctor.id}:${branchId}`,
           doctorId: doctor.id,
           branchId,
+          departmentId: doctor.departmentId,
           status: doctor.status,
           scheduleCount: dated.length,
           nextSchedule,

@@ -988,6 +988,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [actionFilter, setActionFilter] = useState("ALL"),
     [doctorFilter, setDoctorFilter] = useState("ALL"),
     [departmentFilter, setDepartmentFilter] = useState("ALL"),
+    [branchFilter, setBranchFilter] = useState("ALL"),
     [planFilter, setPlanFilter] = useState("ALL"),
     [appointmentPeriod, setAppointmentPeriod] = useState("ALL"),
     [appointmentDateFrom, setAppointmentDateFrom] = useState(""),
@@ -1058,6 +1059,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const usedReferenceKeys = new Set([
     ...c.fields.map((field) => field.name),
     ...tableColumns,
+    ...(slug === "doctor-schedules" ? ["departmentId"] : []),
   ]);
   const referenceQueries = useQueries({
     queries: referenceKeys.map((key) => ({
@@ -1143,11 +1145,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         (doctorFilter === "ALL" || r.doctorId === doctorFilter) &&
         (departmentFilter === "ALL" ||
           r.departmentId === departmentFilter) &&
+        (branchFilter === "ALL" || r.branchId === branchFilter || (Array.isArray(r.branchIds) && r.branchIds.includes(branchFilter))) &&
         (planFilter === "ALL" || r.planId === planFilter) &&
         appointmentDateMatches(r.startsAt) &&
         (paymentFilter === "ALL" || r.paymentStatus === paymentFilter) &&
         actionMatches(r.status) &&
-        JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
+        [JSON.stringify(r), display(r, "doctorId"), display(r, "branchId"), display(r, "branchIds"), display(r, "departmentId")].join(" ").toLowerCase().includes(search.toLowerCase()),
     );
     return filtered;
   }, [
@@ -1159,6 +1162,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     actionFilter,
     doctorFilter,
     departmentFilter,
+    branchFilter,
     planFilter,
     appointmentPeriod,
     appointmentDateFrom,
@@ -1386,6 +1390,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     doctorDepartments = [
       ...new Set(sourceRows.map((r: any) => r.departmentId).filter(Boolean)),
     ] as string[],
+    scheduleDoctors = [
+      ...new Set(sourceRows.map((r: any) => r.doctorId).filter(Boolean)),
+    ] as string[],
+    rowBranches = [
+      ...new Set(sourceRows.flatMap((r: any) => Array.isArray(r.branchIds) ? r.branchIds : r.branchId ? [r.branchId] : []).filter(Boolean)),
+    ] as string[],
     tenantPlans = [...new Map(
       sourceRows
         .filter((row: any) => row.planId)
@@ -1585,7 +1595,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               ))}
             </select>
           </div>
-          {supportsBulk && (
+          {(supportsBulk || slug === "branches") && (
             <div className="filter-select">
               <select
                 value={cityFilter}
@@ -1600,6 +1610,22 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     {city}
                   </option>
                 ))}
+              </select>
+            </div>
+          )}
+          {slug === "doctor-schedules" && (
+            <div className="filter-select">
+              <select value={doctorFilter} onChange={(event) => { setDoctorFilter(event.target.value); setPage(1); }}>
+                <option value="ALL">All doctors</option>
+                {scheduleDoctors.map((doctorId) => <option key={doctorId} value={doctorId}>{display({ doctorId }, "doctorId")}</option>)}
+              </select>
+            </div>
+          )}
+          {["doctor-schedules", "departments"].includes(slug) && (
+            <div className="filter-select">
+              <select value={branchFilter} onChange={(event) => { setBranchFilter(event.target.value); setPage(1); }}>
+                <option value="ALL">All branches</option>
+                {rowBranches.map((branchId) => <option key={branchId} value={branchId}>{display({ branchId }, "branchId")}</option>)}
               </select>
             </div>
           )}
@@ -1639,7 +1665,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               </select>
             </div>
           )}
-          {slug === "doctors" && (
+          {["doctors", "doctor-schedules"].includes(slug) && (
             <div className="filter-select">
               <select
                 value={departmentFilter}
