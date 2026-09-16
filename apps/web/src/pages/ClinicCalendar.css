@@ -1,0 +1,5 @@
+.clinic-calendar-legend .booked { background: #2563eb; }
+.clinic-calendar-legend .empty { background: #e2e8f0; border: 1px solid #94a3b8; }
+.clinic-calendar-grid button.has-booking { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.clinic-calendar-grid button.has-booking:hover { background: #dbeafe; border-color: #60a5fa; }
+.clinic-calendar-grid button.no-booking { background: #fff; color: #172554; }

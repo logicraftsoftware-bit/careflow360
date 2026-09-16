@@ -1729,7 +1729,7 @@ crmRouter.get(
     const appointments = await prisma.appointment.findMany({
       where: { tenantId: tenantId(req), startsAt: { gte: from, lt: to } },
       include: {
-        patient: { select: { id: true, name: true, patientNumber: true } },
+        patient: { select: { id: true, name: true, patientNumber: true, mobile: true } },
         doctor: { select: { id: true, name: true } },
         department: { select: { id: true, name: true } },
         branch: { select: { id: true, name: true } },
