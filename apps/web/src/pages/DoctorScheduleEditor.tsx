@@ -57,7 +57,15 @@ export function DoctorScheduleEditor({
       schedule.doctorId,
       schedule.branchId,
     ],
-    queryFn: () => api.get("/crm/doctorSchedules?limit=100").then(unwrap),
+    queryFn: () =>
+      api
+        .get("/crm/doctor-schedule-calendar", {
+          params: {
+            doctorId: schedule.doctorId,
+            branchId: schedule.branchId,
+          },
+        })
+        .then(unwrap),
   });
   const { data: doctorsData } = useQuery({
     queryKey: ["schedule-doctors"],

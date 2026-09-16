@@ -1713,6 +1713,28 @@ crmRouter.get(
   })
 );
 crmRouter.get(
+  "/doctor-schedule-calendar",
+  asyncRoute(async (req, res) => {
+    const query = z.object({
+      doctorId: z.string().min(1),
+      branchId: z.string().min(1),
+    }).parse(req.query);
+    const where = {
+      tenantId: tenantId(req),
+      doctorId: query.doctorId,
+      branchId: query.branchId,
+    };
+    const [items, total] = await Promise.all([
+      prisma.doctorSchedule.findMany({
+        where,
+        orderBy: { scheduleDate: "asc" },
+      }),
+      prisma.doctorSchedule.count({ where }),
+    ]);
+    return ok(res, { items, total, page: 1, limit: total });
+  })
+);
+crmRouter.get(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];
