@@ -1736,6 +1736,45 @@ crmRouter.get(
   })
 );
 crmRouter.get(
+  "/doctor-appointment-options",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req);
+    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.query.date);
+    const scheduleStart = new Date(`${date}T00:00:00.000Z`),
+      scheduleEnd = new Date(scheduleStart.getTime() + 86400000),
+      appointmentStart = new Date(`${date}T00:00:00+05:30`),
+      appointmentEnd = new Date(appointmentStart.getTime() + 86400000);
+    const [schedules, appointments] = await Promise.all([
+      prisma.doctorSchedule.findMany({
+        where: { tenantId: tid, status: "ACTIVE", scheduleDate: { gte: scheduleStart, lt: scheduleEnd } },
+        include: { doctor: { include: { department: true } }, branch: true },
+        orderBy: [{ startTime: "asc" }, { doctor: { name: "asc" } }],
+      }),
+      prisma.appointment.findMany({
+        where: { tenantId: tid, status: { not: "CANCELLED" }, startsAt: { gte: appointmentStart, lt: appointmentEnd } },
+        select: { id: true, patientId: true, doctorId: true, branchId: true, startsAt: true },
+      }),
+    ]);
+    return ok(res, { schedules, appointments });
+  })
+);
+crmRouter.get(
+  "/appointment-patients",
+  asyncRoute(async (req, res) => {
+    const tid = tenantId(req), search = String(req.query.search || "").trim(), patientId = String(req.query.patientId || "").trim();
+    const where: any = { tenantId: tid };
+    if (patientId) where.id = patientId;
+    else if (search) where.OR = [
+      { name: { contains: search, mode: "insensitive" } },
+      { mobile: { contains: search } },
+      { patientNumber: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+    ];
+    const items = await prisma.patient.findMany({ where, orderBy: { createdAt: "desc" }, take: 25 });
+    return ok(res, { items });
+  })
+);
+crmRouter.get(
   "/:resource",
   asyncRoute(async (req, res) => {
     const model = resources[req.params.resource];

@@ -358,6 +358,7 @@ model Branch {
   doctors      DoctorBranch[]
   departments  Department[]
   appointments Appointment[]
+  doctorSchedules DoctorSchedule[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -434,6 +435,7 @@ model DoctorSchedule {
   maxPatients Int          @default(20)
   status      RecordStatus @default(ACTIVE)
   doctor      Doctor       @relation(fields: [doctorId], references: [id])
+  branch      Branch       @relation(fields: [branchId], references: [id])
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 

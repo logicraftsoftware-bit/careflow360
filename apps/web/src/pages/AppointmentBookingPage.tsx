@@ -1,292 +1,274 @@
-import { useEffect, useState } from "react";
-import { useMutation, useQueries } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  BadgeIndianRupee,
+  ArrowRight,
   CalendarCheck,
-  Mail,
-  MapPin,
-  Phone,
+  Check,
+  Clock,
+  Plus,
+  Search,
+  Stethoscope,
   UserRound,
+  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, unwrap } from "../api";
-import { Option, SearchSelect } from "./AppointmentFields";
-const list = (data: any) => (Array.isArray(data) ? data : data?.items || []);
+import "./AppointmentBookingPage.css";
+
+const dateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(date.getDate()).padStart(2, "0")}`;
+const displayDate = (value: string) =>
+  new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+type SessionPeriod = "MORNING" | "EVENING";
+
 export function AppointmentBookingPage({
-  appointment: existingAppointment,
+  appointment: _appointment,
 }: { appointment?: any } = {}) {
   const navigate = useNavigate(),
-    endpoints = [
-      "patients",
-      "branches",
-      "departments",
-      "doctors",
-      "doctorSchedules",
-      "appointments",
-    ],
-    queries = useQueries({
-      queries: endpoints.map((endpoint) => ({
-        queryKey: ["new-appointment", endpoint],
-        queryFn: () => api.get(`/crm/${endpoint}?limit=100`).then(unwrap),
-      })),
-    }),
-    patients = list(queries[0].data),
-    branches = list(queries[1].data),
-    departments = list(queries[2].data),
-    doctors = list(queries[3].data),
-    schedules = list(queries[4].data),
-    appointments = list(queries[5].data),
-    [patientId, setPatientId] = useState(""),
+    today = new Date(),
+    todayKey = dateKey(today);
+  const [month, setMonth] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1)
+  );
+  const [selectedDate, setSelectedDate] = useState(""),
     [branchId, setBranchId] = useState(""),
-    [departmentId, setDepartmentId] = useState(""),
+    [departmentId, setDepartmentId] = useState("");
+  const [sessionPeriod, setSessionPeriod] = useState<SessionPeriod | "">(""),
     [doctorId, setDoctorId] = useState(""),
-    [scheduleId, setScheduleId] = useState(""),
-    [appointmentTime, setAppointmentTime] = useState(""),
+    [scheduleId, setScheduleId] = useState("");
+  const [patientMode, setPatientMode] = useState<"EXISTING" | "NEW">(
+      "EXISTING"
+    ),
+    [patientSearch, setPatientSearch] = useState(""),
+    [patient, setPatient] = useState<any>(null),
+    [showNewPatient, setShowNewPatient] = useState(false);
+  const [appointmentTime, setAppointmentTime] = useState(""),
     [status, setStatus] = useState("CONFIRMED"),
-    [paymentStatus, setPaymentStatus] = useState("PENDING"),
-    [paymentMethod, setPaymentMethod] = useState(""),
+    [paymentStatus, setPaymentStatus] = useState("PENDING");
+  const [paymentMethod, setPaymentMethod] = useState(""),
     [utrNumber, setUtrNumber] = useState(""),
-    [paymentRemarks, setPaymentRemarks] = useState(""),
-    patient = patients.find((item: any) => item.id === patientId),
-    doctor = doctors.find((item: any) => item.id === doctorId);
-  useEffect(() => {
-    if (!existingAppointment || patientId || !schedules.length) return;
-    setPatientId(existingAppointment.patientId || "");
-    setBranchId(existingAppointment.branchId || "");
-    setDepartmentId(existingAppointment.departmentId || "");
-    setDoctorId(existingAppointment.doctorId || "");
-    setStatus(existingAppointment.status || "CONFIRMED");
-    setPaymentStatus(existingAppointment.paymentStatus || "PENDING");
-    const date = existingAppointment.startsAt?.slice(0, 10);
-    const schedule = schedules.find(
-      (item: any) =>
-        item.doctorId === existingAppointment.doctorId &&
-        item.branchId === existingAppointment.branchId &&
-        item.scheduleDate?.slice(0, 10) === date,
-    );
-    if (schedule) {
-      setScheduleId(schedule.id);
-      setAppointmentTime(new Date(existingAppointment.startsAt).toISOString());
-    }
-  }, [existingAppointment, schedules, patientId]);
-  const patientOptions: Option[] = patients.map((item: any) => ({
-      id: item.id,
-      label: `${item.name} · ${item.mobile || "No phone"} · ${item.patientNumber}`,
-      search: `${item.name} ${item.mobile} ${item.patientNumber} ${item.id} ${item.email} ${item.city}`,
-      raw: item,
-    })),
-    branchOptions: Option[] = branches.map((item: any) => ({
-      id: item.id,
-      label: `${item.name} · ${item.city || ""}`,
-      search: `${item.name} ${item.city} ${item.id}`,
-      raw: item,
-    })),
-    departmentOptions: Option[] = departments
-      .filter(
-        (item: any) =>
-          item.branchId === branchId || item.branchIds?.includes(branchId),
-      )
-      .map((item: any) => ({
-      id: item.id,
-      label: `${item.name} · ${item.code}`,
-      search: `${item.name} ${item.code} ${item.id}`,
-      raw: item,
-      })),
-    doctorOptions: Option[] = doctors
-      .filter(
-        (item: any) =>
-          !!departmentId && item.departmentId === departmentId,
-      )
-      .map((item: any) => ({
-        id: item.id,
-        label: `${item.name} · ${item.specialization || "General"} · ₹${item.consultationFee || 0}`,
-        search: `${item.name} ${item.specialization} ${item.registrationNumber} ${item.mobile} ${item.id}`,
-        raw: item,
-      })),
-    slotDateOptions: Option[] = schedules
-      .filter(
-        (item: any) =>
-          item.doctorId === doctorId &&
-          item.branchId === branchId &&
-          item.status === "ACTIVE" &&
-          item.scheduleDate &&
-          new Date(item.scheduleDate) >=
-            new Date(new Date().toISOString().slice(0, 10)),
-      )
-      .map((item: any) => {
-        const date = item.scheduleDate.slice(0, 10),
-          used = appointments.filter(
-            (appointment: any) =>
-              appointment.id !== existingAppointment?.id &&
-              appointment.doctorId === doctorId &&
-              appointment.branchId === branchId &&
-              appointment.status !== "CANCELLED" &&
-              appointment.startsAt?.slice(0, 10) === date &&
-              new Date(appointment.startsAt).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }) >= item.startTime &&
-              new Date(appointment.startsAt).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }) < item.endTime,
-          ).length,
-          remaining = Math.max(0, item.maxPatients - used);
-        return {
-          id: item.id,
-          label: `${item.sessionPeriod === "EVENING" ? "Evening" : "Morning"} · ${new Date(item.scheduleDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} (${remaining} slots left)`,
-          search: `${date} ${remaining}`,
-          raw: { ...item, remaining },
-        };
-      })
-      .filter((item: Option) => item.raw.remaining > 0)
-      .filter(
-        (item: Option) =>
-          !appointments.some(
-            (appointment: any) =>
-              appointment.id !== existingAppointment?.id &&
-              appointment.patientId === patientId &&
-              appointment.doctorId === doctorId &&
-              appointment.status !== "CANCELLED" &&
-              appointment.startsAt?.slice(0, 10) ===
-                item.raw.scheduleDate.slice(0, 10),
-          ),
-      )
-      .sort((a: Option, b: Option) =>
-        a.raw.scheduleDate.localeCompare(b.raw.scheduleDate),
-      ),
-    selectedSchedule = schedules.find((item: any) => item.id === scheduleId),
-    timeOptions: Option[] = selectedSchedule
-      ? Array.from({ length: Number(selectedSchedule.maxPatients || 0) }, (_, index) => {
-          const date = selectedSchedule.scheduleDate.slice(0, 10);
-          const startsAt = new Date(
-            new Date(`${date}T${selectedSchedule.startTime}:00+05:30`).getTime() +
-              index * Number(selectedSchedule.slotMinutes) * 60000,
-          );
-          return {
-            id: startsAt.toISOString(),
-            label: startsAt.toLocaleTimeString("en-IN", {
-              timeZone: "Asia/Kolkata",
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            search: startsAt.toLocaleTimeString("en-IN", {
-              timeZone: "Asia/Kolkata",
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            raw: selectedSchedule,
-          };
-        }).filter(
-          (option) =>
-            !appointments.some(
-              (appointment: any) =>
-                appointment.id !== existingAppointment?.id &&
-                appointment.doctorId === doctorId &&
-                appointment.branchId === branchId &&
-                appointment.status !== "CANCELLED" &&
-                new Date(appointment.startsAt).getTime() ===
-                  new Date(option.id).getTime(),
-            ),
-        )
-      : [];
-  const book = useMutation({
-      mutationFn: () => {
-        if (existingAppointment) {
-          const schedule = schedules.find((item: any) => item.id === scheduleId);
-          const startDate = new Date(appointmentTime);
-          return api.patch(`/crm/appointments/${existingAppointment.id}`, {
-            patientId,
-            branchId,
-            departmentId,
-            doctorId,
-            startsAt: startDate.toISOString(),
-            endsAt: new Date(
-              startDate.getTime() + Number(schedule.slotMinutes || 30) * 60000,
-            ).toISOString(),
-            amount: doctor?.consultationFee || 0,
-            status,
-            paymentStatus,
-            paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
-            utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
-            paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
-          });
-        }
-        return api.post("/crm/appointments/book", {
-          patientId,
-          branchId,
-          departmentId,
-          doctorId,
-          scheduleId,
-          startsAt: appointmentTime,
-          status,
-          paymentStatus,
-          paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
-          utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
-          paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
-        });
-      },
-      onSuccess: (response: any) => {
-        const saved = response.data.data;
-        window.alert(
-          existingAppointment
-            ? "Appointment updated successfully"
-            : saved.token
-              ? `Appointment booked successfully\nToken: ${saved.token}\nTime: ${new Date(saved.startsAt).toLocaleString("en-IN")}`
-              : `Appointment slot held pending payment\nToken will be generated after payment.\nTime: ${new Date(saved.startsAt).toLocaleString("en-IN")}`,
-        );
-        navigate("/app/appointments");
-      },
-    }),
-    submit = (event: React.FormEvent) => {
-      event.preventDefault();
-      if (
-        !patientId ||
-        !branchId ||
-        !departmentId ||
-        !doctorId ||
-        !scheduleId ||
-        !appointmentTime
-      ) {
-        window.alert(
-          "Please select patient, branch, department, doctor and appointment date",
-        );
-        return;
-      }
-      const selectedSchedule = schedules.find(
-          (item: any) => item.id === scheduleId,
+    [paymentRemarks, setPaymentRemarks] = useState("");
+
+  const {
+    data: optionData = { schedules: [], appointments: [] },
+    isFetching: optionsLoading,
+  } = useQuery({
+    queryKey: ["doctor-appointment-options", selectedDate],
+    queryFn: () =>
+      api
+        .get("/crm/doctor-appointment-options", {
+          params: { date: selectedDate },
+        })
+        .then(unwrap),
+    enabled: Boolean(selectedDate),
+  });
+  const {
+    data: patientData = { items: [] },
+    isFetching: patientsLoading,
+    refetch: refetchPatients,
+  } = useQuery({
+    queryKey: ["appointment-patients", patientSearch],
+    queryFn: () =>
+      api
+        .get("/crm/appointment-patients", { params: { search: patientSearch } })
+        .then(unwrap),
+    enabled: Boolean(doctorId && !patient && patientMode === "EXISTING"),
+  });
+  const schedules: any[] = optionData.schedules || [],
+    appointments: any[] = optionData.appointments || [];
+  const branches = useMemo(
+    () => [
+      ...new Map(
+        schedules.map((item) => [item.branchId, item.branch])
+      ).values(),
+    ],
+    [schedules]
+  );
+  const departments = useMemo(
+    () =>
+      [
+        ...new Map(
+          schedules
+            .filter((item) => item.branchId === branchId)
+            .map((item) => [item.doctor.departmentId, item.doctor.department])
+        ).values(),
+      ].filter(Boolean),
+    [schedules, branchId]
+  );
+  const sessions = useMemo(
+    () =>
+      [
+        ...new Set(
+          schedules
+            .filter(
+              (item) =>
+                item.branchId === branchId &&
+                item.doctor.departmentId === departmentId
+            )
+            .map((item) =>
+              item.sessionPeriod === "EVENING" ? "EVENING" : "MORNING"
+            )
         ),
-        selectedDate = selectedSchedule?.scheduleDate?.slice(0, 10),
-        duplicate = appointments.some(
-          (appointment: any) =>
-            appointment.id !== existingAppointment?.id &&
-            appointment.patientId === patientId &&
-            appointment.doctorId === doctorId &&
-            appointment.status !== "CANCELLED" &&
-            appointment.startsAt?.slice(0, 10) === selectedDate,
+      ] as SessionPeriod[],
+    [schedules, branchId, departmentId]
+  );
+  const doctorSchedules = schedules.filter(
+    (item) =>
+      item.branchId === branchId &&
+      item.doctor.departmentId === departmentId &&
+      (item.sessionPeriod === "EVENING" ? "EVENING" : "MORNING") ===
+        sessionPeriod
+  );
+  const selectedSchedule = schedules.find((item) => item.id === scheduleId),
+    selectedDoctor = selectedSchedule?.doctor;
+  const timeOptions = selectedSchedule
+    ? Array.from({ length: selectedSchedule.maxPatients }, (_, index) => {
+        const start = new Date(
+          new Date(
+            `${selectedDate}T${selectedSchedule.startTime}:00+05:30`
+          ).getTime() +
+            index * selectedSchedule.slotMinutes * 60000
         );
-      if (duplicate) {
-        window.alert(
-          "This patient already has an appointment with this doctor on this date.",
-        );
-        return;
-      }
-      if (
-        paymentStatus === "PAID" &&
-        !paymentMethod &&
-        existingAppointment?.paymentStatus !== "PAID"
-      ) {
-        window.alert("Please select a payment method");
-        return;
-      }
-      if (
-        paymentStatus === "PAID" &&
-        paymentMethod &&
-        paymentMethod !== "CASH" &&
-        !utrNumber.trim()
-      ) {
-        window.alert("Please enter the UTR or transaction number");
-        return;
-      }
-      book.mutate();
-    };
+        return {
+          value: start.toISOString(),
+          label: start.toLocaleTimeString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+      }).filter(
+        (slot) =>
+          !appointments.some(
+            (item) =>
+              item.doctorId === doctorId &&
+              item.branchId === branchId &&
+              new Date(item.startsAt).getTime() ===
+                new Date(slot.value).getTime()
+          )
+      )
+    : [];
+  const calendarCells = useMemo(() => {
+    const first = new Date(month.getFullYear(), month.getMonth(), 1),
+      start = new Date(first);
+    start.setDate(1 - first.getDay());
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      return date;
+    });
+  }, [month]);
+  const resetAfterDate = () => {
+    setBranchId("");
+    setDepartmentId("");
+    setSessionPeriod("");
+    setDoctorId("");
+    setScheduleId("");
+    setPatient(null);
+    setAppointmentTime("");
+  };
+  const resetAfterBranch = () => {
+    setDepartmentId("");
+    setSessionPeriod("");
+    setDoctorId("");
+    setScheduleId("");
+    setPatient(null);
+    setAppointmentTime("");
+  };
+  const resetAfterDepartment = () => {
+    setSessionPeriod("");
+    setDoctorId("");
+    setScheduleId("");
+    setPatient(null);
+    setAppointmentTime("");
+  };
+  const resetAfterSession = () => {
+    setDoctorId("");
+    setScheduleId("");
+    setPatient(null);
+    setAppointmentTime("");
+  };
+  const step = !selectedDate
+    ? 1
+    : !branchId
+    ? 2
+    : !departmentId
+    ? 3
+    : !sessionPeriod
+    ? 4
+    : !doctorId
+    ? 5
+    : !patient
+    ? 6
+    : 7;
+  const createPatient = useMutation({
+    mutationFn: (body: any) => api.post("/crm/patients", body).then(unwrap),
+    onSuccess: async (saved: any) => {
+      setPatient(saved);
+      setShowNewPatient(false);
+      await refetchPatients();
+    },
+  });
+  const book = useMutation({
+    mutationFn: () =>
+      api.post("/crm/appointments/book", {
+        patientId: patient.id,
+        branchId,
+        departmentId,
+        doctorId,
+        scheduleId,
+        startsAt: appointmentTime,
+        status,
+        paymentStatus,
+        paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
+        utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
+        paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
+      }),
+    onSuccess: (response: any) => {
+      const saved = response.data.data;
+      window.alert(
+        saved.token
+          ? `Appointment booked successfully\nToken: ${saved.token}`
+          : "Appointment slot held pending payment"
+      );
+      navigate("/app/appointments");
+    },
+  });
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!appointmentTime)
+      return window.alert("Please select an available appointment time");
+    if (paymentStatus === "PAID" && !paymentMethod)
+      return window.alert("Please select a payment method");
+    if (
+      paymentStatus === "PAID" &&
+      paymentMethod !== "CASH" &&
+      !utrNumber.trim()
+    )
+      return window.alert("Please enter the transaction number");
+    book.mutate();
+  };
+  const stepLabels = [
+    "Date",
+    "Branch",
+    "Department",
+    "Session",
+    "Doctor",
+    "Patient",
+    "Confirm",
+  ];
+
   return (
-    <div className="booking-page">
+    <div className="booking-wizard">
       <button
         className="schedule-back"
         onClick={() => navigate("/app/appointments")}
@@ -295,263 +277,536 @@ export function AppointmentBookingPage({
       </button>
       <div className="booking-head">
         <div>
-          <span>
-            {existingAppointment ? "EDIT APPOINTMENT" : "NEW APPOINTMENT"}
-          </span>
-          <h1>
-            {existingAppointment ? "Edit appointment" : "Book appointment"}
-          </h1>
-          <p>
-            {existingAppointment
-              ? "Update the appointment using the same booking workflow."
-              : "The slot is held immediately. The token is generated after payment is completed."}
-          </p>
+          <span>NEW APPOINTMENT</span>
+          <h1>Book doctor appointment</h1>
+          <p>Complete each step to find the right doctor and available time.</p>
         </div>
         <CalendarCheck />
       </div>
-      <form onSubmit={submit} className="booking-layout">
-        <section className="panel booking-form">
-          <h2>Appointment information</h2>
-          <div className="booking-grid">
-            <SearchSelect
-              name="patientId"
-              label="Patient"
-              options={patientOptions}
-              value={patientId}
-              onChange={setPatientId}
-              placeholder="Search name, phone, patient ID or email"
+      <nav className="wizard-progress">
+        {stepLabels.map((label, index) => (
+          <div
+            key={label}
+            className={
+              step > index + 1 ? "done" : step === index + 1 ? "active" : ""
+            }
+          >
+            <i>{step > index + 1 ? <Check /> : index + 1}</i>
+            <span>{label}</span>
+          </div>
+        ))}
+      </nav>
+      <section className="panel wizard-card" key={step}>
+        {step === 1 && (
+          <>
+            <WizardTitle
+              number={1}
+              title="Choose appointment date"
+              subtitle="Select the date when the patient wants to visit."
             />
-            <SearchSelect
-              name="branchId"
-              label="Branch"
-              options={branchOptions}
-              value={branchId}
-              onChange={(id) => {
-                setBranchId(id);
-                setDepartmentId("");
-                setDoctorId("");
-                setScheduleId("");
-                setAppointmentTime("");
-              }}
-              placeholder="Search branch name or city"
-            />
-            <SearchSelect
-              name="departmentId"
-              label="Department"
-              options={departmentOptions}
-              value={departmentId}
-              onChange={(id) => {
-                setDepartmentId(id);
-                setDoctorId("");
-                setScheduleId("");
-                setAppointmentTime("");
-              }}
-              placeholder={
-                branchId
-                  ? "Search department name or code"
-                  : "Select branch first"
-              }
-              disabled={!branchId}
-            />
-            <SearchSelect
-              name="doctorId"
-              label="Doctor"
-              options={doctorOptions}
-              value={doctorId}
-              onChange={(id) => {
-                setDoctorId(id);
-                setScheduleId("");
-                setAppointmentTime("");
-              }}
-              placeholder={
-                branchId && departmentId
-                  ? "Search doctor or speciality"
-                  : "Select branch and department first"
-              }
-              disabled={!branchId || !departmentId}
-            />
-            <div className="wide">
-              <SearchSelect
-                name="scheduleId"
-                label="Available appointment date"
-                options={slotDateOptions}
-                value={scheduleId}
-                onChange={(id) => {
-                  setScheduleId(id);
-                  setAppointmentTime("");
-                }}
-                placeholder={
-                  doctorId
-                    ? "Search date and remaining slots"
-                    : "Select doctor first"
-                }
-                disabled={!doctorId}
-              />
-              {patientId && doctorId && !slotDateOptions.length && (
-                <div className="alert error">
-                  No date is available. This patient may already be booked with
-                  this doctor, or all slots are full.
-                </div>
-              )}
-            </div>
-            <div className="wide">
-              <SearchSelect
-                name="appointmentTime"
-                label="Available appointment time"
-                options={timeOptions}
-                value={appointmentTime}
-                onChange={setAppointmentTime}
-                placeholder={
-                  scheduleId ? "Select an available time slot" : "Select appointment date first"
-                }
-                disabled={!scheduleId}
-              />
-            </div>
-            <label>
-              Status
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value="CONFIRMED">Confirmed</option>
-                <option value="DRAFT">Draft</option>
-                <option value="BOOKING_PENDING">Booking pending</option>
-                <option value="PAYMENT_PENDING">Payment pending</option>
-              </select>
-            </label>
-            <label>
-              Payment status
-              <select
-                value={paymentStatus}
-                onChange={(e) => {
-                  setPaymentStatus(e.target.value);
-                  if (e.target.value === "PENDING")
-                    setStatus("PAYMENT_PENDING");
-                  else if (status === "PAYMENT_PENDING")
-                    setStatus("CONFIRMED");
-                  if (e.target.value !== "PAID") {
-                    setPaymentMethod("");
-                    setUtrNumber("");
-                    setPaymentRemarks("");
+            <div className="wizard-calendar">
+              <header>
+                <button
+                  onClick={() =>
+                    setMonth(
+                      new Date(month.getFullYear(), month.getMonth() - 1, 1)
+                    )
                   }
+                >
+                  <ArrowLeft />
+                </button>
+                <b>
+                  {month.toLocaleDateString("en-IN", {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </b>
+                <button
+                  onClick={() =>
+                    setMonth(
+                      new Date(month.getFullYear(), month.getMonth() + 1, 1)
+                    )
+                  }
+                >
+                  <ArrowRight />
+                </button>
+              </header>
+              <div className="weekdays">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                  (day) => (
+                    <span key={day}>{day}</span>
+                  )
+                )}
+              </div>
+              <div className="days">
+                {calendarCells.map((date) => {
+                  const key = dateKey(date),
+                    disabled = key < todayKey,
+                    outside = date.getMonth() !== month.getMonth();
+                  return (
+                    <button
+                      key={key}
+                      disabled={disabled}
+                      className={`${outside ? "outside" : ""} ${
+                        selectedDate === key ? "selected" : ""
+                      }`}
+                      onClick={() => {
+                        setSelectedDate(key);
+                        resetAfterDate();
+                      }}
+                    >
+                      {date.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+        {step === 2 && (
+          <ChoiceStep
+            number={2}
+            title="Select branch"
+            subtitle={`${displayDate(
+              selectedDate
+            )} · Choose the clinic branch.`}
+            onBack={() => setSelectedDate("")}
+          >
+            {optionsLoading ? (
+              <Loading />
+            ) : branches.length ? (
+              <div className="choice-grid">
+                {branches.map((branch: any) => (
+                  <Choice
+                    key={branch.id}
+                    title={branch.name}
+                    subtitle={[branch.city, branch.address]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    onClick={() => {
+                      setBranchId(branch.id);
+                      resetAfterBranch();
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Empty text="No doctor schedules are available on this date." />
+            )}
+          </ChoiceStep>
+        )}
+        {step === 3 && (
+          <ChoiceStep
+            number={3}
+            title="Select department"
+            subtitle="Only departments with available doctors are shown."
+            onBack={() => setBranchId("")}
+          >
+            <div className="choice-grid">
+              {departments.map((department: any) => (
+                <Choice
+                  key={department.id}
+                  title={department.name}
+                  subtitle={department.code}
+                  onClick={() => {
+                    setDepartmentId(department.id);
+                    resetAfterDepartment();
+                  }}
+                />
+              ))}
+            </div>
+          </ChoiceStep>
+        )}
+        {step === 4 && (
+          <ChoiceStep
+            number={4}
+            title="Morning or evening?"
+            subtitle="Choose the preferred consultation session."
+            onBack={() => setDepartmentId("")}
+          >
+            <div className="session-choice">
+              {sessions.map((period) => (
+                <button
+                  key={period}
+                  onClick={() => {
+                    setSessionPeriod(period);
+                    resetAfterSession();
+                  }}
+                >
+                  <Clock />
+                  <b>{period === "MORNING" ? "Morning" : "Evening"}</b>
+                  <span>
+                    {period === "MORNING"
+                      ? "Before noon"
+                      : "Afternoon and evening"}
+                  </span>
+                  <ArrowRight />
+                </button>
+              ))}
+            </div>
+          </ChoiceStep>
+        )}
+        {step === 5 && (
+          <ChoiceStep
+            number={5}
+            title="Choose an available doctor"
+            subtitle={`${
+              sessionPeriod === "MORNING" ? "Morning" : "Evening"
+            } doctors for ${displayDate(selectedDate)}.`}
+            onBack={() => setSessionPeriod("")}
+          >
+            <div className="doctor-choice">
+              {doctorSchedules.map((schedule: any) => {
+                const booked = appointments.filter(
+                  (item) =>
+                    item.doctorId === schedule.doctorId &&
+                    item.branchId === branchId &&
+                    new Date(item.startsAt) >=
+                      new Date(
+                        `${selectedDate}T${schedule.startTime}:00+05:30`
+                      ) &&
+                    new Date(item.startsAt) <
+                      new Date(`${selectedDate}T${schedule.endTime}:00+05:30`)
+                ).length;
+                return (
+                  <button
+                    key={schedule.id}
+                    onClick={() => {
+                      setDoctorId(schedule.doctorId);
+                      setScheduleId(schedule.id);
+                      setPatient(null);
+                    }}
+                  >
+                    <i>
+                      <Stethoscope />
+                    </i>
+                    <div>
+                      <b>{schedule.doctor.name}</b>
+                      <span>{schedule.doctor.specialization || "General"}</span>
+                      <small>
+                        {schedule.startTime}–{schedule.endTime} ·{" "}
+                        {Math.max(0, schedule.maxPatients - booked)} slots
+                        available · ₹{schedule.doctor.consultationFee || 0}
+                      </small>
+                    </div>
+                    <ArrowRight />
+                  </button>
+                );
+              })}
+            </div>
+          </ChoiceStep>
+        )}
+        {step === 6 && (
+          <ChoiceStep
+            number={6}
+            title="Select patient"
+            subtitle="Search an existing patient or register a new patient."
+            onBack={() => {
+              setDoctorId("");
+              setScheduleId("");
+            }}
+          >
+            <div className="patient-tabs">
+              <button
+                className={patientMode === "EXISTING" ? "active" : ""}
+                onClick={() => setPatientMode("EXISTING")}
+              >
+                <Search /> Existing patient
+              </button>
+              <button
+                className={patientMode === "NEW" ? "active" : ""}
+                onClick={() => {
+                  setPatientMode("NEW");
+                  setShowNewPatient(true);
                 }}
               >
-                <option value="PENDING">Pending</option>
-                <option value="NOT_REQUIRED">Not required</option>
-                <option value="PAID">Paid</option>
-              </select>
-            </label>
-            {paymentStatus === "PAID" && (
+                <Plus /> New patient
+              </button>
+            </div>
+            {patientMode === "EXISTING" && (
               <>
+                <label className="patient-search">
+                  <Search />
+                  <input
+                    autoFocus
+                    value={patientSearch}
+                    onChange={(event) => setPatientSearch(event.target.value)}
+                    placeholder="Search by patient ID, phone number, name or email"
+                  />
+                </label>
+                <div className="patient-results">
+                  {patientsLoading ? (
+                    <Loading />
+                  ) : patientData.items?.length ? (
+                    patientData.items.map((item: any) => (
+                      <button key={item.id} onClick={() => setPatient(item)}>
+                        <i>
+                          <UserRound />
+                        </i>
+                        <div>
+                          <b>{item.name}</b>
+                          <span>
+                            {item.patientNumber} · {item.mobile || "No mobile"}
+                          </span>
+                        </div>
+                        <ArrowRight />
+                      </button>
+                    ))
+                  ) : (
+                    <Empty text="No patient found. Try another search or create a new patient." />
+                  )}
+                </div>
+              </>
+            )}
+          </ChoiceStep>
+        )}
+        {step === 7 && (
+          <form onSubmit={submit}>
+            <ChoiceStep
+              number={7}
+              title="Confirm appointment"
+              subtitle="Everything is filled. Select the available time and save."
+              onBack={() => setPatient(null)}
+            >
+              <div className="appointment-summary">
+                {[
+                  ["Patient", `${patient.name} · ${patient.patientNumber}`],
+                  ["Branch", selectedSchedule.branch.name],
+                  ["Department", selectedSchedule.doctor.department.name],
+                  ["Doctor", selectedDoctor.name],
+                  [
+                    "Session",
+                    sessionPeriod === "MORNING" ? "Morning" : "Evening",
+                  ],
+                  ["Appointment date", displayDate(selectedDate)],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <span>{label}</span>
+                    <b>{value}</b>
+                  </div>
+                ))}
+              </div>
+              <div className="final-fields">
                 <label>
-                  Payment method
+                  Available appointment time
                   <select
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    required={existingAppointment?.paymentStatus !== "PAID"}
+                    required
+                    value={appointmentTime}
+                    onChange={(event) => setAppointmentTime(event.target.value)}
                   >
-                    <option value="">Select payment method</option>
-                    <option value="CASH">Cash</option>
-                    <option value="UPI">UPI</option>
-                    <option value="CARD">Card</option>
-                    <option value="BANK_TRANSFER">Bank transfer</option>
-                    <option value="CHEQUE">Cheque</option>
+                    <option value="">Select available time</option>
+                    {timeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
-                  UTR / transaction number
-                  <input
-                    value={utrNumber}
-                    onChange={(e) => setUtrNumber(e.target.value)}
-                    placeholder={
-                      paymentMethod === "CASH"
-                        ? "Optional for cash"
-                        : "Enter payment reference"
-                    }
-                    required={!!paymentMethod && paymentMethod !== "CASH"}
-                  />
+                  Status
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value)}
+                  >
+                    <option value="CONFIRMED">Confirmed</option>
+                    <option value="DRAFT">Draft</option>
+                    <option value="BOOKING_PENDING">Booking pending</option>
+                    <option value="PAYMENT_PENDING">Payment pending</option>
+                  </select>
                 </label>
-                <label className="wide payment-remarks">
-                  Payment remarks
-                  <textarea
-                    value={paymentRemarks}
-                    onChange={(e) => setPaymentRemarks(e.target.value)}
-                    placeholder="Add payment notes (optional)"
-                    rows={3}
-                  />
+                <label>
+                  Payment status
+                  <select
+                    value={paymentStatus}
+                    onChange={(event) => setPaymentStatus(event.target.value)}
+                  >
+                    <option value="PENDING">Pending</option>
+                    <option value="NOT_REQUIRED">Not required</option>
+                    <option value="PAID">Paid</option>
+                  </select>
                 </label>
-              </>
-            )}
-          </div>
-          {book.error && (
-            <div className="alert error">
-              {(book.error as any).response?.data?.message ||
-                (existingAppointment
-                  ? "Unable to update appointment"
-                  : "Unable to book appointment")}
-            </div>
-          )}
-          <div className="booking-actions">
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => navigate("/app/appointments")}
-            >
-              Cancel
-            </button>
-            <button className="btn" disabled={book.isPending}>
-              {book.isPending
-                ? "Saving…"
-                : existingAppointment
-                  ? "Save changes"
-                  : "Book appointment"}
-            </button>
-          </div>
-        </section>
-        <aside>
-          <section className="panel patient-preview">
-            <h2>Selected patient</h2>
-            {patient ? (
-              <>
-                <div className="patient-avatar">
-                  <UserRound />
-                  <b>{patient.name}</b>
-                  <span>{patient.patientNumber}</span>
+                {paymentStatus === "PAID" && (
+                  <>
+                    <label>
+                      Payment method
+                      <select
+                        value={paymentMethod}
+                        onChange={(event) =>
+                          setPaymentMethod(event.target.value)
+                        }
+                      >
+                        <option value="">Select method</option>
+                        <option value="CASH">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="CARD">Card</option>
+                        <option value="BANK_TRANSFER">Bank transfer</option>
+                      </select>
+                    </label>
+                    <label>
+                      Transaction number
+                      <input
+                        value={utrNumber}
+                        onChange={(event) => setUtrNumber(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Payment remarks
+                      <input
+                        value={paymentRemarks}
+                        onChange={(event) =>
+                          setPaymentRemarks(event.target.value)
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              {book.error && (
+                <div className="alert error">
+                  {(book.error as any).response?.data?.message ||
+                    "Unable to book appointment"}
                 </div>
-                <dl>
-                  <div>
-                    <dt>
-                      <Phone /> Phone
-                    </dt>
-                    <dd>{patient.mobile || "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>
-                      <Mail /> Email
-                    </dt>
-                    <dd>{patient.email || "—"}</dd>
-                  </div>
-                  <div>
-                    <dt>
-                      <MapPin /> City
-                    </dt>
-                    <dd>{patient.city || "—"}</dd>
-                  </div>
-                </dl>
-              </>
-            ) : (
-              <p>Search and select a patient to view contact details.</p>
-            )}
-          </section>
-          <section className="panel fee-preview">
-            <BadgeIndianRupee />
-            <div>
-              <span>Consultation fee</span>
-              <strong>₹{doctor?.consultationFee || 0}</strong>
-              <small>{doctor?.name || "Select a doctor"}</small>
-            </div>
-          </section>
-        </aside>
+              )}
+              <div className="wizard-actions">
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setPatient(null)}
+                >
+                  Back
+                </button>
+                <button
+                  className="btn"
+                  disabled={book.isPending || !timeOptions.length}
+                >
+                  {book.isPending ? "Booking…" : "Book appointment"}
+                </button>
+              </div>
+            </ChoiceStep>
+          </form>
+        )}
+      </section>
+      {showNewPatient && (
+        <NewPatientModal
+          pending={createPatient.isPending}
+          error={(createPatient.error as any)?.response?.data?.message}
+          onClose={() => {
+            setShowNewPatient(false);
+            setPatientMode("EXISTING");
+          }}
+          onSave={(body: any) => createPatient.mutate(body)}
+        />
+      )}
+    </div>
+  );
+}
+
+function WizardTitle({ number, title, subtitle }: any) {
+  return (
+    <div className="wizard-title">
+      <div>
+        <small>STEP {number}</small>
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+function ChoiceStep({ number, title, subtitle, onBack, children }: any) {
+  return (
+    <>
+      <button className="wizard-back" onClick={onBack}>
+        <ArrowLeft /> Previous step
+      </button>
+      <WizardTitle number={number} title={title} subtitle={subtitle} />
+      {children}
+    </>
+  );
+}
+function Choice({ title, subtitle, onClick }: any) {
+  return (
+    <button className="choice-card" onClick={onClick}>
+      <div>
+        <b>{title}</b>
+        <span>{subtitle || "Available"}</span>
+      </div>
+      <ArrowRight />
+    </button>
+  );
+}
+function Loading() {
+  return <div className="wizard-state">Loading available options…</div>;
+}
+function Empty({ text }: { text: string }) {
+  return <div className="wizard-state">{text}</div>;
+}
+function NewPatientModal({ pending, error, onClose, onSave }: any) {
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSave(
+      Object.fromEntries(
+        [...new FormData(event.currentTarget).entries()].filter(([, value]) =>
+          String(value).trim(),
+        ),
+      ),
+    );
+  };
+  return (
+    <div className="wizard-modal">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <small>NEW PATIENT</small>
+            <h2>Register patient</h2>
+          </div>
+          <button type="button" onClick={onClose}>
+            <X />
+          </button>
+        </header>
+        <div className="new-patient-grid">
+          <label>
+            Full name
+            <input name="name" required autoFocus />
+          </label>
+          <label>
+            Mobile number
+            <input name="mobile" required minLength={10} />
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" />
+          </label>
+          <label>
+            Gender
+            <select name="gender" defaultValue="">
+              <option value="">Select gender</option>
+              <option>MALE</option>
+              <option>FEMALE</option>
+              <option>OTHER</option>
+            </select>
+          </label>
+          <label>
+            Date of birth
+            <input name="dob" type="date" />
+          </label>
+          <label>
+            City
+            <input name="city" />
+          </label>
+          <label className="wide">
+            Address
+            <textarea name="address" rows={3} />
+          </label>
+        </div>
+        {error && <div className="alert error">{error}</div>}
+        <footer>
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn" disabled={pending}>
+            {pending ? "Creating…" : "Create and select patient"}
+          </button>
+        </footer>
       </form>
     </div>
   );
