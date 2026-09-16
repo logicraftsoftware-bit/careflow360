@@ -61,6 +61,8 @@ export function DoctorScheduleEditor({
     new Date(today.getFullYear(), today.getMonth(), 1),
   );
   const [selected, setSelected] = useState<Date | null>(null);
+  const [manualDates, setManualDates] = useState<Date[] | null>(null);
+  const [selectionAnchor, setSelectionAnchor] = useState<Date | null>(null);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("MONTHLY");
   const [editingSingleDate, setEditingSingleDate] = useState(false);
   const [enabledSessions, setEnabledSessions] = useState<Record<SessionPeriod, boolean>>({ MORNING: true, EVENING: false });
@@ -140,6 +142,7 @@ export function DoctorScheduleEditor({
     });
   }, [month]);
   const selectedDates = useMemo(() => {
+    if (manualDates?.length) return manualDates;
     if (!selected) return [];
     if (editingSingleDate || scheduleMode === "DAILY") return [selected];
     if (scheduleMode === "WEEKLY") {
@@ -155,15 +158,14 @@ export function DoctorScheduleEditor({
       { length: new Date(selected.getFullYear(), selected.getMonth() + 1, 0).getDate() },
       (_, index) => new Date(selected.getFullYear(), selected.getMonth(), index + 1),
     );
-  }, [selected, scheduleMode, editingSingleDate]);
+  }, [selected, scheduleMode, editingSingleDate, manualDates]);
   const selectedDateKeys = useMemo(
     () => new Set(selectedDates.map(isoDate)),
     [selectedDates],
   );
-  const selectDate = (date: Date) => {
+  const loadDateForm = (date: Date) => {
     setSelected(date);
     const existing = schedules.filter((item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date));
-    setEditingSingleDate(existing.length > 0);
     const morning = existing.find((item: any) => sessionOf(item) === "MORNING");
     const evening = existing.find((item: any) => sessionOf(item) === "EVENING");
     setEnabledSessions(existing.length ? { MORNING: Boolean(morning), EVENING: Boolean(evening) } : { MORNING: true, EVENING: false });
@@ -171,6 +173,41 @@ export function DoctorScheduleEditor({
       MORNING: morning ? { startTime: morning.startTime, slotMinutes: morning.slotMinutes, maxPatients: morning.maxPatients, status: morning.status } : defaultSessionForms.MORNING,
       EVENING: evening ? { startTime: evening.startTime, slotMinutes: evening.slotMinutes, maxPatients: evening.maxPatients, status: evening.status } : defaultSessionForms.EVENING,
     });
+  };
+  const selectDate = (date: Date, modifiers?: { ctrl?: boolean; shift?: boolean }) => {
+    const ctrl = Boolean(modifiers?.ctrl), shift = Boolean(modifiers?.shift);
+    if (shift && (selectionAnchor || selected)) {
+      const anchor = selectionAnchor || selected!;
+      const from = new Date(Math.min(anchor.getTime(), date.getTime()));
+      const to = new Date(Math.max(anchor.getTime(), date.getTime()));
+      const range: Date[] = [];
+      for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) range.push(new Date(cursor));
+      setManualDates(range);
+      setEditingSingleDate(false);
+      loadDateForm(date);
+      return;
+    }
+    if (ctrl) {
+      const current = manualDates || (selected ? [selected] : []), key = isoDate(date);
+      const exists = current.some((item) => isoDate(item) === key);
+      const next = exists ? current.filter((item) => isoDate(item) !== key) : [...current, date];
+      if (!next.length) {
+        setManualDates(null);
+        setSelected(null);
+        setEditingSingleDate(false);
+        return;
+      }
+      setManualDates(next.sort((a, b) => a.getTime() - b.getTime()));
+      setSelectionAnchor(date);
+      setEditingSingleDate(false);
+      loadDateForm(date);
+      return;
+    }
+    setManualDates(null);
+    setSelectionAnchor(date);
+    const existing = schedules.some((item: any) => item.scheduleDate?.slice(0, 10) === isoDate(date));
+    setEditingSingleDate(existing);
+    loadDateForm(date);
   };
   const save = useMutation({
     mutationFn: async () => {
@@ -257,6 +294,7 @@ export function DoctorScheduleEditor({
       </div>
       <div className="schedule-layout">
         <section className="schedule-calendar panel">
+          <div className="schedule-instructions"><b>Select multiple dates:</b> Hold <kbd>Ctrl</kbd> and click individual dates, or click one date then hold <kbd>Shift</kbd> and click another date to select the full range.</div>
           <div className="calendar-head">
             <button
               onClick={() =>
@@ -298,7 +336,7 @@ export function DoctorScheduleEditor({
                 <button
                   key={isoDate(date)}
                   className={`${active ? "scheduled" : ""} ${outside ? "outside" : ""} ${chosen ? "selected" : ""}`}
-                  onClick={() => selectDate(date)}
+                  onClick={(event) => selectDate(date, { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey })}
                 >
                   <span>{date.getDate()}</span>
                   {active && (
