@@ -38,6 +38,17 @@ async function currentTelecmiUser(req:any){
   return {user,isAdmin};
 }
 
+async function updateTelecmiUserStatus(tenant:string,agentId:string,status:'online'|'offline'|'break'){
+  const integration=await prisma.telecmiIntegration.findUnique({where:{tenantId:tenant}});
+  if(!integration?.isActive)throw new AppError(503,'TeleCMI is not configured or active for this clinic','INTEGRATION_NOT_CONFIGURED');
+  const apiV2=integration.apiUrl.replace(/\/v3\/?$/,'/v2');
+  const response=await fetch(endpoint(apiV2,'user/status'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({appid:Number(integration.appId)||integration.appId,secret:decryptIntegrationSecret(integration.appSecretEncrypted),id:agentId,status}),signal:AbortSignal.timeout(20000)});
+  const result:any=await response.json().catch(()=>({}));
+  const success=response.ok&&(Number(result.code)===200||String(result.code).toLowerCase()==='cmi-200'||String(result.status).toLowerCase()===status);
+  if(!success)throw new AppError(502,result.msg||result.message||'Unable to update TeleCMI user status','TELECMI_STATUS_UPDATE_FAILED');
+  return {status:String(result.status||status).toLowerCase(),message:result.msg||'Status updated successfully'};
+}
+
 async function matchContact(tenantId:string,number:string){
   const patient=await prisma.patient.findFirst({where:{tenantId,mobile:{endsWith:number}}});
   const lead=patient?.leadId?await prisma.lead.findUnique({where:{id:patient.leadId}}):await prisma.lead.findFirst({where:{tenantId,mobile:{endsWith:number}}});
@@ -107,6 +118,13 @@ telecmiRouter.get('/webhook',receiveTelecmiWebhook);
 telecmiRouter.post('/sync',auth,asyncRoute(async(req,res)=>{const tid=tenantId(req),body=z.object({startDate:z.coerce.date(),endDate:z.coerce.date()}).parse(req.body);const result=await syncTelecmiCalls(tid,body.startDate,body.endDate);await audit(req,'telecmi.calls.synced','CallRecord',undefined,result);return ok(res,result,'TeleCMI calls synchronized')}));
 telecmiRouter.get('/users',auth,asyncRoute(async(req,res)=>ok(res,{items:await listTelecmiUsers(tenantId(req))})));
 telecmiRouter.get('/me',auth,asyncRoute(async(req,res)=>{const {user,isAdmin}=await currentTelecmiUser(req);return ok(res,{agentId:user.telecmiAgentId,agentName:user.telecmiAgentName,extension:user.telecmiExtension,isAdmin,canCall:Boolean(user.telecmiAgentId)})}));
+telecmiRouter.post('/status',auth,asyncRoute(async(req,res)=>{
+  const tid=tenantId(req),{user}=await currentTelecmiUser(req),body=z.object({status:z.enum(['online','offline','break'])}).parse(req.body);
+  if(!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
+  const result=await updateTelecmiUserStatus(tid,String(user.telecmiAgentId),body.status);
+  await audit(req,'telecmi.agent.status.updated','User',user.id,{agentId:user.telecmiAgentId,status:result.status});
+  return ok(res,result,'TeleCMI agent status updated');
+}));
 telecmiRouter.get('/softphone-credentials',auth,asyncRoute(async(req,res)=>{
   const tid=tenantId(req),{user}=await currentTelecmiUser(req);
   if(!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');

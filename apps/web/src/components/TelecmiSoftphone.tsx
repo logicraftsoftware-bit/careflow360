@@ -5,15 +5,16 @@ import { api, unwrap } from "../api";
 import "./TelecmiSoftphone.css";
 
 type PhoneState="connecting"|"ready"|"incoming"|"calling"|"active"|"ended"|"error";
+type AgentStatus="online"|"offline"|"break";
 
 export function TelecmiSoftphone(){
-  const client=useRef<PIOPIY|null>(null),[state,setState]=useState<PhoneState>("connecting"),[incoming,setIncoming]=useState<PiopiyIncomingCall|null>(null),[open,setOpen]=useState(false),[number,setNumber]=useState(""),[transferTo,setTransferTo]=useState(""),[muted,setMuted]=useState(false),[held,setHeld]=useState(false),[message,setMessage]=useState("Connecting TeleCMI softphone…");
+  const client=useRef<PIOPIY|null>(null),[state,setState]=useState<PhoneState>("connecting"),[agentStatus,setAgentStatus]=useState<AgentStatus>("offline"),[statusBusy,setStatusBusy]=useState(false),[incoming,setIncoming]=useState<PiopiyIncomingCall|null>(null),[open,setOpen]=useState(false),[number,setNumber]=useState(""),[transferTo,setTransferTo]=useState(""),[muted,setMuted]=useState(false),[held,setHeld]=useState(false),[message,setMessage]=useState("Connecting TeleCMI softphone…");
   useEffect(()=>{
     let active=true,phone:PIOPIY|null=null;
     api.get("/integrations/telecmi/softphone-credentials").then(unwrap).then((credentials:any)=>{
       if(!active)return;
       phone=new PIOPIY({name:credentials.displayName,debug:false,autoplay:true,autoReboot:true,ringTime:60});client.current=phone;
-      phone.on("login",()=>{setState("ready");setMessage("Softphone ready");});
+      phone.on("login",()=>{api.post("/integrations/telecmi/status",{status:"online"}).then(()=>{if(active){setAgentStatus("online");setState("ready");setMessage("Softphone ready · Online");}}).catch((error:any)=>{if(active){setState("error");setMessage(error.response?.data?.message||"Unable to set TeleCMI status online");setOpen(true);}});});
       phone.on("loginFailed",(event)=>{setState("error");setMessage(event.status||"TeleCMI login failed");setOpen(true);});
       phone.on("inComingCall",call=>{setIncoming(call);setState("incoming");setMessage(`Incoming call from ${call.name||call.from}`);setOpen(true);});
       phone.on("trying",()=>{setState("calling");setMessage("Starting call…");setOpen(true);});
@@ -22,7 +23,7 @@ export function TelecmiSoftphone(){
       const ended=(event:any)=>{setState("ended");setMessage(event?.status||"Call ended");setIncoming(null);setMuted(false);setHeld(false);setTimeout(()=>active&&setState("ready"),2500);};
       phone.on("ended",ended);phone.on("hangup",ended);
       phone.on("error",event=>{setState("error");setMessage(event.status||"TeleCMI call error");setOpen(true);});
-      phone.on("disconnected",()=>{setState("connecting");setMessage("Reconnecting softphone…");});
+      phone.on("disconnected",()=>{setState("connecting");setAgentStatus("offline");setMessage("Reconnecting softphone…");});
       phone.on("sbc_logout",event=>{setState("error");setMessage(event.reason||"Softphone signed out");setOpen(true);});
       phone.login(credentials.userId,credentials.password,credentials.sbcUri);
     }).catch((error:any)=>{if(active&&error.response?.status!==403){setState("error");setMessage(error.response?.data?.message||"Unable to start TeleCMI softphone");setOpen(true);}});
@@ -34,11 +35,13 @@ export function TelecmiSoftphone(){
   const toggleMute=()=>{muted?client.current?.unMute():client.current?.mute();setMuted(!muted);};
   const toggleHold=()=>{held?client.current?.unHold():client.current?.hold();setHeld(!held);};
   const transfer=()=>{const target=transferTo.replace(/\D/g,"");if(!target)return;client.current?.transfer(target,response=>setMessage(response?.error?`Transfer failed: ${response.error}`:"Transfer started"));};
+  const changeAgentStatus=async(status:AgentStatus)=>{setStatusBusy(true);try{await api.post("/integrations/telecmi/status",{status});setAgentStatus(status);if(state==="error")setState("ready");setMessage(status==="online"?"Softphone ready · Online":status==="break"?"On break · Incoming calls paused":"Offline · Incoming calls paused");}catch(error:any){setMessage(error.response?.data?.message||"Unable to update TeleCMI status");setState("error");}finally{setStatusBusy(false);}};
   if(state==="connecting"&&!open)return <button className="softphone-launch connecting" title={message} onClick={()=>setOpen(true)}><PhoneCall/></button>;
   return <div className={`softphone ${open?"open":""}`}>
     {!open?<button className={state==="incoming"?"softphone-launch ringing":"softphone-launch"} onClick={()=>setOpen(true)}>{state==="incoming"?<PhoneIncoming/>:<PhoneCall/>}<span>{state==="incoming"?incoming?.name||incoming?.from:"Softphone"}</span></button>:<section className="softphone-panel">
       <header><div><small>TELECMI WEB PHONE</small><strong>{message}</strong></div>{state!=="incoming"&&state!=="active"&&state!=="calling"&&<button onClick={()=>setOpen(false)}><X/></button>}</header>
-      {state==="incoming"?<div className="softphone-incoming"><PhoneIncoming/><b>{incoming?.name||incoming?.from||"Incoming call"}</b>{incoming?.name&&<span>{incoming.from}</span>}<div><button className="answer" onClick={answer}><Phone/>Answer</button><button className="decline" onClick={reject}><PhoneOff/>Reject</button></div></div>:state==="active"||state==="calling"?<div className="softphone-active"><PhoneCall/><b>{state==="active"?"Connected":"Calling"}</b><div><button className={muted?"selected":""} onClick={toggleMute}>{muted?<MicOff/>:<Mic/>}{muted?"Unmute":"Mute"}</button><button className={held?"selected":""} onClick={toggleHold}>{held?<Play/>:<Pause/>}{held?"Resume":"Hold"}</button><button className="decline" onClick={hangup}><PhoneOff/>End</button></div>{state==="active"&&<form className="softphone-transfer" onSubmit={event=>{event.preventDefault();transfer()}}><input value={transferTo} onChange={event=>setTransferTo(event.target.value)} placeholder="Extension or number"/><button>Transfer</button></form>}</div>:<form onSubmit={event=>{event.preventDefault();dial()}}><input value={number} onChange={event=>setNumber(event.target.value)} placeholder="Customer number" inputMode="tel"/><button disabled={state!=="ready"}><Phone/>Call</button></form>}
+      {state!=="incoming"&&state!=="active"&&state!=="calling"&&<label className="softphone-status">Agent status<select value={agentStatus} disabled={statusBusy||state==="connecting"} onChange={event=>changeAgentStatus(event.target.value as AgentStatus)}><option value="online">Online</option><option value="break">Break</option><option value="offline">Offline</option></select></label>}
+      {state==="incoming"?<div className="softphone-incoming"><PhoneIncoming/><b>{incoming?.name||incoming?.from||"Incoming call"}</b>{incoming?.name&&<span>{incoming.from}</span>}<div><button className="answer" onClick={answer}><Phone/>Answer</button><button className="decline" onClick={reject}><PhoneOff/>Reject</button></div></div>:state==="active"||state==="calling"?<div className="softphone-active"><PhoneCall/><b>{state==="active"?"Connected":"Calling"}</b><div><button className={muted?"selected":""} onClick={toggleMute}>{muted?<MicOff/>:<Mic/>}{muted?"Unmute":"Mute"}</button><button className={held?"selected":""} onClick={toggleHold}>{held?<Play/>:<Pause/>}{held?"Resume":"Hold"}</button><button className="decline" onClick={hangup}><PhoneOff/>End</button></div>{state==="active"&&<form className="softphone-transfer" onSubmit={event=>{event.preventDefault();transfer()}}><input value={transferTo} onChange={event=>setTransferTo(event.target.value)} placeholder="Extension or number"/><button>Transfer</button></form>}</div>:<form onSubmit={event=>{event.preventDefault();dial()}}><input value={number} onChange={event=>setNumber(event.target.value)} placeholder="Customer number" inputMode="tel"/><button disabled={state!=="ready"||agentStatus!=="online"}><Phone/>Call</button></form>}
     </section>}
   </div>;
 }
