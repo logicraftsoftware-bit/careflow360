@@ -61,6 +61,7 @@ export function AppointmentBookingPage({
   const {
     data: optionData = { schedules: [], appointments: [] },
     isFetching: optionsLoading,
+    error: optionsError,
   } = useQuery({
     queryKey: ["doctor-appointment-options", selectedDate],
     queryFn: () =>
@@ -81,7 +82,7 @@ export function AppointmentBookingPage({
       api
         .get("/crm/appointment-patients", { params: { search: patientSearch } })
         .then(unwrap),
-    enabled: Boolean(doctorId && !patient && patientMode === "EXISTING"),
+    enabled: Boolean(doctorId && !patient && patientMode === "EXISTING" && patientSearch.trim()),
   });
   const schedules: any[] = optionData.schedules || [],
     appointments: any[] = optionData.appointments || [];
@@ -372,7 +373,9 @@ export function AppointmentBookingPage({
             )} · Choose the clinic branch.`}
             onBack={() => setSelectedDate("")}
           >
-            {optionsLoading ? (
+            {optionsError ? (
+              <Empty text={(optionsError as any).response?.data?.message || "Unable to load doctor schedules. Please try again."} />
+            ) : optionsLoading ? (
               <Loading />
             ) : branches.length ? (
               <div className="choice-grid">
@@ -525,7 +528,7 @@ export function AppointmentBookingPage({
             </div>
             {patientMode === "EXISTING" && (
               <>
-                <label className="patient-search">
+                <label className="wizard-patient-search">
                   <Search />
                   <input
                     autoFocus
@@ -534,8 +537,10 @@ export function AppointmentBookingPage({
                     placeholder="Search by patient ID, phone number, name or email"
                   />
                 </label>
-                <div className="patient-results">
-                  {patientsLoading ? (
+                <div className="wizard-patient-results">
+                  {!patientSearch.trim() ? (
+                    <Empty text="Start typing a patient ID, phone number, name or email." />
+                  ) : patientsLoading ? (
                     <Loading />
                   ) : patientData.items?.length ? (
                     patientData.items.map((item: any) => (

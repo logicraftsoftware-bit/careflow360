@@ -174,7 +174,7 @@
 }
 .choice-card,
 .doctor-choice button,
-.patient-results button {
+.wizard-patient-results button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -187,14 +187,14 @@
 }
 .choice-card:hover,
 .doctor-choice button:hover,
-.patient-results button:hover {
+.wizard-patient-results button:hover {
   border-color: #60a5fa;
   box-shadow: 0 8px 22px #1d4ed814;
   transform: translateY(-2px);
 }
 .choice-card div,
 .doctor-choice button div,
-.patient-results button div {
+.wizard-patient-results button div {
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -202,12 +202,12 @@
 .choice-card span,
 .doctor-choice span,
 .doctor-choice small,
-.patient-results span {
+.wizard-patient-results span {
   color: #64748b;
 }
 .choice-card > svg,
 .doctor-choice button > svg,
-.patient-results button > svg {
+.wizard-patient-results button > svg {
   width: 18px;
   color: #2563eb;
 }
@@ -246,14 +246,16 @@
   color: #64748b;
 }
 .doctor-choice,
-.patient-results {
+.wizard-patient-results {
   display: grid;
   gap: 10px;
   max-width: 850px;
+  max-height: 280px;
+  overflow-y: auto;
   margin: auto;
 }
 .doctor-choice button i,
-.patient-results button i {
+.wizard-patient-results button i {
   display: grid;
   padding: 10px;
   border-radius: 50%;
@@ -261,7 +263,7 @@
   color: #2563eb;
 }
 .doctor-choice button div,
-.patient-results button div {
+.wizard-patient-results button div {
   flex: 1;
   margin-left: 12px;
 }
@@ -289,7 +291,7 @@
 .patient-tabs svg {
   width: 17px;
 }
-.patient-search {
+.wizard-patient-search {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -299,11 +301,11 @@
   border: 1px solid #cbd5e1;
   border-radius: 10px;
 }
-.patient-search svg {
+.wizard-patient-search svg {
   width: 19px;
   color: #94a3b8;
 }
-.patient-search input {
+.wizard-patient-search input {
   width: 100%;
   padding: 14px 0;
   border: 0;

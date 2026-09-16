@@ -1740,21 +1740,29 @@ crmRouter.get(
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
     const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.query.date);
-    const scheduleStart = new Date(`${date}T00:00:00.000Z`),
-      scheduleEnd = new Date(scheduleStart.getTime() + 86400000),
+    const requestedDay = new Date(`${date}T00:00:00.000Z`),
+      scheduleStart = new Date(requestedDay.getTime() - 86400000),
+      scheduleEnd = new Date(requestedDay.getTime() + 2 * 86400000),
       appointmentStart = new Date(`${date}T00:00:00+05:30`),
       appointmentEnd = new Date(appointmentStart.getTime() + 86400000);
-    const [schedules, appointments] = await Promise.all([
+    const [rawSchedules, appointments, doctors, branches] = await Promise.all([
       prisma.doctorSchedule.findMany({
         where: { tenantId: tid, status: "ACTIVE", scheduleDate: { gte: scheduleStart, lt: scheduleEnd } },
-        include: { doctor: { include: { department: true } }, branch: true },
-        orderBy: [{ startTime: "asc" }, { doctor: { name: "asc" } }],
+        orderBy: { startTime: "asc" },
       }),
       prisma.appointment.findMany({
         where: { tenantId: tid, status: { not: "CANCELLED" }, startsAt: { gte: appointmentStart, lt: appointmentEnd } },
         select: { id: true, patientId: true, doctorId: true, branchId: true, startsAt: true },
       }),
+      prisma.doctor.findMany({ where: { tenantId: tid }, include: { department: true } }),
+      prisma.branch.findMany({ where: { tenantId: tid } }),
     ]);
+    const doctorById = new Map(doctors.map((doctor) => [doctor.id, doctor])), branchById = new Map(branches.map((branch) => [branch.id, branch]));
+    const schedules = rawSchedules
+      .filter((schedule) => schedule.scheduleDate && (schedule.scheduleDate.toISOString().slice(0, 10) === date || schedule.scheduleDate.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) === date))
+      .map((schedule) => ({ ...schedule, doctor: doctorById.get(schedule.doctorId), branch: branchById.get(schedule.branchId) }))
+      .filter((schedule) => schedule.doctor && schedule.branch)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.doctor!.name.localeCompare(b.doctor!.name));
     return ok(res, { schedules, appointments });
   })
 );
