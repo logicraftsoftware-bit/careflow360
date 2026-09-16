@@ -38,7 +38,7 @@
 .call-filter-bottom .search {
   max-width: none;
 }
-section.table-panel:last-child > .toolbar {
+section.table-panel:last-child > .call-toolbar {
   display: none;
 }
 section.table-panel:last-child > .empty {
