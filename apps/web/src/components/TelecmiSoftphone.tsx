@@ -9,7 +9,9 @@ type PhoneState="connecting"|"ready"|"incoming"|"calling"|"active"|"ended"|"erro
 type AgentStatus="online"|"offline"|"break";
 
 export function TelecmiSoftphone(){
-  const client=useRef<PIOPIY|null>(null),connlyClient=useRef<Connly|null>(null),connlyConnected=useRef(false),[state,setState]=useState<PhoneState>("connecting"),[agentStatus,setAgentStatus]=useState<AgentStatus>("offline"),[statusBusy,setStatusBusy]=useState(false),[incoming,setIncoming]=useState<PiopiyIncomingCall|null>(null),[open,setOpen]=useState(false),[number,setNumber]=useState(""),[transferTo,setTransferTo]=useState(""),[muted,setMuted]=useState(false),[held,setHeld]=useState(false),[message,setMessage]=useState("Connecting TeleCMI softphone…");
+  const client=useRef<PIOPIY|null>(null),connlyClient=useRef<Connly|null>(null),connlyConnected=useRef(false),ringContext=useRef<AudioContext|null>(null),ringTimer=useRef<number|null>(null),[state,setState]=useState<PhoneState>("connecting"),[agentStatus,setAgentStatus]=useState<AgentStatus>("offline"),[statusBusy,setStatusBusy]=useState(false),[incoming,setIncoming]=useState<PiopiyIncomingCall|null>(null),[open,setOpen]=useState(false),[number,setNumber]=useState(""),[transferTo,setTransferTo]=useState(""),[muted,setMuted]=useState(false),[held,setHeld]=useState(false),[message,setMessage]=useState("Connecting TeleCMI softphone…");
+  const stopRingtone=()=>{if(ringTimer.current!==null){window.clearInterval(ringTimer.current);ringTimer.current=null}};
+  const startRingtone=()=>{if(ringTimer.current!==null)return;const AudioContextClass=window.AudioContext||(window as any).webkitAudioContext;if(!AudioContextClass)return;const context=ringContext.current||new AudioContextClass();ringContext.current=context;const ring=()=>{void context.resume().then(()=>{[0,0.22].forEach(offset=>{const oscillator=context.createOscillator(),gain=context.createGain(),start=context.currentTime+offset;oscillator.frequency.value=880;gain.gain.setValueAtTime(0.0001,start);gain.gain.exponentialRampToValueAtTime(0.18,start+0.02);gain.gain.exponentialRampToValueAtTime(0.0001,start+0.16);oscillator.connect(gain).connect(context.destination);oscillator.start(start);oscillator.stop(start+0.18)})}).catch(()=>undefined)};ring();ringTimer.current=window.setInterval(ring,1800);};
   useEffect(()=>{
     let active=true,phone:PIOPIY|null=null,presence:Connly|null=null,sipReady=false,presenceReady=false;
     const markReady=()=>{if(active&&sipReady&&presenceReady){setState("ready");setMessage("Softphone ready · Online");}};
@@ -25,26 +27,26 @@ export function TelecmiSoftphone(){
       phone=new PIOPIY({name:credentials.displayName,debug:true,autoplay:true,autoReboot:true,ringTime:60});client.current=phone;
       phone.on("login",()=>{sipReady=true;markReady();});
       phone.on("loginFailed",(event)=>{setState("error");setMessage(event.status||"TeleCMI login failed");setOpen(true);});
-      const receiveIncoming=(call:any)=>{const incomingCall=call as PiopiyIncomingCall;setIncoming(incomingCall);setState("incoming");setMessage(`Incoming call from ${incomingCall.name||incomingCall.from||"customer"}`);setOpen(true);};
+      const receiveIncoming=(call:any)=>{const incomingCall=call as PiopiyIncomingCall;setIncoming(incomingCall);setState("incoming");setMessage(`Incoming call from ${incomingCall.name||incomingCall.from||"customer"}`);setOpen(true);startRingtone();};
       phone.on("inComingCall",receiveIncoming);
       // TeleCMI SDK releases have used both spellings; listening to the alias is
       // harmless and prevents an SDK-version mismatch from hiding the call UI.
       (phone as any).on("incomingCall",receiveIncoming);
       phone.on("trying",()=>{setState("calling");setMessage("Starting call…");setOpen(true);});
       phone.on("ringing",event=>{const payload:any=event,isIncoming=String(payload.type||payload.direction||"").toLowerCase().includes("incoming");if(isIncoming){receiveIncoming(payload);return}setState(current=>current==="incoming"?current:"calling");setMessage("Customer is ringing…");});
-      phone.on("answered",()=>{setState("active");setMessage("Call connected");setIncoming(null);});
-      const ended=(event:any)=>{setState("ended");setMessage(event?.status||"Call ended");setIncoming(null);setMuted(false);setHeld(false);setTimeout(()=>active&&setState("ready"),2500);};
+      phone.on("answered",()=>{stopRingtone();setState("active");setMessage("Call connected");setIncoming(null);});
+      const ended=(event:any)=>{stopRingtone();setState("ended");setMessage(event?.status||"Call ended");setIncoming(null);setMuted(false);setHeld(false);setTimeout(()=>active&&setState("ready"),2500);};
       phone.on("ended",ended);phone.on("hangup",ended);
       phone.on("error",event=>{setState("error");setMessage(event.status||"TeleCMI call error");setOpen(true);});
       phone.on("disconnected",()=>{setState("connecting");setAgentStatus("offline");setMessage("Reconnecting softphone…");});
       phone.on("sbc_logout",event=>{setState("error");setMessage(event.reason||"Softphone signed out");setOpen(true);});
       phone.login(credentials.userId,credentials.password,credentials.sbcUri);
     }).catch((error:any)=>{if(active&&error.response?.status!==403){setState("error");setMessage(error.response?.data?.message||"Unable to start TeleCMI softphone");setOpen(true);}});
-    return()=>{active=false;if(presence)presence.disconnect();if(phone)phone.logout();connlyConnected.current=false;connlyClient.current=null;client.current=null;};
+    return()=>{active=false;stopRingtone();if(ringContext.current)void ringContext.current.close();ringContext.current=null;if(presence)presence.disconnect();if(phone)phone.logout();connlyConnected.current=false;connlyClient.current=null;client.current=null;};
   },[]);
   const dial=async()=>{let target=number.replace(/\D/g,"");if(target.length===10)target=`91${target}`;if(target.length<10){setMessage("Enter a valid phone number");setState("error");return}try{await navigator.mediaDevices.getUserMedia({audio:true});client.current?.call(target,{extra_param:"careflow360"});}catch{setState("error");setMessage("Allow microphone access to make calls");}};
-  const answer=async()=>{try{await navigator.mediaDevices.getUserMedia({audio:true});client.current?.answer();setMessage("Connecting call…");}catch{setState("error");setMessage("Allow microphone access to answer calls");}};
-  const reject=()=>client.current?.reject(),hangup=()=>client.current?.terminate();
+  const answer=async()=>{stopRingtone();try{await navigator.mediaDevices.getUserMedia({audio:true});client.current?.answer();setMessage("Connecting call…");}catch{setState("error");setMessage("Allow microphone access to answer calls");}};
+  const reject=()=>{stopRingtone();client.current?.reject()},hangup=()=>client.current?.terminate();
   const toggleMute=()=>{muted?client.current?.unMute():client.current?.mute();setMuted(!muted);};
   const toggleHold=()=>{held?client.current?.unHold():client.current?.hold();setHeld(!held);};
   const transfer=()=>{const target=transferTo.replace(/\D/g,"");if(!target)return;client.current?.transfer(target,response=>setMessage(response?.error?`Transfer failed: ${response.error}`:"Transfer started"));};

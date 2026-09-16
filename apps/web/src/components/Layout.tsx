@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { api, unwrap } from "../api";
+import { TelecmiSoftphone } from "./TelecmiSoftphone";
 import "./Layout.css";
 const tenant = [
   ["Dashboard", "", LayoutDashboard],
@@ -304,6 +305,7 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
         <div className="content">
           <Outlet />
         </div>
+        {mode === "tenant" && canRead("call-logs") && <TelecmiSoftphone />}
       </main>
     </div>
   );

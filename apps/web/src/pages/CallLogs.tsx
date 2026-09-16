@@ -11,7 +11,6 @@ import {
   Search,
 } from "lucide-react";
 import { api, unwrap } from "../api";
-import { TelecmiSoftphone } from "../components/TelecmiSoftphone";
 import "./CallLogs.css";
 const when = (v?: string) =>
   v
@@ -368,9 +367,6 @@ export function CallLogsPage() {
             </section>
           )}
         </>
-      )}
-      {staffPortal && sessionUser.roleCodes?.includes("CALL_CENTRE") && (
-        <TelecmiSoftphone />
       )}
       {profile?.canCall && !staffPortal && (
         <section className="panel call-dialer">
