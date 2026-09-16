@@ -18,6 +18,7 @@ import {
   Filter,
   History,
   MessageCircle,
+  PhoneCall,
   Plus,
   Search,
   SquarePen,
@@ -951,6 +952,20 @@ function ClinicAppointmentCalendar(){
 }
 export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   const navigate = useNavigate();
+  const sessionUser = JSON.parse(localStorage.getItem("user") || "{}"),
+    callCentreStaff =
+      mode === "tenant" &&
+      sessionUser.portal === "STAFF" &&
+      (sessionUser.roleCodes || []).some((code: string) =>
+        /^CALL_(CENTRE|CENTER)(?:_AGENT)?$/.test(code),
+      ),
+    callEnabledPage = [
+      "leads",
+      "interested-leads",
+      "converted-leads",
+      "patients",
+      "appointments",
+    ].includes(slug);
   const c = configs[slug] || {
     title: label(slug),
     description: `Manage ${slug}.`,
@@ -1038,6 +1053,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       };
     },
   });
+  const { data: telecmiProfile } = useQuery({
+    queryKey: ["telecmi-me"],
+    queryFn: () => api.get("/integrations/telecmi/me").then(unwrap),
+    enabled: callCentreStaff && callEnabledPage,
+  });
   const { data: appointmentLogs = [], isLoading: logsLoading } = useQuery({
     queryKey: ["appointment-logs", logRecord?.id],
     queryFn: () => api.get(slug === "appointments"?`/crm/appointments/${logRecord.id}/logs`:`/crm/modules/${slug}/${logRecord.id}/logs`).then(unwrap),
@@ -1069,6 +1089,16 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
       enabled: mode === "tenant" && usedReferenceKeys.has(key),
     })),
   });
+  const patientRows: any[] = (() => {
+    const index = referenceKeys.indexOf("patientId"),
+      referenceData = index >= 0 ? (referenceQueries[index].data as any) : undefined;
+    return Array.isArray(referenceData) ? referenceData : referenceData?.items || [];
+  })();
+  const phoneFor = (row: any) =>
+    row.mobile ||
+    row.patient?.mobile ||
+    patientRows.find((patient: any) => patient.id === row.patientId)?.mobile ||
+    "";
   const display = (record: any, key: string) => {
     const raw = val(record, key),
       referenceIndex = referenceKeys.indexOf(key);
@@ -1214,6 +1244,26 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           error?.response?.data?.message ||
             "Unable to send the WhatsApp message. Please try again.",
         ),
+    }),
+    ivrCall = useMutation({
+      mutationFn: (to: string) =>
+        api.post("/integrations/telecmi/make-call", { to }),
+      onSuccess: () =>
+        void Swal.fire({
+          icon: "success",
+          title: "IVR call started",
+          text: "The call is being connected through your assigned TeleCMI user.",
+          timer: 2200,
+          showConfirmButton: false,
+        }),
+      onError: (callError: any) =>
+        void Swal.fire({
+          icon: "error",
+          title: "Unable to start IVR call",
+          text:
+            callError.response?.data?.message ||
+            "Check the TeleCMI user assignment and Online status.",
+        }),
     }),
     assignLab=useMutation({mutationFn:({id,technicianId}:{id:string;technicianId:string})=>api.patch(`/crm/lab-appointments/${id}/assign`,{technicianId}),onSuccess:()=>{setAssignRecord(undefined);qc.invalidateQueries({queryKey:[endpoint]})}}),
     tenant = useMutation({
@@ -1807,6 +1857,19 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                       ))}
                       <td>
                         <div className="row-actions">
+                          {callCentreStaff &&
+                            callEnabledPage &&
+                            telecmiProfile?.canCall &&
+                            phoneFor(r) && (
+                              <button
+                                type="button"
+                                title={`Call ${r.name || r.patient?.name || "patient"} through IVR`}
+                                disabled={ivrCall.isPending}
+                                onClick={() => ivrCall.mutate(phoneFor(r))}
+                              >
+                                <PhoneCall />
+                              </button>
+                            )}
                           {!!statusOptions.length && r.status && (
                             <select
                               className="quick-status"
