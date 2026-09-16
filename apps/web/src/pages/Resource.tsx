@@ -1181,6 +1181,18 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         setEdit(undefined);
         setOpen(false);
       },
+      onError: (saveError: any) => {
+        const code = saveError.response?.data?.errorCode;
+        if (code === "PATIENT_MOBILE_EXISTS")
+          void Swal.fire({
+            icon: "warning",
+            title: "Patient already registered",
+            text:
+              saveError.response?.data?.message ||
+              "A patient with this phone number already exists.",
+            confirmButtonColor: "#2563eb",
+          });
+      },
     }),
     del = useMutation({
       mutationFn: (id: string) => api.delete(`${base}/${id}`),

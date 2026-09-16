@@ -80,6 +80,39 @@ const resources: any = {
   notifications: prisma.notification,
   supportTickets: prisma.supportTicket,
 };
+const normalizePatientMobile = (value: unknown) => {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  if (!/^[6-9]\d{9}$/.test(digits))
+    throw new AppError(
+      400,
+      "Enter a valid 10-digit Indian mobile number",
+      "INVALID_PATIENT_MOBILE"
+    );
+  return digits;
+};
+const patientMobileVariants = (mobile: string) => [mobile, `91${mobile}`, `+91${mobile}`];
+async function ensureUniquePatientMobile(
+  tenantId: string,
+  mobile: string,
+  excludePatientId?: string
+) {
+  const duplicate = await prisma.patient.findFirst({
+    where: {
+      tenantId,
+      mobile: { in: patientMobileVariants(mobile) },
+      ...(excludePatientId ? { id: { not: excludePatientId } } : {}),
+    },
+    select: { id: true, name: true, patientNumber: true },
+  });
+  if (duplicate)
+    throw new AppError(
+      409,
+      `A patient with this phone number is already registered${duplicate.patientNumber ? ` (${duplicate.patientNumber})` : ""}`,
+      "PATIENT_MOBILE_EXISTS"
+    );
+}
 const allowedFields: Record<string, string[]> = {
   branches: [
     "name",
@@ -227,6 +260,11 @@ function prepared(
     (!Number.isInteger(data.age) || data.age < 0 || data.age > 130)
   )
     throw new AppError(400, "Age must be a whole number between 0 and 130", "INVALID_AGE");
+  if (
+    resource === "patients" &&
+    (creating || data.mobile !== undefined)
+  )
+    data.mobile = normalizePatientMobile(data.mobile);
   if (
     resource === "doctorSchedules" &&
     data.scheduleDate &&
@@ -2243,6 +2281,32 @@ crmRouter.post(
       .parse(req.body.records);
     const tid = tenantId(req),
       stamp = Date.now().toString(36).toUpperCase();
+    if (resource === "patients") {
+      const normalizedMobiles = records.map((record: any) =>
+        normalizePatientMobile(record.mobile)
+      );
+      if (new Set(normalizedMobiles).size !== normalizedMobiles.length)
+        throw new AppError(
+          409,
+          "The import contains the same patient phone number more than once",
+          "PATIENT_MOBILE_EXISTS"
+        );
+      const duplicate = await prisma.patient.findFirst({
+        where: {
+          tenantId: tid,
+          mobile: {
+            in: normalizedMobiles.flatMap(patientMobileVariants),
+          },
+        },
+        select: { patientNumber: true },
+      });
+      if (duplicate)
+        throw new AppError(
+          409,
+          `A patient with one of these phone numbers is already registered (${duplicate.patientNumber})`,
+          "PATIENT_MOBILE_EXISTS"
+        );
+    }
     const created = await prisma.$transaction(async (tx) => {
       const model = resource === "leads" ? tx.lead : tx.patient;
       const output = [];
@@ -2292,6 +2356,8 @@ crmRouter.post(
       data.branchIds = branchIds;
       data.branchId = branchIds[0];
     }
+    if (req.params.resource === "patients")
+      await ensureUniquePatientMobile(tid, data.mobile);
     const row = await model.create({ data });
     await audit(
       req,
@@ -2371,6 +2437,8 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
+    if (req.params.resource === "patients" && data.mobile)
+      await ensureUniquePatientMobile(tid, data.mobile, found.id);
     if (req.params.resource === "departments" && data.branchIds) {
       const branchIds: string[] = Array.isArray(data.branchIds)
         ? [...new Set<string>(data.branchIds.filter(Boolean) as string[])]
