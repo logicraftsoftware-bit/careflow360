@@ -5,13 +5,14 @@ import { api, unwrap } from "../api";
 import "./PatientFollowupsPage.css";
 
 const isoDay = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const indiaDay = (value: string) => { const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value)), get = (type: string) => parts.find((part) => part.type === type)?.value || ""; return `${get("year")}-${get("month")}-${get("day")}`; };
 const statusLabel = (value: string) => value.charAt(0) + value.slice(1).toLowerCase();
 
 export function PatientFollowupsPage() {
   const queryClient = useQueryClient(), [month, setMonth] = useState(() => new Date()), [selectedDate, setSelectedDate] = useState(() => isoDay(new Date())), [search, setSearch] = useState(""), [status, setStatus] = useState("ALL");
   const first = new Date(month.getFullYear(), month.getMonth(), 1), last = new Date(month.getFullYear(), month.getMonth() + 1, 1), queryKey = ["patient-followups", isoDay(first)];
-  const { data: items = [], isLoading, error } = useQuery({ queryKey, queryFn: () => api.get(`/crm/patient-followups?from=${first.toISOString()}&to=${last.toISOString()}`).then(unwrap) });
-  const grouped = useMemo(() => { const map = new Map<string, any[]>(); for (const item of items as any[]) { const day = new Date(item.scheduledAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }); map.set(day, [...(map.get(day) || []), item]); } return map; }, [items]);
+  const { data: items = [], isLoading, error } = useQuery({ queryKey, queryFn: () => api.get(`/crm/patient-followups?from=${first.toISOString()}&to=${last.toISOString()}`).then(unwrap), refetchOnMount: "always" });
+  const grouped = useMemo(() => { const map = new Map<string, any[]>(); for (const item of items as any[]) { const day = indiaDay(item.scheduledAt); map.set(day, [...(map.get(day) || []), item]); } return map; }, [items]);
   const selected = useMemo(() => { const text = search.trim().toLowerCase(); return (grouped.get(selectedDate) || []).filter((item) => (status === "ALL" || item.status === status) && (!text || [item.patient?.name, item.patient?.patientNumber, item.patient?.mobile, item.doctor?.name].some((value) => String(value || "").toLowerCase().includes(text)))); }, [grouped, selectedDate, search, status]);
   const updateStatus = useMutation({ mutationFn: ({ id, value }: any) => api.patch(`/crm/patient-followups/${id}/status`, { status: value }), onSuccess: () => queryClient.invalidateQueries({ queryKey }), onError: (updateError: any) => window.alert(updateError.response?.data?.message || "Unable to update follow-up") });
   const call = useMutation({ mutationFn: (to: string) => api.post("/integrations/telecmi/make-call", { to }), onSuccess: () => window.alert("TeleCMI call started. Please answer your agent phone."), onError: (callError: any) => window.alert(callError.response?.data?.message || "Unable to start IVR call. Check the staff TeleCMI assignment and online status.") });
