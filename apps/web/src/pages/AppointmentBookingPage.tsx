@@ -791,8 +791,8 @@ function NewPatientModal({ pending, error, onClose, onSave }: any) {
             </select>
           </label>
           <label>
-            Date of birth
-            <input name="dob" type="date" />
+            Age
+            <input name="age" type="number" min="0" max="130" inputMode="numeric" />
           </label>
           <label>
             City

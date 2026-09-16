@@ -345,7 +345,7 @@ patientRouter.post(
           mobile: patient.mobile,
           email: patient.email,
           gender: patient.gender,
-          dob: patient.dob,
+          age: patient.age,
           address: patient.address,
           city: patient.city,
           state: patient.state,

@@ -521,7 +521,7 @@ model Patient {
   lead          Lead?         @relation(fields: [leadId], references: [id])
   name          String
   gender        String?
-  dob           DateTime?
+  age           Int?
   mobile        String
   email         String?
   address       String?

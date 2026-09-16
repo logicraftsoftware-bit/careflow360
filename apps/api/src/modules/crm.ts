@@ -136,7 +136,7 @@ const allowedFields: Record<string, string[]> = {
     "leadId",
     "name",
     "gender",
-    "dob",
+    "age",
     "mobile",
     "email",
     "address",
@@ -206,7 +206,6 @@ function prepared(
     "scheduledAt",
     "scheduleDate",
     "nextFollowUpAt",
-    "dob",
   ])
     if (data[key]) data[key] = new Date(data[key]);
   for (const key of [
@@ -215,12 +214,19 @@ function prepared(
     "slotMinutes",
     "maxPatients",
     "serialNumber",
+    "age",
   ])
     if (data[key] !== undefined && data[key] !== "")
       data[key] = Number(data[key]);
   for (const key of ["consultationFee", "amount"])
     if (data[key] !== undefined && data[key] !== "")
       data[key] = Number(data[key]);
+  if (
+    resource === "patients" &&
+    data.age !== undefined &&
+    (!Number.isInteger(data.age) || data.age < 0 || data.age > 130)
+  )
+    throw new AppError(400, "Age must be a whole number between 0 and 130", "INVALID_AGE");
   if (
     resource === "doctorSchedules" &&
     data.scheduleDate &&

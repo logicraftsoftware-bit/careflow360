@@ -412,7 +412,7 @@ const configs: Record<string, Config> = {
       f("mobile", "Mobile", "text", true),
       f("email", "Email"),
       f("gender", "Gender", "select", false, ["MALE", "FEMALE", "OTHER"]),
-      f("dob", "Date of birth", "date"),
+      f("age", "Age", "number"),
       f("address", "Address", "textarea"),
       f("city", "City"),
       f("state", "State"),
@@ -1495,7 +1495,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           email: raw.email || undefined,
           city: raw.city || undefined,
           gender: raw.gender ? raw.gender.toUpperCase() : undefined,
-          dob: raw.dob || undefined,
+          age: raw.age || undefined,
           address: raw.address || undefined,
           state: raw.state || undefined,
           pin: raw.pin || undefined,
@@ -1973,6 +1973,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                         name={x.name}
                         type={x.name === "mobile" ? "tel" : x.type}
                         required={x.required}
+                        min={x.name === "age" ? 0 : undefined}
+                        max={x.name === "age" ? 130 : undefined}
+                        step={x.name === "age" ? 1 : undefined}
                         inputMode={x.name === "mobile" ? "numeric" : undefined}
                         pattern={
                           x.name === "mobile"
@@ -2041,7 +2044,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               <code>
                 {slug === "leads"
                   ? "name,mobile,email,city,priority,status,remarks"
-                  : "name,mobile,email,city,gender,dob,address,state,pin,status"}
+                  : "name,mobile,email,city,gender,age,address,state,pin,status"}
               </code>
             </div>
             <label className="bulk-file">
@@ -2062,7 +2065,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               placeholder={
                 slug === "leads"
                   ? "name,mobile,email,city,priority,status,remarks\nRavi Kumar,9876543210,ravi@example.com,Kolkata,HIGH,NEW,Website enquiry"
-                  : "name,mobile,email,city,gender,dob,address,state,pin,status\nRavi Kumar,9876543210,ravi@example.com,Kolkata,MALE,1990-01-15,Park Street,West Bengal,700016,ACTIVE"
+                  : "name,mobile,email,city,gender,age,address,state,pin,status\nRavi Kumar,9876543210,ravi@example.com,Kolkata,MALE,36,Park Street,West Bengal,700016,ACTIVE"
               }
             />
             {bulk.error && (
