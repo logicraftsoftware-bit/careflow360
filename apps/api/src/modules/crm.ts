@@ -1827,7 +1827,13 @@ crmRouter.get(
         ? [...doctor.department.branchIds, ...(doctor.department.branchId ? [doctor.department.branchId] : [])]
         : [];
       const scheduledBranchIds = doctor.schedules.map((schedule) => schedule.branchId);
-      const assigned = [...new Set([...explicitBranchIds, ...departmentBranchIds, ...scheduledBranchIds])]
+      // A doctor's department is the source of truth for the roster. Legacy
+      // direct/schedule assignments are only used when no department branches
+      // have been configured yet.
+      const assignedSource = departmentBranchIds.length
+        ? departmentBranchIds
+        : [...explicitBranchIds, ...scheduledBranchIds];
+      const assigned = [...new Set(assignedSource)]
         .filter((branchId) => branchById.has(branchId));
       const branchIds = assigned.length ? assigned : [branches[0]?.id || ""];
       return branchIds.map((branchId) => {

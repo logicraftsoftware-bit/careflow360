@@ -1124,9 +1124,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
         raw,
     );
   };
-  const sourceRows = useMemo(
-    () =>
-      (Array.isArray(data) ? data : data?.items || []).map((r: any) => {
+  const sourceRows = useMemo(() => {
+    const normalized = (Array.isArray(data) ? data : data?.items || []).map((r: any) => {
         const row = r.data ? { ...r, ...r.data } : r;
         if (slug !== "tenants") return row;
         const subscription = row.subscriptions?.[0];
@@ -1135,9 +1134,19 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           planId: subscription?.planId || "",
           planName: subscription?.plan?.name || "No plan",
         };
-      }),
-    [data, slug],
-  );
+      });
+
+    if (slug !== "doctor-schedules") return normalized;
+
+    // The roster is one row per doctor/branch. Protect the UI from duplicate
+    // legacy/API rows and provide a stable unique key for React reconciliation.
+    return [...new Map(
+      normalized.map((row: any) => [
+        `${row.doctorId}:${row.branchId}`,
+        { ...row, id: `${row.doctorId}:${row.branchId}` },
+      ]),
+    ).values()];
+  }, [data, slug]);
   const all = useMemo(() => {
     const todayKey = clinicDateKey(new Date());
     const appointmentDateMatches = (startsAt: string) => {
@@ -1430,8 +1439,11 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     scheduleDoctors = [
       ...new Set(sourceRows.map((r: any) => r.doctorId).filter(Boolean)),
     ] as string[],
+    branchSourceRows = slug === "doctor-schedules" && departmentFilter !== "ALL"
+      ? sourceRows.filter((row: any) => row.departmentId === departmentFilter)
+      : sourceRows,
     rowBranches = [
-      ...new Set(sourceRows.flatMap((r: any) => Array.isArray(r.branchIds) ? r.branchIds : r.branchId ? [r.branchId] : []).filter(Boolean)),
+      ...new Set(branchSourceRows.flatMap((r: any) => Array.isArray(r.branchIds) ? r.branchIds : r.branchId ? [r.branchId] : []).filter(Boolean)),
     ] as string[],
     tenantPlans = [...new Map(
       sourceRows
@@ -1708,6 +1720,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 value={departmentFilter}
                 onChange={(event) => {
                   setDepartmentFilter(event.target.value);
+                  if (slug === "doctor-schedules") setBranchFilter("ALL");
                   setPage(1);
                 }}
               >
