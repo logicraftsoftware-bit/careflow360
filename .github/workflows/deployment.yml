@@ -78,10 +78,8 @@ jobs:
             # after a successful MongoDB db push can return a spurious exit 1 on
             # the VPS and abort an otherwise healthy deployment.
             DB_PUSH_LOG=/tmp/careflow360-prisma-db-push.log
-            set +e
-            npm run db:push -w @careflow360/api -- --skip-generate > "$DB_PUSH_LOG" 2>&1
-            DB_PUSH_STATUS=$?
-            set -e
+            DB_PUSH_STATUS=0
+            npm run db:push -w @careflow360/api -- --skip-generate > "$DB_PUSH_LOG" 2>&1 || DB_PUSH_STATUS=$?
             cat "$DB_PUSH_LOG"
             if [ "$DB_PUSH_STATUS" -ne 0 ] && ! grep -q "The database is already in sync with the Prisma schema" "$DB_PUSH_LOG"; then
               echo "Database schema update failed"
