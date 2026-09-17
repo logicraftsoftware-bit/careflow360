@@ -77,7 +77,7 @@ jobs:
             # The client was generated in the previous step. Generating it again
             # after a successful MongoDB db push can return a spurious exit 1 on
             # the VPS and abort an otherwise healthy deployment.
-            npm run db:push -- --skip-generate
+            npm run db:push -w @careflow360/api -- --skip-generate
 
             BULK_SCHEDULE_MARKER=/var/www/careflow360/.bulk-doctor-schedules-2026-09-17-to-12-31
             if [ ! -f "$BULK_SCHEDULE_MARKER" ]; then
