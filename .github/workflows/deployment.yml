@@ -76,6 +76,15 @@ jobs:
             echo "Updating database schema..."
             npm run db:push
 
+            BULK_SCHEDULE_MARKER=/var/www/careflow360/.bulk-doctor-schedules-2026-09-17-to-12-31
+            if [ ! -f "$BULK_SCHEDULE_MARKER" ]; then
+              echo "Populating doctor schedules through December 31, 2026..."
+              npm run schedules:bulk-2026 -w @careflow360/api
+              touch "$BULK_SCHEDULE_MARKER"
+            else
+              echo "Bulk doctor schedules were already populated; skipping."
+            fi
+
             echo "Building API..."
             npm run build -w @careflow360/api
 
