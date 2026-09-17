@@ -92,27 +92,6 @@ const normalizePatientMobile = (value: unknown) => {
     );
   return digits;
 };
-const patientMobileVariants = (mobile: string) => [mobile, `91${mobile}`, `+91${mobile}`];
-async function ensureUniquePatientMobile(
-  tenantId: string,
-  mobile: string,
-  excludePatientId?: string
-) {
-  const duplicate = await prisma.patient.findFirst({
-    where: {
-      tenantId,
-      mobile: { in: patientMobileVariants(mobile) },
-      ...(excludePatientId ? { id: { not: excludePatientId } } : {}),
-    },
-    select: { id: true, name: true, patientNumber: true },
-  });
-  if (duplicate)
-    throw new AppError(
-      409,
-      `A patient with this phone number is already registered${duplicate.patientNumber ? ` (${duplicate.patientNumber})` : ""}`,
-      "PATIENT_MOBILE_EXISTS"
-    );
-}
 const allowedFields: Record<string, string[]> = {
   branches: [
     "name",
@@ -2381,32 +2360,6 @@ crmRouter.post(
       .parse(req.body.records);
     const tid = tenantId(req),
       stamp = Date.now().toString(36).toUpperCase();
-    if (resource === "patients") {
-      const normalizedMobiles = records.map((record: any) =>
-        normalizePatientMobile(record.mobile)
-      );
-      if (new Set(normalizedMobiles).size !== normalizedMobiles.length)
-        throw new AppError(
-          409,
-          "The import contains the same patient phone number more than once",
-          "PATIENT_MOBILE_EXISTS"
-        );
-      const duplicate = await prisma.patient.findFirst({
-        where: {
-          tenantId: tid,
-          mobile: {
-            in: normalizedMobiles.flatMap(patientMobileVariants),
-          },
-        },
-        select: { patientNumber: true },
-      });
-      if (duplicate)
-        throw new AppError(
-          409,
-          `A patient with one of these phone numbers is already registered (${duplicate.patientNumber})`,
-          "PATIENT_MOBILE_EXISTS"
-        );
-    }
     const created = await prisma.$transaction(async (tx) => {
       const model = resource === "leads" ? tx.lead : tx.patient;
       const output = [];
@@ -2456,8 +2409,6 @@ crmRouter.post(
       data.branchIds = branchIds;
       data.branchId = branchIds[0];
     }
-    if (req.params.resource === "patients")
-      await ensureUniquePatientMobile(tid, data.mobile);
     const row = await model.create({ data });
     await audit(
       req,
@@ -2537,8 +2488,6 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
-    if (req.params.resource === "patients" && data.mobile)
-      await ensureUniquePatientMobile(tid, data.mobile, found.id);
     if (req.params.resource === "departments" && data.branchIds) {
       const branchIds: string[] = Array.isArray(data.branchIds)
         ? [...new Set<string>(data.branchIds.filter(Boolean) as string[])]

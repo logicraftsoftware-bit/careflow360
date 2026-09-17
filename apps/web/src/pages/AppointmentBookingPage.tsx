@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, unwrap } from "../api";
-import Swal from "sweetalert2";
 import "./AppointmentBookingPage.css";
 
 const dateKey = (date: Date) =>
@@ -218,17 +217,6 @@ export function AppointmentBookingPage({
       setPatient(saved);
       setShowNewPatient(false);
       await refetchPatients();
-    },
-    onError: (createError: any) => {
-      if (createError.response?.data?.errorCode === "PATIENT_MOBILE_EXISTS")
-        void Swal.fire({
-          icon: "warning",
-          title: "Patient already registered",
-          text:
-            createError.response?.data?.message ||
-            "A patient with this phone number already exists. Search and select the existing patient instead.",
-          confirmButtonColor: "#2563eb",
-        });
     },
   });
   const book = useMutation({
