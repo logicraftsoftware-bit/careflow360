@@ -53,7 +53,8 @@ export function AppointmentBookingPage({
     [showNewPatient, setShowNewPatient] = useState(false);
   const [appointmentTime, setAppointmentTime] = useState(""),
     [status, setStatus] = useState("CONFIRMED"),
-    [paymentStatus, setPaymentStatus] = useState("PENDING");
+    [paymentStatus, setPaymentStatus] = useState("PENDING"),
+    [sendWhatsApp, setSendWhatsApp] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(""),
     [utrNumber, setUtrNumber] = useState(""),
     [paymentRemarks, setPaymentRemarks] = useState("");
@@ -230,6 +231,7 @@ export function AppointmentBookingPage({
         startsAt: appointmentTime,
         status,
         paymentStatus,
+        sendWhatsApp,
         paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
         utrNumber: paymentStatus === "PAID" ? utrNumber : undefined,
         paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
@@ -665,6 +667,16 @@ export function AppointmentBookingPage({
                     </label>
                   </>
                 )}
+                <label className="whatsapp-opt-in">
+                  <input
+                    type="checkbox"
+                    checked={sendWhatsApp}
+                    onChange={(event) => setSendWhatsApp(event.target.checked)}
+                  />
+                  <span>
+                    Send appointment confirmation to the patient on WhatsApp
+                  </span>
+                </label>
               </div>
               {book.error && (
                 <div className="alert error">

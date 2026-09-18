@@ -2004,6 +2004,7 @@ crmRouter.post(
         paymentStatus: z
           .enum(["NOT_REQUIRED", "PENDING", "PAID"])
           .default("PENDING"),
+        sendWhatsApp: z.boolean().default(false),
         paymentMethod: z
           .enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"])
           .optional(),
@@ -2237,10 +2238,14 @@ crmRouter.post(
       amount: result.amount,
       token: result.token,
     };
-    if (result.paymentStatus === "PENDING")
-      await notifyAppointment(req, "payment_pending", message);
-    else if (result.paymentStatus === "PAID")
-      await notifyAppointment(req, "payment_success", message);
+    if (body.sendWhatsApp) {
+      if (result.paymentStatus === "PENDING")
+        await notifyAppointment(req, "payment_pending", message);
+      else if (result.paymentStatus === "PAID")
+        await notifyAppointment(req, "payment_success", message);
+    } else {
+      await audit(req, "appointment.whatsapp.booking.opted_out", "Appointment", result.id);
+    }
     return ok(
       res,
       result,

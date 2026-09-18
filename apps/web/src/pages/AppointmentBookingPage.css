@@ -360,6 +360,24 @@
   border-radius: 8px;
   background: #fff;
 }
+.final-fields .whatsapp-opt-in {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+.final-fields .whatsapp-opt-in input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #2563eb;
+}
 .wizard-actions {
   display: flex;
   justify-content: flex-end;
