@@ -436,9 +436,8 @@ crmRouter.get(
       });
     if (!dashboardAllowed)
       throw new AppError(403, "Dashboard permission is required", "FORBIDDEN");
-    const
-      start = new Date();
-    start.setHours(0, 0, 0, 0);
+    const now = new Date(), istOffset = 330 * 60 * 1000, istNow = new Date(now.getTime() + istOffset);
+    const start = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()) - istOffset);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
     const [
@@ -505,15 +504,35 @@ crmRouter.get(
         where: { tenantId: tid, startsAt: { gte: start, lt: end } },
       }),
     ]);
+    const [todayCallRows,todayLeadRows,todaySchedule,todayPaid,todayDueFollowups,dueFollowupCount,overdueFollowupCount]=await Promise.all([
+      prisma.callRecord.findMany({where:{tenantId:tid,startedAt:{gte:start,lt:end}},select:{startedAt:true,status:true,durationSeconds:true,agentExternalId:true,agentName:true}}),
+      prisma.lead.findMany({where:{tenantId:tid,createdAt:{gte:start,lt:end}},select:{createdAt:true}}),
+      prisma.appointment.findMany({where:{tenantId:tid,startsAt:{gte:start,lt:end},status:{notIn:['CANCELLED','RESCHEDULED']}},include:{patient:true,doctor:true,department:true},orderBy:{startsAt:'asc'}}),
+      prisma.payment.findMany({where:{tenantId:tid,status:'PAID',confirmedAt:{gte:start,lt:end}},include:{appointment:{include:{patient:true}}},orderBy:{confirmedAt:'desc'},take:8}),
+      prisma.followUp.findMany({where:{tenantId:tid,status:'PENDING',scheduledAt:{lt:end}},include:{lead:true,patient:true},orderBy:{scheduledAt:'asc'},take:8}),
+      prisma.followUp.count({where:{tenantId:tid,status:'PENDING',scheduledAt:{lt:end}}}),
+      prisma.followUp.count({where:{tenantId:tid,status:'PENDING',scheduledAt:{lt:start}}}),
+    ]);
+    const hours=Array.from({length:12},(_,index)=>({hour:index+8,calls:0,enquiries:0,appointments:0}));
+    const hourIndex=(value:Date|null)=>value===null?-1:new Date(value.getTime()+istOffset).getUTCHours()-8;
+    for(const row of todayCallRows){const index=hourIndex(row.startedAt);if(hours[index])hours[index].calls++}
+    for(const row of todayLeadRows){const index=hourIndex(row.createdAt);if(hours[index])hours[index].enquiries++}
+    for(const row of todaySchedule){const index=hourIndex(row.startsAt);if(hours[index])hours[index].appointments++}
+    const departmentMap=new Map<string,{name:string;bookings:number}>();
+    for(const row of todaySchedule){const key=row.departmentId,current=departmentMap.get(key)||{name:row.department.name,bookings:0};current.bookings++;departmentMap.set(key,current)}
+    const agentMap=new Map<string,{id:string;name:string;calls:number;answered:number;missed:number;durationSeconds:number}>();
+    for(const row of todayCallRows){const key=row.agentExternalId||row.agentName||'unassigned',current=agentMap.get(key)||{id:key,name:row.agentName||'Unassigned',calls:0,answered:0,missed:0,durationSeconds:0};current.calls++;if(row.status==='ANSWERED'||row.status==='COMPLETED')current.answered++;else current.missed++;current.durationSeconds+=row.durationSeconds||0;agentMap.set(key,current)}
+    const servedStatuses=['CHECKED_IN','IN_CONSULTATION','COMPLETED'] as const;
+    const patientsServed=new Set(todaySchedule.filter(row=>(servedStatuses as readonly string[]).includes(row.status)).map(row=>row.patientId)).size;
     return ok(res, {
       leads,
       patients,
       appointments,
       doctors,
       branches,
-      pendingFollowups,
-      todayCalls,
-      todayAppointments,
+      pendingFollowups:dueFollowupCount,
+      todayCalls:todayCallRows.length,
+      todayAppointments:todaySchedule.length,
       pipeline: Object.fromEntries(
         pipeline.map((x) => [x.status, x._count._all])
       ),
@@ -521,6 +540,16 @@ crmRouter.get(
       upcomingAppointments,
       recentPayments,
       timeline,
+      todayOverview:hours,
+      newEnquiriesToday:todayLeadRows.length,
+      patientsServed,
+      revenueToday:todayPaid.reduce((sum,row)=>sum+row.amount,0),
+      overdueFollowups:overdueFollowupCount,
+      todaySchedule,
+      todayPayments:todayPaid,
+      priorityFollowups:todayDueFollowups,
+      departmentLoad:[...departmentMap.values()].sort((a,b)=>b.bookings-a.bookings),
+      callCentrePerformance:[...agentMap.values()].sort((a,b)=>b.calls-a.calls),
     });
   })
 );
