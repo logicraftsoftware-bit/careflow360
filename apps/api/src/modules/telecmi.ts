@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppError, asyncRoute, auth, ok, prisma, tenantId, audit } from "../lib.js";
 import { decryptIntegrationSecret } from "../aisensy.js";
+import { meaningfulTelecmiAgentName, telecmiAgentAliases } from "../telecmi-agent.js";
 
 export const telecmiRouter = Router();
 const digits=(value:unknown)=>{const found=String(value??"").replace(/\D/g,"");return found.length>10?found.slice(-10):found};
@@ -79,11 +80,16 @@ async function storeCdr(tenantId:string,cdr:any,direction:"INBOUND"|"OUTBOUND",a
   const callerNumber=digits(direction==="INBOUND"?cdr.from:cdr.to);
   if(!callerNumber)return;
   const {patient,lead}=await matchContact(tenantId,callerNumber);
-  const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||cdr.answeredsec||0),billed=Number(cdr.billedsec||cdr.answeredsec||0),agentExternalId=cdr.agent||cdr.user,status=telecmiCallStatus(cdr,answered);
-  const assignedAgent=agentExternalId?await prisma.user.findFirst({where:{tenantId,telecmiAgentId:String(agentExternalId)}}):null;
+  const startedAt=asDate(cdr.time),durationSeconds=Number(cdr.duration||cdr.answeredsec||0),billed=Number(cdr.billedsec||cdr.answeredsec||0),reportedAgentId=cdr.agent||cdr.user,status=telecmiCallStatus(cdr,answered);
+  const agentAliases=telecmiAgentAliases(reportedAgentId);
+  const extension=agentAliases.length>1?Number(agentAliases[1]):undefined;
+  const assignedAgent=agentAliases.length?await prisma.user.findFirst({where:{tenantId,OR:[{telecmiAgentId:{in:agentAliases}},...(extension!==undefined?[{telecmiExtension:extension}]:[])]}}):null;
+  const agentExternalId=assignedAgent?.telecmiAgentId||agentAliases[0];
   const recording=String(cdr.recording_url||cdr.recording||""),filename=String(cdr.filename||cdr.voicename||"");
   const recordingUrl=/^https?:\/\//.test(recording)?recording:filename?`/integrations/telecmi/recordings/${encodeURIComponent(filename)}`:undefined;
-  const virtualNumber=direction==="INBOUND"?digits(cdr.virtual_number||cdr.did||cdr.to)||undefined:undefined,agentName=cdr.agent_name||cdr.name||assignedAgent?.telecmiAgentName||assignedAgent?.name||agentExternalId||undefined;
+  const virtualNumber=direction==="INBOUND"?digits(cdr.virtual_number||cdr.did||cdr.to)||undefined:undefined;
+  const reportedAgentName=meaningfulTelecmiAgentName(cdr.agent_name)||meaningfulTelecmiAgentName(cdr.name);
+  const agentName=assignedAgent?.telecmiAgentName||assignedAgent?.name||reportedAgentName||agentExternalId||undefined;
   const common={direction,status,callerNumber,destinationNumber:digits(direction==="INBOUND"?cdr.to:cdr.from)||undefined,virtualNumber,agentId:assignedAgent?.id,agentExternalId:agentExternalId?String(agentExternalId):undefined,agentName,leadId:lead?.id,patientId:patient?.id,startedAt,answeredAt:(status==='ANSWERED'||status==='COMPLETED')&&startedAt?new Date(startedAt.getTime()+Math.max(0,durationSeconds-billed)*1000):undefined,endedAt:status==='COMPLETED'&&startedAt?new Date(startedAt.getTime()+durationSeconds*1000):undefined,durationSeconds,ivrSelection:cdr.ivr_name||undefined,disposition:cdr.hangup_reason||cdr.notes?.[0]?.msg,notes:cdr.notes?.map((note:any)=>note.msg).filter(Boolean).join("; "),recordingUrl,rawPayload:cdr};
   await prisma.callRecord.upsert({where:{provider_externalId:{provider:"TELECMI",externalId}},create:{tenantId,provider:"TELECMI",externalId,...common},update:common});
 }
