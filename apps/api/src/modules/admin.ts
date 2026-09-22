@@ -98,18 +98,17 @@ adminRouter.put('/tenants/:id/aisensy',asyncRoute(async(req,res)=>{
   return ok(res,{hasApiKey:true,updatedAt:row.updatedAt},'AiSensy integration saved');
 }));
 
-adminRouter.get('/razorpay-integrations',asyncRoute(async(_req,res)=>{
+adminRouter.get('/cashfree-integrations',asyncRoute(async(_req,res)=>{
   const tenants=await prisma.tenant.findMany({
     where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},
-    select:{id:true,name:true,email:true,status:true,razorpayIntegration:true},
+    select:{id:true,name:true,email:true,status:true,cashfreeIntegration:true},
     orderBy:{name:'asc'},
   });
-  return ok(res,tenants.map(({razorpayIntegration:stored,...tenant})=>({
+  return ok(res,tenants.map(({cashfreeIntegration:stored,...tenant})=>({
     ...tenant,
     integration:stored?{
-      keyId:stored.keyId,
-      hasKeySecret:Boolean(stored.keySecretEncrypted),
-      hasWebhookSecret:Boolean(stored.webhookSecretEncrypted),
+      appId:stored.appId,
+      hasSecretKey:Boolean(stored.secretKeyEncrypted),
       isTestMode:stored.isTestMode,
       isActive:stored.isActive,
       updatedAt:stored.updatedAt,
@@ -117,50 +116,46 @@ adminRouter.get('/razorpay-integrations',asyncRoute(async(_req,res)=>{
   })));
 }));
 
-adminRouter.put('/tenants/:id/razorpay',asyncRoute(async(req,res)=>{
+adminRouter.put('/tenants/:id/cashfree',asyncRoute(async(req,res)=>{
   const body=z.object({
-    keyId:z.string().trim().min(5),
-    keySecret:z.string().trim().optional().default(''),
-    webhookSecret:z.string().trim().optional().default(''),
+    appId:z.string().trim().min(3),
+    secretKey:z.string().trim().optional().default(''),
     isTestMode:z.boolean().default(true),
     isActive:z.boolean().default(true),
   }).parse(req.body);
   const [tenant,existing]=await Promise.all([
     prisma.tenant.findFirst({where:{id:req.params.id,OR:[{deletedAt:null},{deletedAt:{isSet:false}}]}}),
-    prisma.razorpayIntegration.findUnique({where:{tenantId:req.params.id}}),
+    prisma.cashfreeIntegration.findUnique({where:{tenantId:req.params.id}}),
   ]);
   if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
-  if(!existing&&!body.keySecret)
-    throw new AppError(400,'Razorpay Key Secret is required','KEY_SECRET_REQUIRED');
+  if(!existing&&!body.secretKey)
+    throw new AppError(400,'Cashfree Secret Key is required','SECRET_KEY_REQUIRED');
   const data={
-    keyId:body.keyId,
+    appId:body.appId,
     isTestMode:body.isTestMode,
     isActive:body.isActive,
-    ...(body.keySecret?{keySecretEncrypted:encryptIntegrationSecret(body.keySecret)}:{}),
-    ...(body.webhookSecret?{webhookSecretEncrypted:encryptIntegrationSecret(body.webhookSecret)}:{}),
+    ...(body.secretKey?{secretKeyEncrypted:encryptIntegrationSecret(body.secretKey)}:{}),
   };
-  const row=await prisma.razorpayIntegration.upsert({
+  const row=await prisma.cashfreeIntegration.upsert({
     where:{tenantId:tenant.id},
     create:{
       tenantId:tenant.id,
       ...data,
-      keySecretEncrypted:encryptIntegrationSecret(body.keySecret),
+      secretKeyEncrypted:encryptIntegrationSecret(body.secretKey),
     },
     update:data,
   });
-  await audit(req,'tenant.razorpay.updated','Tenant',tenant.id,{
+  await audit(req,'tenant.cashfree.updated','Tenant',tenant.id,{
     clinicName:tenant.name,
-    keyId:row.keyId,
+    appId:row.appId,
     isTestMode:row.isTestMode,
     isActive:row.isActive,
-    keySecretChanged:Boolean(body.keySecret),
-    webhookSecretChanged:Boolean(body.webhookSecret),
+    secretKeyChanged:Boolean(body.secretKey),
   });
   return ok(res,{
-    hasKeySecret:true,
-    hasWebhookSecret:Boolean(row.webhookSecretEncrypted),
+    hasSecretKey:true,
     updatedAt:row.updatedAt,
-  },'Razorpay integration saved');
+  },'Cashfree integration saved');
 }));
 
 adminRouter.get('/telecmi-integrations',asyncRoute(async(_req,res)=>{

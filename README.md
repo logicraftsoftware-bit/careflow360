@@ -55,6 +55,14 @@ Public registration -> Pending tenant/subscription -> Super Admin approval
 
 External email, payment, Meta, WhatsApp, object-storage, and Redis settings remain environment-driven. Production connections must be configured after credentials are available; secrets must only be entered in local/Vercel environment variables.
 
+### Cashfree payments
+
+Cashfree is configured per clinic by a Super Admin at `/admin/cashfree`. Enter the clinic's Cashfree App ID and Secret Key, enable sandbox mode while testing, and save the integration. Credentials are encrypted at rest.
+
+In the Cashfree merchant dashboard, subscribe the webhook endpoint `https://YOUR_DOMAIN/api/cashfree/webhook` to payment success and payment failure events. The endpoint verifies `x-webhook-signature` against the untouched request body and is idempotent. Use HTTPS and ensure the API is reachable at `/api` on the same public domain used by `APP_URL`.
+
+Run `npm run db:push` once during deployment to create the `CashfreeIntegration` collection/indexes. Existing Razorpay credentials are intentionally not reused; each clinic must enter Cashfree credentials.
+
 ## Deployment
 
 Build the web app from `apps/web` using `npm run build`; its output is `apps/web/dist`. Configure `VITE_API_URL` to the deployed API URL. Deploy the API to a Node-compatible platform or adapt it as a Vercel function, and configure `DATABASE_URL`, JWT secrets, CORS origins, and provider credentials in the host environment.
@@ -63,8 +71,8 @@ Before production launch:
 
 - Attach MongoDB Atlas, review the schema push, and seed the database.
 - Replace all example secrets and the seed password.
-- Configure HTTPS origins and provider webhook secrets.
-- Add production email/payment/Meta/WhatsApp adapters as selected.
+- Configure HTTPS origins and the Cashfree payment webhook.
+- Add production email/Meta/WhatsApp adapters as selected.
 - Perform end-to-end approval, tenant-isolation, booking-concurrency, webhook-idempotency, backup, and restore testing.
 
 ## Repository safety

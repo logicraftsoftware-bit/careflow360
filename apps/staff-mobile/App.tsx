@@ -1236,10 +1236,10 @@ const moreMenuItems: MoreMenuItem[] = [
     route: "integrations",
   },
   {
-    label: "Razorpay",
+    label: "Cashfree",
     icon: "card-outline",
     permission: "settings",
-    route: "razorpay",
+    route: "cashfree",
   },
   {
     label: "Exotel",

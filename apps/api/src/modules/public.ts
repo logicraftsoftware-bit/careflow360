@@ -3,7 +3,7 @@ import { validTokenImageSignature } from '../aisensy.js';
 import { Resvg } from '@resvg/resvg-js';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { ensureRazorpayPaymentLink } from '../razorpay.js';
+import { CASHFREE_PROVIDER, ensureCashfreePaymentLink } from '../cashfree.js';
 export const publicRouter=Router();
 const require=createRequire(import.meta.url);
 const bundledFontDirectory=join(dirname(require.resolve('dejavu-fonts-ttf/package.json')),'ttf');
@@ -31,11 +31,11 @@ publicRouter.get('/appointment-token/:id.png',asyncRoute(async(req,res)=>{
 }));
 publicRouter.get('/plans',asyncRoute(async(_req,res)=>ok(res,await prisma.plan.findMany({where:{status:'ACTIVE'},include:{features:{include:{feature:true}},limits:true},orderBy:{sortOrder:'asc'}}))));
 publicRouter.get('/payments/:appointmentNumber',asyncRoute(async(req,res)=>{
-  const appointment=await prisma.appointment.findFirst({where:{appointmentNumber:req.params.appointmentNumber},include:{tenant:true,patient:true,payments:{where:{provider:'RAZORPAY_PAYMENT_LINK'},orderBy:{createdAt:'desc'},take:1}}});
+  const appointment=await prisma.appointment.findFirst({where:{appointmentNumber:req.params.appointmentNumber},include:{tenant:true,patient:true,payments:{where:{provider:CASHFREE_PROVIDER},orderBy:{createdAt:'desc'},take:1}}});
   if(!appointment)throw new AppError(404,'Appointment not found','NOT_FOUND');
   let payment=appointment.payments[0];
   if(appointment.paymentStatus==='PENDING'&&!payment?.paymentUrl){
-    payment=await ensureRazorpayPaymentLink({id:appointment.id,tenantId:appointment.tenantId,appointmentNumber:appointment.appointmentNumber,amount:appointment.amount,patientName:appointment.patient.name,patientMobile:appointment.patient.mobile,patientEmail:appointment.patient.email}) as any;
+    payment=await ensureCashfreePaymentLink({id:appointment.id,tenantId:appointment.tenantId,appointmentNumber:appointment.appointmentNumber,amount:appointment.amount,patientName:appointment.patient.name,patientMobile:appointment.patient.mobile,patientEmail:appointment.patient.email}) as any;
   }
   return ok(res,{appointmentNumber:appointment.appointmentNumber,clinicName:appointment.tenant.name,amount:appointment.amount,status:appointment.paymentStatus,token:appointment.token,paymentUrl:appointment.paymentStatus==='PENDING'?(payment as any)?.paymentUrl||(payment as any)?.short_url:null});
 }));

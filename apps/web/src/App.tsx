@@ -10,7 +10,7 @@ import { CallLogsPage } from "./pages/CallLogs";
 import { PaymentPendingPage } from "./pages/PaymentPending";
 import { ClinicSettingsPage } from "./pages/ClinicSettings";
 import { AiSensyIntegrationsPage } from "./pages/AiSensyIntegrations";
-import { RazorpayIntegrationsPage } from "./pages/RazorpayIntegrations";
+import { CashfreeIntegrationsPage } from "./pages/CashfreeIntegrations";
 import { LabMasterDataPage } from "./pages/LabMasterData";
 import { RadiologyMasterDataPage } from "./pages/RadiologyMasterData";
 import { PaymentLogsPage } from "./pages/PaymentLogs";
@@ -62,7 +62,7 @@ const admin = [
   "usage",
   "announcements",
   "integrations",
-  "razorpay",
+  "cashfree",
   "telecmi",
   "audit-logs",
   "settings",
@@ -136,9 +136,9 @@ export default function App() {
         <Route path="tenants/new" element={<TenantEditorPage />} />
         <Route path="tenants/:id/edit" element={<TenantEditorPage />} />
         <Route path="integrations" element={<AiSensyIntegrationsPage />} />
-        <Route path="razorpay" element={<RazorpayIntegrationsPage />} />
+        <Route path="cashfree" element={<CashfreeIntegrationsPage />} />
         <Route path="telecmi" element={<TelecmiIntegrationsPage />} />
-        {admin.filter((x) => !["integrations", "razorpay", "telecmi"].includes(x)).map((x) => (
+        {admin.filter((x) => !["integrations", "cashfree", "telecmi"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}

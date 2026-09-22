@@ -122,7 +122,7 @@ model Tenant {
   auditLogs       AuditLog[]
   calls           CallRecord[]
   aisensyIntegration AiSensyIntegration?
-  razorpayIntegration RazorpayIntegration?
+  cashfreeIntegration CashfreeIntegration?
   telecmiIntegration TelecmiIntegration?
 }
 
@@ -146,13 +146,12 @@ model AiSensyIntegration {
   updatedAt                  DateTime @updatedAt
 }
 
-model RazorpayIntegration {
+model CashfreeIntegration {
   id                     String   @id @default(auto()) @map("_id") @db.ObjectId
   tenantId               String   @unique @db.ObjectId
   tenant                 Tenant   @relation(fields: [tenantId], references: [id])
-  keyId                   String
-  keySecretEncrypted     String
-  webhookSecretEncrypted String?
+  appId                   String
+  secretKeyEncrypted     String
   isTestMode             Boolean  @default(true)
   isActive               Boolean  @default(true)
   createdAt              DateTime @default(now())

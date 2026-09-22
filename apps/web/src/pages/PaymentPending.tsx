@@ -31,9 +31,9 @@ export function PaymentPendingPage() {
         </dl>
         {isLoading && <p>Loading secure payment…</p>}
         {error && <div className="alert error">Unable to load this payment.</div>}
-        {!isLoading && data?.status === "PENDING" && data?.paymentUrl && <a className="btn" href={data.paymentUrl}>Pay securely with Razorpay</a>}
+        {!isLoading && data?.status === "PENDING" && data?.paymentUrl && <a className="btn" href={data.paymentUrl}>Pay securely with Cashfree</a>}
         {!isLoading && data?.status === "PENDING" && !data?.paymentUrl && <div className="alert error">The online payment link is not available. Please contact the clinic.</div>}
-        <p className="payment-note">Only pay through the secure Razorpay button shown on this page.</p>
+        <p className="payment-note">Only pay through the secure Cashfree button shown on this page.</p>
         <Link className="btn" to="/login">Return to CareFlow360</Link>
       </section>
     </main>

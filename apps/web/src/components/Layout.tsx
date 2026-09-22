@@ -84,7 +84,7 @@ const admin = [
   ["Usage", "usage", Activity],
   ["Announcements", "announcements", MessageCircle],
   ["AiSensy", "integrations", MessageCircle],
-  ["Razorpay", "razorpay", WalletCards],
+  ["Cashfree", "cashfree", WalletCards],
   ["TeleCMI", "telecmi", PhoneCall],
   ["Audit Logs", "audit-logs", FileText],
   ["Platform Settings", "settings", Settings],

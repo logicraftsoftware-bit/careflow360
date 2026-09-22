@@ -24,8 +24,8 @@ import {
 } from "../aisensy.js";
 import {
   ensureDiagnosticPaymentLink,
-  ensureRazorpayPaymentLink,
-} from "../razorpay.js";
+  ensureCashfreePaymentLink,
+} from "../cashfree.js";
 import { listTelecmiUsers } from "./telecmi.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
@@ -2220,7 +2220,7 @@ crmRouter.post(
     });
     if (result.paymentStatus === "PENDING") {
       try {
-        const paymentLink = await ensureRazorpayPaymentLink({
+        const paymentLink = await ensureCashfreePaymentLink({
           id: result.id,
           tenantId: result.tenantId,
           appointmentNumber: result.appointmentNumber,
@@ -2231,7 +2231,7 @@ crmRouter.post(
         });
         await audit(
           req,
-          "appointment.razorpay_link.created",
+          "appointment.cashfree_link.created",
           "Appointment",
           result.id,
           {
@@ -2241,12 +2241,12 @@ crmRouter.post(
       } catch (error) {
         await audit(
           req,
-          "appointment.razorpay_link.failed",
+          "appointment.cashfree_link.failed",
           "Appointment",
           result.id,
           {
             error:
-              error instanceof Error ? error.message : "Unknown Razorpay error",
+              error instanceof Error ? error.message : "Unknown Cashfree error",
           }
         );
       }
@@ -2330,7 +2330,7 @@ crmRouter.post(
         throw new Error("Paid appointment does not have a token yet");
       const paymentLink =
         kind === "payment_pending"
-          ? await ensureRazorpayPaymentLink({
+          ? await ensureCashfreePaymentLink({
               id: appointment.id,
               tenantId: appointment.tenantId,
               appointmentNumber: appointment.appointmentNumber,
