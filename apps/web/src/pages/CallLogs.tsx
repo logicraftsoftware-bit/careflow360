@@ -125,7 +125,8 @@ export function CallLogsPage() {
     a: any = data.analytics || {},
     hours: any[] = a.byHour || [],
     maxHour = Math.max(1, ...hours.map((x) => x.total)),
-    totalPages=Math.max(1,Math.ceil((data.total||0)/25));
+    totalPages=Math.max(1,Math.ceil((data.total||0)/25)),
+    agents=(a.byAgent||[]).filter((agent:any)=>agent.id!=="unassigned");
   const changePage=(nextPage:number)=>{setPage(Math.min(totalPages,Math.max(1,nextPage)));window.setTimeout(()=>callerSectionRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),0)};
   const choose = (value: string) => {
     setPreset(value);
@@ -453,11 +454,11 @@ export function CallLogsPage() {
             </article>
           </section>
           <section className="analytics-card detailed-numbers"><div className="analytics-title"><h3>Detailed Call Numbers</h3><p>Exact numbers with colour indication</p></div><div>{[["Incoming Answered", a.incomingAnswered, PhoneIncoming, "green"], ["Incoming Missed", a.incomingMissed, PhoneMissed, "red"], ["Outgoing Answered", a.outgoingAnswered, PhoneOutgoing, "blue"], ["Outgoing Missed", a.outgoingMissed, PhoneOutgoing, "orange"]].map(([label, value, Icon, tone]: any) => <article className={tone} key={label}><Icon /><span><small>{label}</small><b>{value || 0}</b></span></article>)}</div></section>
-          {(a.byAgent || []).length > 0 && (
+          {agents.length > 0 && (
             <section className="panel table-panel call-productivity">
               <div className="call-section-head productivity-head">
                 <div><span><Users /></span><div><h3>{staffPortal ? "My productivity" : "Agent productivity"}</h3><p>Call performance summary {staffPortal ? "for your account" : "for all agents"}</p></div></div>
-                <b><Users /> {a.byAgent?.length || 0} agent{a.byAgent?.length === 1 ? "" : "s"}</b>
+                <b><Users /> {agents.length} agent{agents.length === 1 ? "" : "s"}</b>
               </div>
               <div className="table-wrap">
                 <table>
@@ -475,7 +476,7 @@ export function CallLogsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(a.byAgent || []).map((x: any, index: number) => {
+                    {agents.map((x: any, index: number) => {
                       const answeredTotal=x.inboundAnswered+x.outboundAnswered,rate=x.total?Math.round(answeredTotal*100/x.total):0;
                       return (
                       <tr key={x.id}>
