@@ -10,6 +10,7 @@ import {
   PhoneMissed,
   PhoneOutgoing,
   Search,
+  Users,
 } from "lucide-react";
 import { api, unwrap } from "../api";
 import "./CallLogs.css";
@@ -440,38 +441,44 @@ export function CallLogsPage() {
           <section className="analytics-card detailed-numbers"><div className="analytics-title"><h3>Detailed Call Numbers</h3><p>Exact numbers with colour indication</p></div><div>{[["Incoming Answered", a.incomingAnswered, PhoneIncoming, "green"], ["Incoming Missed", a.incomingMissed, PhoneMissed, "red"], ["Outgoing Answered", a.outgoingAnswered, PhoneOutgoing, "blue"], ["Outgoing Missed", a.outgoingMissed, PhoneOutgoing, "orange"]].map(([label, value, Icon, tone]: any) => <article className={tone} key={label}><Icon /><span><small>{label}</small><b>{value || 0}</b></span></article>)}</div></section>
           {(a.byAgent || []).length > 0 && (
             <section className="panel table-panel call-productivity">
-              <div className="panel-head">
-                <h3>{staffPortal ? "My productivity" : "Agent productivity"}</h3>
-                <span>{a.byAgent?.length || 0} agents</span>
+              <div className="call-section-head productivity-head">
+                <div><span><Users /></span><div><h3>{staffPortal ? "My productivity" : "Agent productivity"}</h3><p>Call performance summary {staffPortal ? "for your account" : "for all agents"}</p></div></div>
+                <b><Users /> {a.byAgent?.length || 0} agent{a.byAgent?.length === 1 ? "" : "s"}</b>
               </div>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
+                      <th>#</th>
                       <th>Agent</th>
-                      <th>Total</th>
+                      <th>Total Calls</th>
                       <th>Inbound Answered</th>
                       <th>Inbound Missed</th>
                       <th>Outbound Answered</th>
                       <th>Outbound Missed</th>
                       <th>Talk Time</th>
+                      <th>Answered Rate</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(a.byAgent || []).map((x: any) => (
+                    {(a.byAgent || []).map((x: any, index: number) => {
+                      const answeredTotal=x.inboundAnswered+x.outboundAnswered,rate=x.total?Math.round(answeredTotal*100/x.total):0;
+                      return (
                       <tr key={x.id}>
-                        <td>
+                        <td>{index+1}</td>
+                        <td><div className={`agent-avatar tone-${index%5}`}>{String(x.name||"U").split(/\s+/).map((part:string)=>part[0]).join("").slice(0,2).toUpperCase()}</div><span className="agent-cell">
                           <b>{x.name}</b>
                           <small className="cell-sub">{x.id}</small>
-                        </td>
+                        </span></td>
                         <td>{x.total}</td>
-                        <td>{x.inboundAnswered}</td>
-                        <td>{x.inboundMissed}</td>
-                        <td>{x.outboundAnswered}</td>
-                        <td>{x.outboundMissed}</td>
+                        <td><span className="metric-cell green-cell">{x.inboundAnswered}</span></td>
+                        <td><span className="metric-cell red-cell">{x.inboundMissed}</span></td>
+                        <td><span className="metric-cell purple-cell">{x.outboundAnswered}</span></td>
+                        <td><span className="metric-cell orange-cell">{x.outboundMissed}</span></td>
                         <td>{duration(x.durationSeconds)}</td>
+                        <td><div className={`rate-cell ${rate<50?"low":rate<75?"medium":""}`}><b>{rate}%</b><span><i style={{width:`${rate}%`}}/></span></div></td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -516,7 +523,8 @@ export function CallLogsPage() {
           )}
         </section>
       )}
-      <section className="panel table-panel">
+      <section className="panel table-panel call-records">
+        <div className="call-section-head caller-head"><div><span><PhoneCall /></span><div><h3>Caller</h3><p>Detailed call logs and caller information</p></div></div></div>
         <div className="toolbar call-toolbar">
           <label className="search">
             <Search />
@@ -561,6 +569,7 @@ export function CallLogsPage() {
             <table>
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>Caller</th>
                   <th>Matched contact</th>
                   <th>Direction</th>
@@ -572,19 +581,20 @@ export function CallLogsPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((x: any) => (
+                {data.items.map((x: any,index:number) => (
                   <tr key={x.id}>
+                    <td>{index+1}</td>
                     <td>
                       <b>{x.callerNumber}</b>
                       <small className="cell-sub">{x.externalId}</small>
                     </td>
                     <td>
-                      {x.patient?.name || x.lead?.name || "Unmatched"}
+                      <span className={`contact-badge ${x.patient||x.lead?"matched":"unmatched"}`}>{x.patient?.name || x.lead?.name || "Unmatched"}</span>
                       <small className="cell-sub">
                         {x.patient?.patientNumber || x.lead?.leadNumber}
                       </small>
                     </td>
-                    <td>{x.direction}</td>
+                    <td><span className={`direction-badge ${x.direction.toLowerCase()}`}>{x.direction==="INBOUND"?<PhoneIncoming/>:<PhoneOutgoing/>}{x.direction}</span></td>
                     <td>
                       <span className={"call-badge " + x.status.toLowerCase()}>
                         {x.status}
@@ -620,7 +630,7 @@ export function CallLogsPage() {
           </div>
         )}
         <div className="call-total">
-          {data.total} call{data.total === 1 ? "" : "s"}
+          Showing {data.items.length ? 1 : 0} to {Math.min(data.items.length,data.total)} of {data.total} call{data.total === 1 ? "" : "s"}
         </div>
       </section>
     </>
