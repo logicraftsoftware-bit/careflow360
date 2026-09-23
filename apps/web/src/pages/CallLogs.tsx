@@ -30,6 +30,17 @@ const isoDay = (date: Date) => {
   const offset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
 };
+const percent = (value: number, total: number) =>
+  total ? Math.round((value * 1000) / total) / 10 : 0;
+function Donut({ segments, total, centerLabel }: { segments: { value: number; color: string }[]; total: number; centerLabel: string }) {
+  let cursor = 0;
+  const stops = segments.map((segment) => {
+    const start = cursor;
+    cursor += percent(segment.value, total);
+    return `${segment.color} ${start}% ${cursor}%`;
+  }).join(",");
+  return <div className="analytics-donut" style={{ background: total ? `conic-gradient(${stops})` : "#e2e8f0" }}><div><b>{total}</b><small>{centerLabel}</small></div></div>;
+}
 function rangeFor(preset: string) {
   const now = new Date(),
     start = new Date(now),
@@ -244,13 +255,13 @@ export function CallLogsPage() {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
   };
   const cards = [
-    [a.totalCalls || 0, "Total calls", PhoneCall],
-    [a.answered || 0, "Answered", PhoneIncoming],
-    [a.missed || 0, "Missed", PhoneMissed],
-    [a.received || 0, "Received", PhoneIncoming],
-    [a.outgoing || 0, "Outgoing", PhoneOutgoing],
-    [duration(a.totalDurationSeconds), "Total call time", Clock3],
-    [duration(a.averageDurationSeconds), "Average call time", Clock3],
+    [a.totalCalls || 0, "Total Calls", PhoneCall, "blue"],
+    [a.answered || 0, "Answered Calls", PhoneIncoming, "green"],
+    [a.missed || 0, "Missed Calls", PhoneMissed, "red"],
+    [a.received || 0, "Received Calls", PhoneIncoming, "purple"],
+    [a.outgoing || 0, "Outgoing Calls", PhoneOutgoing, "orange"],
+    [duration(a.totalDurationSeconds), "Total Call Time", Clock3, "sky"],
+    [duration(a.averageDurationSeconds), "Average Call Time", Clock3, "violet"],
   ];
   return (
     <>
@@ -367,18 +378,25 @@ export function CallLogsPage() {
           </select>
         </div>
       </section>
-      {!staffPortal && (
+      {(
         <>
+          <div className="call-analytics-heading"><div className="call-analytics-icon"><PhoneCall /></div><div><h2>Call Analytics</h2><p>{staffPortal ? "Your real-time communication performance" : "Real-time insights into your clinic communication"}</p></div><span><i /> Live Data</span></div>
           <section className="call-metrics">
-            {cards.map(([value, label, Icon]: any) => (
-              <article key={label}>
+            {cards.map(([value, label, Icon, tone]: any) => (
+              <article className={`metric-${tone}`} key={label}>
                 <Icon />
                 <div>
-                  <b>{value}</b>
                   <small>{label}</small>
+                  <b>{value}</b>
+                  <em>{typeof value === "number" && a.totalCalls ? `${percent(value, a.totalCalls)}% of filtered calls` : "Filtered result"}</em>
                 </div>
               </article>
             ))}
+          </section>
+          <section className="call-overview-grid">
+            <article className="analytics-card call-overview"><div className="analytics-title"><h3>Call Overview</h3><p>Distribution of all filtered calls</p></div><div className="overview-body"><Donut total={a.totalCalls || 0} centerLabel="Total Calls" segments={[{ value: a.incomingAnswered || 0, color: "#18b77a" }, { value: a.incomingMissed || 0, color: "#fb4056" }, { value: a.outgoingAnswered || 0, color: "#2484e8" }, { value: a.outgoingMissed || 0, color: "#ff9f1c" }]} /><div className="analytics-legend">{[["Incoming Answered", a.incomingAnswered, "green"], ["Incoming Missed", a.incomingMissed, "red"], ["Outgoing Answered", a.outgoingAnswered, "blue"], ["Outgoing Missed", a.outgoingMissed, "orange"]].map(([label, value, tone]: any) => <div key={label}><i className={tone} /><span>{label}</span><b>{value || 0}</b><small>{percent(value || 0, a.totalCalls || 0)}%</small></div>)}</div></div></article>
+            <article className="analytics-card answer-gauge"><div className="analytics-title"><h3>Answered vs Missed Calls</h3><p>Overall performance</p></div><div className="gauge" style={{ "--rate": `${Math.min(100, a.answerRate || 0) * 1.8}deg` } as any}><div><b>{a.answerRate || 0}%</b><small>Answer Rate</small></div></div><div className="gauge-numbers"><span><i className="green" /><b>{a.answered || 0}</b><small>Answered</small></span><span><i className="red" /><b>{a.missed || 0}</b><small>Missed</small></span></div></article>
+            <article className="analytics-card direction-donut"><div className="analytics-title"><h3>Incoming vs Outgoing Calls</h3><p>Call type distribution</p></div><div className="overview-body"><Donut total={a.totalCalls || 0} centerLabel="Total Calls" segments={[{ value: a.received || 0, color: "#2468c9" }, { value: a.outgoing || 0, color: "#49adf5" }]} /><div className="analytics-legend compact"><div><i className="deep-blue" /><span>Incoming Calls</span><b>{a.received || 0}</b><small>{percent(a.received || 0, a.totalCalls || 0)}%</small></div><div><i className="sky" /><span>Outgoing Calls</span><b>{a.outgoing || 0}</b><small>{percent(a.outgoing || 0, a.totalCalls || 0)}%</small></div></div></div></article>
           </section>
           <section className="call-analytics-grid">
             <article className="panel">
@@ -392,13 +410,10 @@ export function CallLogsPage() {
                     key={x.hour}
                     title={x.hour + ":00 · " + x.total + " calls"}
                   >
-                    <i
-                      style={{
-                        height:
-                          Math.max(x.total ? 8 : 1, (x.total / maxHour) * 100) +
-                          "%",
-                      }}
-                    />
+                    <span className="hour-stack">
+                      <i className="hour-missed" style={{ height: `${(x.missed / maxHour) * 100}%` }} />
+                      <i className="hour-answered" style={{ height: `${(x.answered / maxHour) * 100}%` }} />
+                    </span>
                     <small>{x.hour}</small>
                   </div>
                 ))}
@@ -422,10 +437,11 @@ export function CallLogsPage() {
               </div>
             </article>
           </section>
-          {profile?.isAdmin && (
+          <section className="analytics-card detailed-numbers"><div className="analytics-title"><h3>Detailed Call Numbers</h3><p>Exact numbers with colour indication</p></div><div>{[["Incoming Answered", a.incomingAnswered, PhoneIncoming, "green"], ["Incoming Missed", a.incomingMissed, PhoneMissed, "red"], ["Outgoing Answered", a.outgoingAnswered, PhoneOutgoing, "blue"], ["Outgoing Missed", a.outgoingMissed, PhoneOutgoing, "orange"]].map(([label, value, Icon, tone]: any) => <article className={tone} key={label}><Icon /><span><small>{label}</small><b>{value || 0}</b></span></article>)}</div></section>
+          {(a.byAgent || []).length > 0 && (
             <section className="panel table-panel call-productivity">
               <div className="panel-head">
-                <h3>Agent productivity</h3>
+                <h3>{staffPortal ? "My productivity" : "Agent productivity"}</h3>
                 <span>{a.byAgent?.length || 0} agents</span>
               </div>
               <div className="table-wrap">
