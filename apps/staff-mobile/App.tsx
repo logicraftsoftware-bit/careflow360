@@ -48,7 +48,8 @@ const tabs: [Tab, string, any][] = [
 export default function App() {
   const [user, setUser] = useState<User | null>(null),
     [loading, setLoading] = useState(true),
-    [tab, setTab] = useState<Tab>("home");
+    [tab, setTab] = useState<Tab>("home"),
+    [workspace,setWorkspace]=useState<MoreMenuItem|null>(null);
   useEffect(() => {
     AsyncStorage.getItem("user")
       .then((v) => v && setUser(JSON.parse(v)))
@@ -76,10 +77,10 @@ export default function App() {
   return (
     <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.canvas} />
-      <Header user={user} />
+      <Header user={user} open={setWorkspace} />
       <View style={s.body}>
-        {tab === "home" ? (
-          <Home user={user} go={setTab} />
+        {workspace ? <WebWorkspace item={workspace} back={()=>setWorkspace(null)}/> : tab === "home" ? (
+          <Home user={user} go={setTab} open={setWorkspace} />
         ) : tab === "work" ? (
           <Work user={user} />
         ) : tab === "patients" ? (
@@ -94,7 +95,7 @@ export default function App() {
           />
         )}
       </View>
-      <View style={s.tabs}>
+      {!workspace&&<View style={s.tabs}>
         {tabs.map(([key, label, icon]) => (
           <Pressable key={key} onPress={() => setTab(key)} style={s.tab}>
             <Ionicons
@@ -105,7 +106,7 @@ export default function App() {
             <Text style={[s.tabText, tab === key && s.active]}>{label}</Text>
           </Pressable>
         ))}
-      </View>
+      </View>}
     </SafeAreaView>
   );
 }
@@ -324,7 +325,7 @@ function Benefit({ icon, label }: { icon: any; label: string }) {
     </View>
   );
 }
-function Header({ user }: { user: User }) {
+function Header({ user,open }: { user: User;open:(item:MoreMenuItem)=>void }) {
   const initials = user.name
     .split(" ")
     .map((part) => part[0])
@@ -345,7 +346,7 @@ function Header({ user }: { user: User }) {
         </View>
       </View>
       <View style={s.headerActions}>
-        <Pressable style={s.bell}>
+        <Pressable style={s.bell} onPress={()=>open({label:"Notifications",icon:"notifications-outline",route:"notifications"})}>
           <Ionicons name="notifications-outline" size={25} color={colors.ink} />
           <View style={s.dot} />
         </Pressable>
@@ -358,7 +359,7 @@ function Header({ user }: { user: User }) {
     </View>
   );
 }
-function Home({ user, go }: { user: User; go: (t: Tab) => void }) {
+function Home({ user, go,open }: { user: User; go: (t: Tab) => void;open:(item:MoreMenuItem)=>void }) {
   const [data, setData] = useState<any>();
   useEffect(() => {
     request("/crm/dashboard")
@@ -451,20 +452,21 @@ function Home({ user, go }: { user: User; go: (t: Tab) => void }) {
           label="New patient"
           color="#069D90"
           tint="#E1F7F4"
+          onPress={()=>open({label:"Patients",icon:"people-outline",route:"patients"})}
         />
         <Quick
           icon="calendar"
           label="Book appointment"
           color="#287BD7"
           tint="#E7F1FF"
-          onPress={() => go("work")}
+          onPress={()=>open({label:"Book Appointment",icon:"calendar-outline",route:"appointments/new"})}
         />
         <Quick
           icon="flask"
           label="Lab collection"
           color="#7442C1"
           tint="#F0E8FF"
-          onPress={() => go("work")}
+          onPress={()=>open({label:"Lab Collection",icon:"flask-outline",route:tech?"lab-collection/assigned":"lab-appointments/on-spot"})}
         />
         <Quick
           icon="card"
@@ -1058,6 +1060,7 @@ type MoreMenuItem = {
   tab?: Tab;
   route?: string;
   labTechOnly?: boolean;
+  adminOnly?: boolean;
 };
 const moreMenuItems: MoreMenuItem[] = [
   {
@@ -1098,6 +1101,12 @@ const moreMenuItems: MoreMenuItem[] = [
     route: "followups",
   },
   {
+    label: "Patient Follow-ups",
+    icon: "alarm-outline",
+    permission: "calendar",
+    route: "patient-followups",
+  },
+  {
     label: "Patients",
     icon: "people-outline",
     permission: "patients",
@@ -1134,6 +1143,25 @@ const moreMenuItems: MoreMenuItem[] = [
     tab: "work",
   },
   {
+    label: "Assigned Collections",
+    icon: "clipboard-outline",
+    permission: "lab-collection",
+    route: "lab-collection/assigned",
+  },
+  {
+    label: "Collected Samples",
+    icon: "checkmark-done-outline",
+    permission: "lab-collection",
+    route: "lab-collection/collected",
+  },
+  {
+    label: "All Technician Data",
+    icon: "people-outline",
+    permission: "lab-collection",
+    route: "lab-collection/all",
+    adminOnly: true,
+  },
+  {
     label: "Radiology",
     icon: "scan-outline",
     permission: "radiology-appointments",
@@ -1162,6 +1190,12 @@ const moreMenuItems: MoreMenuItem[] = [
     icon: "logo-whatsapp",
     permission: "whatsapp",
     route: "whatsapp",
+  },
+  {
+    label: "Meta Ads",
+    icon: "megaphone-outline",
+    permission: "meta-ads",
+    route: "meta-ads",
   },
   {
     label: "Call Logs",
@@ -1224,28 +1258,22 @@ const moreMenuItems: MoreMenuItem[] = [
     route: "radiology",
   },
   {
+    label: "Specimen Tube Master",
+    icon: "medical-outline",
+    permission: "specimen-tubes",
+    route: "specimen-tubes",
+  },
+  {
     label: "Audit Logs",
     icon: "reader-outline",
     permission: "audit-logs",
     route: "audit-logs",
   },
   {
-    label: "Integrations",
-    icon: "extension-puzzle-outline",
-    permission: "settings",
-    route: "integrations",
-  },
-  {
-    label: "Cashfree",
-    icon: "card-outline",
-    permission: "settings",
-    route: "cashfree",
-  },
-  {
-    label: "Exotel",
-    icon: "call-outline",
-    permission: "settings",
-    route: "exotel",
+    label: "Support",
+    icon: "help-buoy-outline",
+    permission: "support",
+    route: "support",
   },
   {
     label: "Clinic Settings",
@@ -1279,7 +1307,7 @@ function More({
       permissions.has("appointments.payment_manage")) ||
     (item.permission === "lab-collection" &&
       user.roleCodes?.includes("LAB_TECHNICIAN"));
-  const items = moreMenuItems.filter((item) => canSee(item) && (!item.labTechOnly || user.roleCodes?.includes("LAB_TECHNICIAN")));
+  const items = moreMenuItems.filter((item) => canSee(item) && (!item.labTechOnly || user.roleCodes?.includes("LAB_TECHNICIAN")) && (!item.adminOnly||admin));
   if (webTool?.route)
     return <WebWorkspace item={webTool} back={() => setWebTool(null)} />;
   if (showProfile)

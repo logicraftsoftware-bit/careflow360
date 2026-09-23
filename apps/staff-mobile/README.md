@@ -22,3 +22,8 @@ The default API URL is `https://crm.hosmedai.com/api`. Admin and Staff login use
 - Unified payment logs
 - Admin and staff tools menu
 - Profile and sign out
+
+All other permission-enabled clinic workspaces are available from **More** in
+the authenticated in-app web workspace, including leads, follow-ups, calendar,
+call analytics, WhatsApp, reports, master data, staff, roles, audit logs,
+settings, and all lab collection views.

@@ -35,9 +35,11 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>CareFlow360 uses your location to record authorised specimen collection journeys.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>CareFlow360 uses the camera to scan specimen tube labels.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>CareFlow360 uses the microphone for authorised TeleCMI calls.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
