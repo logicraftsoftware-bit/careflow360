@@ -70,9 +70,10 @@ export function CallLogsPage() {
     [start, setStart] = useState(initial.start),
     [end, setEnd] = useState(initial.end);
   const callerSectionRef=useRef<HTMLElement>(null);
-  useEffect(()=>setPage(1),[search,status,direction,agentId,start,end]);
+  useEffect(()=>setPage(1),[search,status,direction,agentId,start,end,preset]);
   const startDate = new Date(start + "T00:00:00").toISOString(),
-    endDate = new Date(end + "T23:59:59.999").toISOString();
+    endDate = new Date(end + "T23:59:59.999").toISOString(),
+    allTime=preset==="OVERALL";
   const { data: profile } = useQuery({
       queryKey: ["telecmi-me"],
       queryFn: () => api.get("/integrations/telecmi/me").then(unwrap),
@@ -95,6 +96,7 @@ export function CallLogsPage() {
         agentId,
         start,
         end,
+        preset,
         page,
       ],
       queryFn: () =>
@@ -105,8 +107,9 @@ export function CallLogsPage() {
               status: status || undefined,
               direction: direction || undefined,
               agentId: agentId || undefined,
-              startDate,
-              endDate,
+              startDate:allTime?undefined:startDate,
+              endDate:allTime?undefined:endDate,
+              allTime:allTime?"true":undefined,
               page,
               limit:25,
             },
@@ -135,8 +138,9 @@ export function CallLogsPage() {
     status: status || undefined,
     direction: direction || undefined,
     agentId: agentId || undefined,
-    startDate,
-    endDate,
+    startDate:allTime?undefined:startDate,
+    endDate:allTime?undefined:endDate,
+    allTime:allTime?"true":undefined,
     page: 1,
     limit: 5000,
   };
@@ -181,7 +185,7 @@ export function CallLogsPage() {
     link.href = URL.createObjectURL(
       new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
     );
-    link.download = "telecmi-calls-" + start + "-to-" + end + ".csv";
+    link.download = allTime ? "telecmi-calls-overall.csv" : "telecmi-calls-" + start + "-to-" + end + ".csv";
     link.click();
     URL.revokeObjectURL(link.href);
     } finally {
@@ -201,7 +205,7 @@ export function CallLogsPage() {
           (x: any) => x.id === agentId
         ),
         filterText = [
-          `${start} to ${end}`,
+          allTime ? "Overall history" : `${start} to ${end}`,
           direction || "All directions",
           status || "All statuses",
           selectedAgent?.name || "All TeleCMI users",
@@ -248,7 +252,7 @@ export function CallLogsPage() {
         styles: { fontSize: 7, cellPadding: 2 },
         headStyles: { fillColor: [15, 118, 110] },
       });
-      document.save("telecmi-calls-" + start + "-to-" + end + ".pdf");
+      document.save(allTime ? "telecmi-calls-overall.pdf" : "telecmi-calls-" + start + "-to-" + end + ".pdf");
     } finally {
       setExporting("");
     }
@@ -303,7 +307,7 @@ export function CallLogsPage() {
       <section className="panel call-filter-panel">
         <div className="call-filter-top">
           <div className="call-presets">
-            {["TODAY", "YESTERDAY", "WEEK", "MONTH"].map((x) => (
+            {["OVERALL", "TODAY", "YESTERDAY", "WEEK", "MONTH"].map((x) => (
               <button
                 key={x}
                 className={preset === x ? "active" : ""}
@@ -318,6 +322,7 @@ export function CallLogsPage() {
             <input
               type="date"
               value={start}
+              disabled={allTime}
               onChange={(e) => {
                 setPreset("CUSTOM");
                 setStart(e.target.value);
@@ -330,6 +335,7 @@ export function CallLogsPage() {
               type="date"
               value={end}
               min={start}
+              disabled={allTime}
               onChange={(e) => {
                 setPreset("CUSTOM");
                 setEnd(e.target.value);
