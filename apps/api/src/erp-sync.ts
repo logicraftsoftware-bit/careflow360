@@ -1,4 +1,4 @@
-import { prisma } from "./lib.js";
+import { AppError, prisma } from "./lib.js";
 import { decryptIntegrationSecret } from "./aisensy.js";
 
 type Counts = { branches:number; departments:number; doctors:number; patients:number; appointments:number };
@@ -57,10 +57,10 @@ async function postWithRetry(url:string,apiKey:string,payload:ErpBootstrapPayloa
 
 export async function syncClinicToErp(tenantId:string){
   const integration=await prisma.erpOutboundIntegration.findUnique({where:{tenantId}});
-  if(!integration?.isActive)throw new Error("ERP integration is not configured or is inactive");
+  if(!integration?.isActive)throw new AppError(400,"ERP integration is not configured or is inactive","ERP_NOT_CONFIGURED");
   const startedAt=new Date(),stale=new Date(Date.now()-10*60_000);
-  const locked=await prisma.erpOutboundIntegration.updateMany({where:{tenantId,OR:[{syncLockedAt:null},{syncLockedAt:{lt:stale}}]},data:{syncLockedAt:startedAt,lastSyncStartedAt:startedAt}});
-  if(locked.count!==1)throw new Error("An ERP synchronization is already in progress");
+  const locked=await prisma.erpOutboundIntegration.updateMany({where:{tenantId,OR:[{syncLockedAt:null},{syncLockedAt:{isSet:false}},{syncLockedAt:{lt:stale}}]},data:{syncLockedAt:startedAt,lastSyncStartedAt:startedAt}});
+  if(locked.count!==1)throw new AppError(409,"An ERP synchronization is already in progress","ERP_SYNC_IN_PROGRESS");
   let status:number|undefined;
   try{
     const payload=await buildBootstrapPayload(tenantId),response=await postWithRetry(integration.baseUrl,decryptIntegrationSecret(integration.apiKeyEncrypted),payload,integration.timeoutMs);status=response.status;
@@ -70,6 +70,6 @@ export async function syncClinicToErp(tenantId:string){
   }catch(error){
     const finishedAt=new Date(),safe=sanitizeErpError(error);status=(error as any)?.status;
     await prisma.$transaction([prisma.erpOutboundIntegration.update({where:{tenantId},data:{syncLockedAt:null,lastSyncFinishedAt:finishedAt,lastFailureAt:finishedAt,lastResult:"FAILED",lastHttpStatus:status,lastError:safe}}),prisma.erpSyncLog.create({data:{tenantId,startedAt,finishedAt,result:"FAILED",httpStatus:status,error:safe}})]).catch(()=>undefined);
-    throw new Error(safe);
+    throw new AppError(502,safe,"ERP_SYNC_FAILED");
   }
 }
