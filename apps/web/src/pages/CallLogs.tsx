@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Clock3,
@@ -66,8 +66,11 @@ export function CallLogsPage() {
     [number, setNumber] = useState(""),
     [exporting, setExporting] = useState<"csv" | "pdf" | "">(""),
     [preset, setPreset] = useState("TODAY"),
+    [page, setPage] = useState(1),
     [start, setStart] = useState(initial.start),
     [end, setEnd] = useState(initial.end);
+  const callerSectionRef=useRef<HTMLElement>(null);
+  useEffect(()=>setPage(1),[search,status,direction,agentId,start,end]);
   const startDate = new Date(start + "T00:00:00").toISOString(),
     endDate = new Date(end + "T23:59:59.999").toISOString();
   const { data: profile } = useQuery({
@@ -92,6 +95,7 @@ export function CallLogsPage() {
         agentId,
         start,
         end,
+        page,
       ],
       queryFn: () =>
         api
@@ -103,6 +107,8 @@ export function CallLogsPage() {
               agentId: agentId || undefined,
               startDate,
               endDate,
+              page,
+              limit:25,
             },
           })
           .then(unwrap),
@@ -115,7 +121,9 @@ export function CallLogsPage() {
     }),
     a: any = data.analytics || {},
     hours: any[] = a.byHour || [],
-    maxHour = Math.max(1, ...hours.map((x) => x.total));
+    maxHour = Math.max(1, ...hours.map((x) => x.total)),
+    totalPages=Math.max(1,Math.ceil((data.total||0)/25));
+  const changePage=(nextPage:number)=>{setPage(Math.min(totalPages,Math.max(1,nextPage)));window.setTimeout(()=>callerSectionRef.current?.scrollIntoView({behavior:"smooth",block:"start"}),0)};
   const choose = (value: string) => {
     setPreset(value);
     const range = rangeFor(value);
@@ -523,7 +531,7 @@ export function CallLogsPage() {
           )}
         </section>
       )}
-      <section className="panel table-panel call-records">
+      <section className="panel table-panel call-records" ref={callerSectionRef}>
         <div className="call-section-head caller-head"><div><span><PhoneCall /></span><div><h3>Caller</h3><p>Detailed call logs and caller information</p></div></div></div>
         <div className="toolbar call-toolbar">
           <label className="search">
@@ -583,7 +591,7 @@ export function CallLogsPage() {
               <tbody>
                 {data.items.map((x: any,index:number) => (
                   <tr key={x.id}>
-                    <td>{index+1}</td>
+                    <td>{(page-1)*25+index+1}</td>
                     <td>
                       <b>{x.callerNumber}</b>
                       <small className="cell-sub">{x.externalId}</small>
@@ -629,9 +637,7 @@ export function CallLogsPage() {
             <p>Select another date range to view call activity.</p>
           </div>
         )}
-        <div className="call-total">
-          Showing {data.items.length ? 1 : 0} to {Math.min(data.items.length,data.total)} of {data.total} call{data.total === 1 ? "" : "s"}
-        </div>
+        <div className="call-pagination"><span>Showing {data.items.length ? (page-1)*25+1 : 0} to {Math.min(page*25,data.total)} of {data.total} call{data.total === 1 ? "" : "s"}</span>{totalPages>1&&<nav aria-label="Caller pagination"><button type="button" disabled={page===1} onClick={()=>changePage(page-1)}>Previous</button>{Array.from({length:totalPages},(_,index)=>index+1).filter(value=>value===1||value===totalPages||Math.abs(value-page)<=1).map((value,index,visible)=><span key={value}>{index>0&&value-visible[index-1]>1&&<i>…</i>}<button type="button" className={page===value?"active":""} aria-current={page===value?"page":undefined} onClick={()=>changePage(value)}>{value}</button></span>)}<button type="button" disabled={page===totalPages} onClick={()=>changePage(page+1)}>Next</button></nav>}</div>
       </section>
     </>
   );
