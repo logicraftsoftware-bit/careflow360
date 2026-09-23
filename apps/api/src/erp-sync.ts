@@ -29,7 +29,11 @@ export async function buildBootstrapPayload(tenantId:string):Promise<ErpBootstra
     branches:branches.map(x=>({externalId:x.id,updatedAt:x.updatedAt.toISOString(),name:x.name,code:codeFor(x.name,x.id),phone:x.phone||undefined,address:address(x.address,x.city,x.state,x.pin,x.country),active:active(x.status)})),
     departments:departments.map(x=>({externalId:x.id,updatedAt:x.updatedAt.toISOString(),branchExternalId:x.branchId&&branchIds.has(x.branchId)?x.branchId:null,name:x.name,code:x.code,active:active(x.status)})),
     doctors:doctors.flatMap(x=>{
-      const branchId=x.branches.find(link=>branchIds.has(link.branchId))?.branchId;
+      // Older clinic data may predate DoctorBranch links. Schedules and booked
+      // appointments are still tenant-scoped, reliable evidence of the branch.
+      const branchId=x.branches.find(link=>branchIds.has(link.branchId))?.branchId
+        ||x.schedules.find(schedule=>branchIds.has(schedule.branchId))?.branchId
+        ||appointments.find(appointment=>appointment.doctorId===x.id&&branchIds.has(appointment.branchId))?.branchId;
       if(!branchId)return [];
       return [{externalId:x.id,updatedAt:x.updatedAt.toISOString(),branchExternalId:branchId,departmentExternalId:x.departmentId&&departmentIds.has(x.departmentId)?x.departmentId:undefined,name:x.name,email:x.email||undefined,mobile:x.mobile||undefined,qualification:x.qualification||undefined,specialization:x.specialization||undefined,registrationNumber:x.registrationNumber||undefined,consultationFee:Math.max(0,x.consultationFee),active:active(x.status),schedules:x.schedules.filter(s=>s.branchId===branchId&&s.scheduleDate).map(s=>({date:s.scheduleDate!.toLocaleDateString("en-CA",{timeZone:tenant.timezone}),from:s.startTime,to:s.endTime,maxSlots:Math.min(500,Math.max(1,s.maxPatients))}))}];
     }),
