@@ -86,6 +86,7 @@ const admin = [
   ["AiSensy", "integrations", MessageCircle],
   ["Cashfree", "cashfree", WalletCards],
   ["TeleCMI", "telecmi", PhoneCall],
+  ["Hospital ERP", "erp", Database],
   ["Audit Logs", "audit-logs", FileText],
   ["Platform Settings", "settings", Settings],
 ] as const;

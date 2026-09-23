@@ -3,6 +3,17 @@
   background: transparent;
   cursor: pointer;
 }
+.call-export-actions {
+  display: flex;
+  gap: 9px;
+}
+.call-export-actions svg {
+  width: 17px;
+}
+.call-export-actions .btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 .call-filter-panel {
   margin-bottom: 16px;
   padding: 14px 18px;

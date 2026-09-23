@@ -3,6 +3,7 @@ import { encryptIntegrationSecret } from '../aisensy.js';
 import { config } from '../config.js';
 import argon2 from 'argon2';
 import { syncTelecmiCalls, telecmiAccountReport } from './telecmi.js';
+import { syncClinicToErp } from '../erp-sync.js';
 export const adminRouter=Router(); adminRouter.use(auth,platformOnly);
 adminRouter.get('/dashboard',asyncRoute(async(_req,res)=>{const [total,active,pending,suspended,leads,appointments]=await Promise.all([prisma.tenant.count(),prisma.tenant.count({where:{status:'ACTIVE'}}),prisma.tenant.count({where:{status:'PENDING_APPROVAL'}}),prisma.tenant.count({where:{status:'SUSPENDED'}}),prisma.lead.count(),prisma.appointment.count()]);return ok(res,{totalTenants:total,activeTenants:active,pendingApprovals:pending,suspendedTenants:suspended,totalLeads:leads,totalAppointments:appointments})}));
 adminRouter.get('/subscriptions',asyncRoute(async(_req,res)=>{
@@ -182,4 +183,24 @@ adminRouter.put('/tenants/:id/telecmi',asyncRoute(async(req,res)=>{
   const row=await prisma.telecmiIntegration.upsert({where:{tenantId:tenant.id},create:{tenantId:tenant.id,...data,appSecretEncrypted:encryptIntegrationSecret(body.appSecret)},update:data});
   await audit(req,'tenant.telecmi.updated','Tenant',tenant.id,{clinicName:tenant.name,appId:row.appId,businessNumber:row.businessNumber,apiUrl:row.apiUrl,webhookConfigured:Boolean(row.webhookUrl),isTestMode:row.isTestMode,isActive:row.isActive,appSecretChanged:Boolean(body.appSecret)});
   return ok(res,{hasAppSecret:true,updatedAt:row.updatedAt},'TeleCMI integration saved');
+}));
+
+adminRouter.get('/erp-integrations',asyncRoute(async(_req,res)=>{
+  const tenants=await prisma.tenant.findMany({where:{OR:[{deletedAt:null},{deletedAt:{isSet:false}}]},select:{id:true,name:true,email:true,status:true,erpOutboundIntegration:true},orderBy:{name:'asc'}});
+  return ok(res,tenants.map(({erpOutboundIntegration:row,...tenant})=>({...tenant,integration:row?{baseUrl:row.baseUrl,hasApiKey:Boolean(row.apiKeyEncrypted),isActive:row.isActive,timeoutMs:row.timeoutMs,lastSyncStartedAt:row.lastSyncStartedAt,lastSyncFinishedAt:row.lastSyncFinishedAt,lastSuccessAt:row.lastSuccessAt,lastFailureAt:row.lastFailureAt,lastResult:row.lastResult,lastHttpStatus:row.lastHttpStatus,lastCounts:row.lastCounts,lastError:row.lastError,inProgress:Boolean(row.syncLockedAt),updatedAt:row.updatedAt}:null})));
+}));
+
+adminRouter.put('/tenants/:id/erp-integration',asyncRoute(async(req,res)=>{
+  const body=z.object({baseUrl:z.string().url(),apiKey:z.string().trim().optional().default(''),timeoutMs:z.coerce.number().int().min(1000).max(120000).default(30000),isActive:z.boolean().default(true)}).parse(req.body);
+  const [tenant,existing]=await Promise.all([prisma.tenant.findFirst({where:{id:req.params.id,OR:[{deletedAt:null},{deletedAt:{isSet:false}}]}}),prisma.erpOutboundIntegration.findUnique({where:{tenantId:req.params.id}})]);
+  if(!tenant)throw new AppError(404,'Clinic not found','NOT_FOUND');
+  if(!existing&&!body.apiKey)throw new AppError(400,'ERP API key is required','API_KEY_REQUIRED');
+  const data={baseUrl:body.baseUrl.replace(/\/$/,''),timeoutMs:body.timeoutMs,isActive:body.isActive,...(body.apiKey?{apiKeyEncrypted:encryptIntegrationSecret(body.apiKey)}:{})};
+  const row=await prisma.erpOutboundIntegration.upsert({where:{tenantId:tenant.id},create:{tenantId:tenant.id,...data,apiKeyEncrypted:encryptIntegrationSecret(body.apiKey)},update:data});
+  await audit(req,'tenant.erp_integration.updated','Tenant',tenant.id,{clinicName:tenant.name,baseUrl:row.baseUrl,timeoutMs:row.timeoutMs,isActive:row.isActive,apiKeyChanged:Boolean(body.apiKey)});
+  return ok(res,{hasApiKey:true,updatedAt:row.updatedAt},'ERP integration saved');
+}));
+
+adminRouter.post('/tenants/:id/erp-sync',asyncRoute(async(req,res)=>{
+  const result=await syncClinicToErp(req.params.id);await audit(req,'tenant.erp.synced','Tenant',req.params.id,result);return ok(res,result,'ERP synchronization completed');
 }));

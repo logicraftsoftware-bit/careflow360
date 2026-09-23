@@ -4,6 +4,7 @@ import {
   Clock3,
   Download,
   ExternalLink,
+  FileText,
   PhoneCall,
   PhoneIncoming,
   PhoneMissed,
@@ -51,6 +52,7 @@ export function CallLogsPage() {
     [direction, setDirection] = useState(""),
     [agentId, setAgentId] = useState(""),
     [number, setNumber] = useState(""),
+    [exporting, setExporting] = useState<"csv" | "pdf" | "">(""),
     [preset, setPreset] = useState("TODAY"),
     [start, setStart] = useState(initial.start),
     [end, setEnd] = useState(initial.end);
@@ -108,7 +110,24 @@ export function CallLogsPage() {
     setStart(range.start);
     setEnd(range.end);
   };
-  const exportCsv = () => {
+  const exportParams = {
+    search: search || undefined,
+    status: status || undefined,
+    direction: direction || undefined,
+    agentId: agentId || undefined,
+    startDate,
+    endDate,
+    page: 1,
+    limit: 5000,
+  };
+  const loadExportData = () =>
+    api
+      .get("/integrations/telecmi/calls", { params: exportParams })
+      .then(unwrap);
+  const exportCsv = async () => {
+    setExporting("csv");
+    try {
+      const report = await loadExportData();
     const rows = [
         [
           "Call ID",
@@ -121,7 +140,7 @@ export function CallLogsPage() {
           "Duration",
           "Disposition",
         ],
-        ...data.items.map((x: any) => [
+        ...report.items.map((x: any) => [
           x.externalId,
           x.callerNumber,
           x.patient?.name || x.lead?.name || "",
@@ -139,10 +158,80 @@ export function CallLogsPage() {
         )
         .join("\n"),
       link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    link.href = URL.createObjectURL(
+      new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" })
+    );
     link.download = "telecmi-calls-" + start + "-to-" + end + ".csv";
     link.click();
     URL.revokeObjectURL(link.href);
+    } finally {
+      setExporting("");
+    }
+  };
+  const exportPdf = async () => {
+    setExporting("pdf");
+    try {
+      const [report, { jsPDF }, { default: autoTable }] = await Promise.all([
+          loadExportData(),
+          import("jspdf"),
+          import("jspdf-autotable"),
+        ]),
+        analytics = report.analytics || {},
+        selectedAgent = (agentData?.items || []).find(
+          (x: any) => x.id === agentId
+        ),
+        filterText = [
+          `${start} to ${end}`,
+          direction || "All directions",
+          status || "All statuses",
+          selectedAgent?.name || "All TeleCMI users",
+          search ? `Search: ${search}` : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        document = new jsPDF({ orientation: "landscape" });
+      document.setFontSize(17);
+      document.text("TeleCMI Call Report", 14, 16);
+      document.setFontSize(9);
+      document.setTextColor(80);
+      document.text(filterText, 14, 23);
+      document.setTextColor(0);
+      document.text(
+        `Total: ${analytics.totalCalls || 0}   Answered: ${analytics.answered || 0}   Missed: ${analytics.missed || 0}   Incoming: ${analytics.received || 0}   Outgoing: ${analytics.outgoing || 0}   Talk time: ${duration(analytics.totalDurationSeconds)}`,
+        14,
+        30
+      );
+      autoTable(document, {
+        startY: 36,
+        head: [[
+          "Call ID",
+          "Caller",
+          "Contact",
+          "Direction",
+          "Status",
+          "Agent",
+          "Started",
+          "Duration",
+          "Disposition",
+        ]],
+        body: report.items.map((x: any) => [
+          x.externalId || "",
+          x.callerNumber || "",
+          x.patient?.name || x.lead?.name || "Unmatched",
+          x.direction,
+          x.status,
+          x.agentName || "",
+          when(x.startedAt),
+          duration(x.durationSeconds),
+          x.disposition || "",
+        ]),
+        styles: { fontSize: 7, cellPadding: 2 },
+        headStyles: { fillColor: [15, 118, 110] },
+      });
+      document.save("telecmi-calls-" + start + "-to-" + end + ".pdf");
+    } finally {
+      setExporting("");
+    }
   };
   const openRecording = async (url: string) => {
     if (/^https?:\/\//.test(url)) {
@@ -180,10 +269,16 @@ export function CallLogsPage() {
               : "Clinic-wide call analytics, productivity and detailed call history."}
           </p>
         </div>
-        <button className="btn" onClick={exportCsv}>
-          <Download />
-          Export CSV
-        </button>
+        <div className="call-export-actions">
+          <button className="btn ghost" onClick={exportCsv} disabled={Boolean(exporting)}>
+            <Download />
+            {exporting === "csv" ? "Exporting..." : "Export CSV"}
+          </button>
+          <button className="btn" onClick={exportPdf} disabled={Boolean(exporting)}>
+            <FileText />
+            {exporting === "pdf" ? "Exporting..." : "Export PDF"}
+          </button>
+        </div>
       </div>
       <section className="panel call-filter-panel">
         <div className="call-filter-top">

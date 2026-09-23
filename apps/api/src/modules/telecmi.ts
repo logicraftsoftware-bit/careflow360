@@ -187,7 +187,7 @@ telecmiRouter.post('/make-call',auth,asyncRoute(async(req,res)=>{
 telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{
   const tid=tenantId(req),{user,isAdmin}=await currentTelecmiUser(req);
   if(!isAdmin&&!user.telecmiAgentId)throw new AppError(403,'No TeleCMI user is assigned to this staff account','TELECMI_AGENT_NOT_ASSIGNED');
-  const query=z.object({status:z.string().optional(),direction:z.enum(['INBOUND','OUTBOUND']).optional(),search:z.string().optional(),agentId:z.string().optional(),startDate:z.coerce.date().optional(),endDate:z.coerce.date().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(100).default(25)}).parse(req.query);
+  const query=z.object({status:z.string().optional(),direction:z.enum(['INBOUND','OUTBOUND']).optional(),search:z.string().optional(),agentId:z.string().optional(),startDate:z.coerce.date().optional(),endDate:z.coerce.date().optional(),page:z.coerce.number().min(1).default(1),limit:z.coerce.number().min(1).max(5000).default(25)}).parse(req.query);
   const end=query.endDate||new Date(),start=query.startDate||new Date(end.getTime()-30*24*60*60*1000);
   await syncTelecmiCalls(tid,start,end);
   const scope:any={tenantId:tid,provider:'TELECMI',startedAt:{gte:start,lte:end},...(!isAdmin?{agentExternalId:user.telecmiAgentId}:query.agentId?{agentExternalId:query.agentId}:{})},where:any={...scope};

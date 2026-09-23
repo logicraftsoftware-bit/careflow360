@@ -20,6 +20,7 @@ import { StaffPage } from "./pages/Staff";
 import { LabCollectionPage } from "./pages/LabCollection";
 import { TenantEditorPage } from "./pages/TenantEditor";
 import { TelecmiIntegrationsPage } from "./pages/TelecmiIntegrations";
+import { ErpIntegrationsPage } from "./pages/ErpIntegrations";
 import { CalendarAppointmentsPage } from "./pages/CalendarAppointmentsPage";
 import { PatientFollowupsPage } from "./pages/PatientFollowupsPage";
 const menus = [
@@ -64,6 +65,7 @@ const admin = [
   "integrations",
   "cashfree",
   "telecmi",
+  "erp",
   "audit-logs",
   "settings",
 ];
@@ -138,7 +140,8 @@ export default function App() {
         <Route path="integrations" element={<AiSensyIntegrationsPage />} />
         <Route path="cashfree" element={<CashfreeIntegrationsPage />} />
         <Route path="telecmi" element={<TelecmiIntegrationsPage />} />
-        {admin.filter((x) => !["integrations", "cashfree", "telecmi"].includes(x)).map((x) => (
+        <Route path="erp" element={<ErpIntegrationsPage />} />
+        {admin.filter((x) => !["integrations", "cashfree", "telecmi", "erp"].includes(x)).map((x) => (
           <Route
             key={x}
             path={x}

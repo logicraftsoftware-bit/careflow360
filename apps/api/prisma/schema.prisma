@@ -124,6 +124,57 @@ model Tenant {
   aisensyIntegration AiSensyIntegration?
   cashfreeIntegration CashfreeIntegration?
   telecmiIntegration TelecmiIntegration?
+  erpIntegration     ErpIntegration?
+  erpOutboundIntegration ErpOutboundIntegration?
+  erpSyncLogs            ErpSyncLog[]
+}
+
+model ErpIntegration {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId      String   @unique @db.ObjectId
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  apiKeyHash    String   @unique
+  keyPrefix     String
+  isActive      Boolean  @default(true)
+  lastUsedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ErpOutboundIntegration {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId            String   @unique @db.ObjectId
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  baseUrl             String
+  apiKeyEncrypted     String
+  isActive            Boolean  @default(true)
+  timeoutMs           Int      @default(30000)
+  lastSyncStartedAt   DateTime?
+  lastSyncFinishedAt  DateTime?
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  lastResult          String?
+  lastHttpStatus      Int?
+  lastCounts          Json?
+  lastError           String?
+  syncLockedAt        DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model ErpSyncLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String   @db.ObjectId
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  startedAt   DateTime
+  finishedAt  DateTime
+  result      String
+  counts      Json?
+  httpStatus  Int?
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
 }
 
 model AiSensyIntegration {
@@ -573,6 +624,10 @@ model Appointment {
   token              String?
   cancellationReason String?
   paymentConfirmedAt DateTime?
+  erpExternalId      String?
+  erpSyncStatus      String?
+  erpSyncMessage     String?
+  erpSyncedAt        DateTime?
   payments           Payment[]
   followups          FollowUp[]
   createdAt          DateTime          @default(now())
@@ -581,6 +636,7 @@ model Appointment {
   @@unique([tenantId, appointmentNumber])
   @@unique([doctorId, branchId, startsAt])
   @@index([tenantId, startsAt])
+  @@index([tenantId, erpSyncStatus])
 }
 
 model Payment {

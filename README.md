@@ -28,6 +28,11 @@ Requirements: Node.js 20+, npm 10+, and a MongoDB replica set (MongoDB Atlas is 
 Web: `http://localhost:5173`  
 API health: `http://localhost:4000/api/health`
 
+Complete endpoint documentation:
+
+- [CareFlow360 API Reference (Markdown)](docs/API_REFERENCE.md)
+- [CareFlow360 API and Workflow Reference (Word)](docs/CareFlow360_API_and_Workflow_Reference.docx)
+
 The seeded Super Admin email comes from `SUPER_ADMIN_EMAIL`. The password comes from `SUPER_ADMIN_PASSWORD`. Never use the example password in production.
 
 ## Commands
@@ -59,7 +64,7 @@ External email, payment, Meta, WhatsApp, object-storage, and Redis settings rema
 
 Cashfree is configured per clinic by a Super Admin at `/admin/cashfree`. Enter the clinic's Cashfree App ID and Secret Key, enable sandbox mode while testing, and save the integration. Credentials are encrypted at rest.
 
-In the Cashfree merchant dashboard, subscribe the webhook endpoint `https://YOUR_DOMAIN/api/cashfree/webhook` to payment success and payment failure events. The endpoint verifies `x-webhook-signature` against the untouched request body and is idempotent. Use HTTPS and ensure the API is reachable at `/api` on the same public domain used by `APP_URL`.
+In the Cashfree merchant dashboard, subscribe the webhook endpoint `https://crm.hosmedai.com/api/cashfree/webhook` to payment success and payment failure events. The endpoint verifies `x-webhook-signature` against the untouched request body and is idempotent. Use HTTPS and ensure the API is reachable at `/api` on the same public domain used by `APP_URL`.
 
 Run `npm run db:push` once during deployment to create the `CashfreeIntegration` collection/indexes. Existing Razorpay credentials are intentionally not reused; each clinic must enter Cashfree credentials.
 
