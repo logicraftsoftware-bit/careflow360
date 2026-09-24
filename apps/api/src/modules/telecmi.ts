@@ -72,7 +72,8 @@ function telecmiCallStatus(cdr:any,answered:boolean):'RINGING'|'ANSWERED'|'COMPL
   if(/wait|start|ring/.test(status))return 'RINGING';
   if(/answer/.test(status))return String(cdr.type).toLowerCase()==='cdr'||Number(cdr.answeredsec||cdr.duration)>0?'COMPLETED':'ANSWERED';
   if(/complete|hangup|end/.test(status))return 'COMPLETED';
-  return answered?'COMPLETED':'UNKNOWN';
+  // The dedicated missed feeds often omit status; their duration is ring/queue time.
+  return answered?'COMPLETED':'MISSED';
 }
 
 async function storeCdr(tenantId:string,cdr:any,direction:"INBOUND"|"OUTBOUND",answered:boolean){
@@ -193,7 +194,7 @@ telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{
   const scope:any={tenantId:tid,provider:'TELECMI',...(query.allTime?{}:{startedAt:{gte:start,lte:end}}),...(!isAdmin?{agentExternalId:user.telecmiAgentId}:query.agentId?{agentExternalId:query.agentId}:{})},where:any={...scope};
   if(query.status)where.status=query.status;
   else if(query.category==='ANSWERED')where.status={in:['ANSWERED','COMPLETED']};
-  else if(query.category==='MISSED')where.status={notIn:['ANSWERED','COMPLETED']};
+  else if(query.category==='MISSED')where.status='MISSED';
   if(query.direction)where.direction=query.direction;
   if(query.search)where.OR=[{callerNumber:{contains:query.search}},{agentName:{contains:query.search,mode:'insensitive'}},{externalId:{contains:query.search}}];
   const[items,total,metricRows]=await Promise.all([
@@ -204,9 +205,10 @@ telecmiRouter.get('/calls',auth,asyncRoute(async(req,res)=>{
     // while every dashboard card, chart and agent metric remained unchanged.
     prisma.callRecord.findMany({where,select:{direction:true,status:true,durationSeconds:true,startedAt:true,agentExternalId:true,agentName:true}})
   ]);
-  const answered=(row:any)=>row.status==='ANSWERED'||row.status==='COMPLETED',totalDuration=metricRows.reduce((sum:number,row:any)=>sum+(row.durationSeconds||0),0);
+  const answered=(row:any)=>row.status==='ANSWERED'||row.status==='COMPLETED',missed=(row:any)=>row.status==='MISSED',totalDuration=metricRows.filter(answered).reduce((sum:number,row:any)=>sum+(row.durationSeconds||0),0);
   const byHour=Array.from({length:24},(_,hour)=>({hour,total:0,answered:0,missed:0})),agentsMap=new Map<string,any>();
-  for(const row of metricRows){const hour=row.startedAt?.getHours()??0,hit=byHour[hour];hit.total++;answered(row)?hit.answered++:hit.missed++;const key=row.agentExternalId||row.agentName||'unassigned',agent=agentsMap.get(key)||{id:key,name:row.agentName||key,total:0,inboundAnswered:0,inboundMissed:0,outboundAnswered:0,outboundMissed:0,durationSeconds:0};agent.total++;agent.durationSeconds+=row.durationSeconds||0;const field=`${row.direction.toLowerCase()}${answered(row)?'Answered':'Missed'}`;agent[field]++;agentsMap.set(key,agent)}
+  for(const row of metricRows){const hour=row.startedAt?.getHours()??0,hit=byHour[hour];hit.total++;if(answered(row))hit.answered++;else if(missed(row))hit.missed++;const key=row.agentExternalId||row.agentName||'unassigned',agent=agentsMap.get(key)||{id:key,name:row.agentName||key,total:0,inboundAnswered:0,inboundMissed:0,outboundAnswered:0,outboundMissed:0,durationSeconds:0};agent.total++;if(answered(row))agent.durationSeconds+=row.durationSeconds||0;if(answered(row)||missed(row)){const field=`${row.direction.toLowerCase()}${answered(row)?'Answered':'Missed'}`;agent[field]++;}agentsMap.set(key,agent)}
   const answeredCount=metricRows.filter(answered).length,incoming=metricRows.filter((row:any)=>row.direction==='INBOUND'),outgoing=metricRows.filter((row:any)=>row.direction==='OUTBOUND');
-  return ok(res,{items,total,page:query.page,limit:query.limit,analytics:{totalCalls:metricRows.length,answered:answeredCount,missed:metricRows.length-answeredCount,received:incoming.length,outgoing:outgoing.length,incomingAnswered:incoming.filter(answered).length,incomingMissed:incoming.filter((row:any)=>!answered(row)).length,outgoingAnswered:outgoing.filter(answered).length,outgoingMissed:outgoing.filter((row:any)=>!answered(row)).length,totalDurationSeconds:totalDuration,averageDurationSeconds:answeredCount?Math.round(totalDuration/answeredCount):0,answerRate:metricRows.length?Math.round(answeredCount*100/metricRows.length):0,byHour,byAgent:[...agentsMap.values()].sort((a,b)=>b.total-a.total)}})
+  const missedCount=metricRows.filter(missed).length,decidedCount=answeredCount+missedCount;
+  return ok(res,{items,total,page:query.page,limit:query.limit,analytics:{totalCalls:metricRows.length,answered:answeredCount,missed:missedCount,received:incoming.length,outgoing:outgoing.length,incomingAnswered:incoming.filter(answered).length,incomingMissed:incoming.filter(missed).length,outgoingAnswered:outgoing.filter(answered).length,outgoingMissed:outgoing.filter(missed).length,totalDurationSeconds:totalDuration,averageDurationSeconds:answeredCount?Math.round(totalDuration/answeredCount):0,answerRate:decidedCount?Math.round(answeredCount*100/decidedCount):0,byHour,byAgent:[...agentsMap.values()].sort((a,b)=>b.total-a.total)}})
 }));
