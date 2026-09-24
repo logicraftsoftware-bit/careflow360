@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Clock3,
+  ChevronRight,
   Download,
   ExternalLink,
   FileText,
@@ -12,6 +13,7 @@ import {
   Search,
   Users,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api, unwrap } from "../api";
 import "./CallLogs.css";
 const when = (v?: string) =>
@@ -56,6 +58,7 @@ function rangeFor(preset: string) {
   return { start: isoDay(start), end: isoDay(end) };
 }
 export function CallLogsPage() {
+  const navigate = useNavigate();
   const sessionUser = JSON.parse(localStorage.getItem("user") || "{}"),
     staffPortal = sessionUser.portal === "STAFF";
   const initial = rangeFor("TODAY"),
@@ -269,14 +272,18 @@ export function CallLogsPage() {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
   };
   const cards = [
-    [a.totalCalls || 0, "Total Calls", PhoneCall, "blue"],
-    [a.answered || 0, "Answered Calls", PhoneIncoming, "green"],
-    [a.missed || 0, "Missed Calls", PhoneMissed, "red"],
-    [a.received || 0, "Received Calls", PhoneIncoming, "purple"],
-    [a.outgoing || 0, "Outgoing Calls", PhoneOutgoing, "orange"],
-    [duration(a.totalDurationSeconds), "Total Call Time", Clock3, "sky"],
-    [duration(a.averageDurationSeconds), "Average Call Time", Clock3, "violet"],
+    [a.totalCalls || 0, "Total Calls", PhoneCall, "blue", {}],
+    [a.answered || 0, "Answered Calls", PhoneIncoming, "green", { category: "ANSWERED" }],
+    [a.missed || 0, "Missed Calls", PhoneMissed, "red", { category: "MISSED" }],
+    [a.received || 0, "Received Calls", PhoneIncoming, "purple", { direction: "INBOUND" }],
+    [a.outgoing || 0, "Outgoing Calls", PhoneOutgoing, "orange", { direction: "OUTBOUND" }],
+    [duration(a.totalDurationSeconds), "Total Call Time", Clock3, "sky", {}],
+    [duration(a.averageDurationSeconds), "Average Call Time", Clock3, "violet", {}],
   ];
+  const openCalls = (cardFilter: Record<string, string>) => {
+    const params = new URLSearchParams({ ...(allTime ? { allTime: "true" } : { start, end }), ...(agentId ? { agentId } : {}), ...cardFilter });
+    navigate(`/app/call-logs/details?${params}`);
+  };
   return (
     <>
       <div className="page-head">
@@ -398,7 +405,7 @@ export function CallLogsPage() {
         <>
           <div className="call-analytics-heading"><div className="call-analytics-icon"><PhoneCall /></div><div><h2>Call Analytics</h2><p>{staffPortal ? "Your real-time communication performance" : "Real-time insights into your clinic communication"}</p></div><span><i /> Live Data</span></div>
           <section className="call-metrics">
-            {cards.map(([value, label, Icon, tone]: any) => (
+            {cards.map(([value, label, Icon, tone, cardFilter]: any) => (
               <article className={`metric-${tone}`} key={label}>
                 <Icon />
                 <div>
@@ -406,6 +413,7 @@ export function CallLogsPage() {
                   <b>{value}</b>
                   <em>{typeof value === "number" && a.totalCalls ? `${percent(value, a.totalCalls)}% of filtered calls` : "Filtered result"}</em>
                 </div>
+                <button type="button" className="metric-drilldown" onClick={() => openCalls(cardFilter)} aria-label={`View ${label}`} title={`View ${label}`}><ChevronRight /></button>
               </article>
             ))}
           </section>

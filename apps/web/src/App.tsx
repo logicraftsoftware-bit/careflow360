@@ -7,6 +7,7 @@ import { ResourcePage } from "./pages/Resource";
 import { AppointmentBookingPage } from "./pages/AppointmentBookingPage";
 import { AppointmentEditPage } from "./pages/AppointmentEditPage";
 import { CallLogsPage } from "./pages/CallLogs";
+import { CallLogDetailsPage } from "./pages/CallLogDetails";
 import { PaymentPendingPage } from "./pages/PaymentPending";
 import { ClinicSettingsPage } from "./pages/ClinicSettings";
 import { AiSensyIntegrationsPage } from "./pages/AiSensyIntegrations";
@@ -113,6 +114,7 @@ export default function App() {
         <Route path="lab-collection/collected" element={<LabCollectionPage state="collected" />} />
         <Route path="lab-collection/all" element={<LabCollectionPage state="all" />} />
         <Route path="call-logs" element={<CallLogsPage />} />
+        <Route path="call-logs/details" element={<CallLogDetailsPage />} />
         <Route path="settings" element={<ClinicSettingsPage />} />
         <Route path="lab" element={<LabMasterDataPage />} />
         <Route path="radiology" element={<RadiologyMasterDataPage />} />
