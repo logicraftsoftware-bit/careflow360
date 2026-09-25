@@ -84,7 +84,7 @@ Before production launch:
 
 The September 25, 2026 deployment clears the existing `lab-tests` and
 `radiology-tests` catalogs for MEDICITY GUWAHATI. It saves the original records
-in `.maintenance/test-catalog-reset-2026-09-25-<tenant-id>.json` on the server
+in `.maintenance/test-catalog-reset-2026-09-25-v2-<tenant-id>.json` on the server
 before deleting them. Keep this backup: later deployments use its original IDs
 so newly entered tests are preserved. Appointments, categories, units, parameters,
 and other tenants are unaffected. Default tests and their parameters are no

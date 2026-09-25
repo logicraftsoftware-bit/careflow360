@@ -16,7 +16,7 @@ async function main() {
   const tenant = tenants[0];
   const directory = resolve(process.env.TEST_CATALOG_BACKUP_DIR || ".maintenance");
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const backupPath = resolve(directory, `test-catalog-reset-2026-09-25-${tenant.id}.json`);
+  const backupPath = resolve(directory, `test-catalog-reset-2026-09-25-v2-${tenant.id}.json`);
   const where = { tenantId: tenant.id, module: { in: modules } };
   // Persist the original IDs once. Re-running cannot remove replacement tests.
   let snapshot: { tenantId: string; records: { id: string }[] };
@@ -32,6 +32,9 @@ async function main() {
   const result = await db.moduleRecord.deleteMany({ where: originalRecords });
   const remaining = await db.moduleRecord.count({ where: originalRecords });
   if (remaining) throw new Error(`${remaining} original test records remain.`);
+  for (const module of modules) {
+    console.log(`${tenant.name}: ${module} current count: ${await db.moduleRecord.count({ where: { tenantId: tenant.id, module } })}`);
+  }
   console.log(`${tenant.name}: removed ${result.count} lab/radiology tests. Original tests remaining: ${remaining}. Backup: ${backupPath}`);
 }
 

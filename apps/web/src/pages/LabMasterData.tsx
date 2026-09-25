@@ -65,7 +65,7 @@ export function LabMasterDataPage() {
   }, [qc, unitData, units.length]);
   const filtered = useMemo(() => rows.filter((row) => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())), [rows, search]);
   const save = useMutation({
-    mutationFn: (payload: Record<string, FormDataEntryValue>) => editing ? api.patch(`${endpoint}/${editing.id}`, payload) : api.post(endpoint, payload),
+    mutationFn: (payload: Record<string, FormDataEntryValue>) => editing ? api.patch(`${endpoint}/${editing.id}`, payload) : api.post(endpoint, payload, { headers: { "X-Test-Catalog-Version": "2" } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: [endpoint] }); setModalOpen(false); setEditing(null); },
   });
   const remove = useMutation({ mutationFn: (id: string) => api.delete(`${endpoint}/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }) });

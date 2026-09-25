@@ -1588,6 +1588,10 @@ crmRouter.post(
   "/modules/:module",
   asyncRoute(async (req, res) => {
     const tid = tenantId(req);
+    // Older browser tabs auto-seed empty catalogs. Require the current manual-entry client.
+    if (["lab-tests", "radiology-tests"].includes(req.params.module) && req.get("X-Test-Catalog-Version") !== "2") {
+      throw new AppError(409, "Please refresh this page before adding tests.", "CATALOG_CLIENT_OUTDATED");
+    }
     const { title, status = "ACTIVE", ...data } = req.body;
     if (
       ["lab-appointments", "radiology-appointments"].includes(
