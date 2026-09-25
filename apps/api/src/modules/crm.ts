@@ -900,7 +900,10 @@ crmRouter.post(
         id: technicianId,
         tenantId: tid,
         status: "ACTIVE",
-        roles: { some: { role: { code: "LAB_TECHNICIAN" } } },
+        OR: [
+          { id: req.user!.id },
+          { roles: { some: { role: { code: "LAB_TECHNICIAN" } } } },
+        ],
       },
       select: { id: true, name: true },
     });
