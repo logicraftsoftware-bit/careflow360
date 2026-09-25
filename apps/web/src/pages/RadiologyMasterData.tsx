@@ -26,30 +26,8 @@ const sections: Section[] = [
   ], columns: ["title", "testName", "referenceFrom", "referenceTo", "unit", "description", "status"] },
 ];
 
-const tests = [
-  ["Chest X-Ray PA View", "XR-CHEST-PA", "X-Ray", "X-RAY", "Chest", 10, 4, 500], ["Chest X-Ray AP View", "XR-CHEST-AP", "X-Ray", "X-RAY", "Chest", 10, 4, 500],
-  ["X-Ray Abdomen", "XR-ABD", "X-Ray", "X-RAY", "Abdomen", 10, 4, 600], ["X-Ray Pelvis", "XR-PELVIS", "X-Ray", "X-RAY", "Pelvis", 10, 4, 600],
-  ["X-Ray Knee", "XR-KNEE", "X-Ray", "X-RAY", "Knee", 10, 4, 550], ["X-Ray Spine", "XR-SPINE", "X-Ray", "X-RAY", "Spine", 15, 6, 800],
-  ["Ultrasound Whole Abdomen", "USG-WA", "Ultrasound", "ULTRASOUND", "Abdomen", 25, 6, 1200], ["Ultrasound Pelvis", "USG-PELVIS", "Ultrasound", "ULTRASOUND", "Pelvis", 20, 6, 1000],
-  ["Obstetric Ultrasound", "USG-OBS", "Ultrasound", "ULTRASOUND", "Pelvis", 25, 6, 1500], ["Thyroid Ultrasound", "USG-THYROID", "Ultrasound", "ULTRASOUND", "Neck", 20, 6, 1200],
-  ["CT Brain Plain", "CT-BRAIN", "CT Scan", "CT", "Brain", 20, 8, 2500], ["CT Chest", "CT-CHEST", "CT Scan", "CT", "Chest", 25, 12, 4000],
-  ["CT Whole Abdomen", "CT-ABD", "CT Scan", "CT", "Abdomen", 30, 12, 5000], ["MRI Brain", "MRI-BRAIN", "MRI", "MRI", "Brain", 40, 24, 6000],
-  ["MRI Spine", "MRI-SPINE", "MRI", "MRI", "Spine", 45, 24, 7000], ["MRI Knee", "MRI-KNEE", "MRI", "MRI", "Knee", 40, 24, 6000],
-  ["Digital Mammography", "MAMMO", "Mammography", "MAMMOGRAPHY", "Breast", 25, 12, 2000], ["DEXA Bone Density", "DEXA", "Bone Density", "DEXA", "Hip and Spine", 20, 6, 1800],
-  ["Carotid Doppler", "DOP-CAROTID", "Doppler", "DOPPLER", "Neck", 30, 8, 2500], ["Venous Doppler Lower Limb", "DOP-LEG", "Doppler", "DOPPLER", "Lower Limb", 30, 8, 2500],
-] as const;
 const categories = ["X-Ray", "Ultrasound", "CT Scan", "MRI", "Mammography", "Bone Density", "Doppler"];
 const units = [["Millimetre", "mm"], ["Centimetre", "cm"], ["Hounsfield unit", "HU"], ["Degrees", "°"], ["Percentage", "%"], ["Centimetres per second", "cm/s"], ["Beats per minute", "bpm"], ["T-score", "T-score"]] as const;
-const parameters = [
-  ["Cardiothoracic Ratio", "Chest X-Ray PA View", "0", "50", "%"], ["Cardiothoracic Ratio", "Chest X-Ray AP View", "0", "50", "%"], ["Bowel Diameter", "X-Ray Abdomen", "0", "3", "cm"],
-  ["Joint Space", "X-Ray Knee", "3", "8", "mm"], ["Cobb Angle", "X-Ray Spine", "0", "10", "°"], ["Liver Size", "Ultrasound Whole Abdomen", "12", "15", "cm"],
-  ["Spleen Size", "Ultrasound Whole Abdomen", "7", "13", "cm"], ["Common Bile Duct", "Ultrasound Whole Abdomen", "0", "6", "mm"], ["Endometrial Thickness", "Ultrasound Pelvis", "2", "16", "mm"],
-  ["Fetal Heart Rate", "Obstetric Ultrasound", "110", "160", "bpm"], ["Thyroid Lobe Length", "Thyroid Ultrasound", "4", "6", "cm"], ["Midline Shift", "CT Brain Plain", "0", "0", "mm"],
-  ["Lung Nodule Size", "CT Chest", "0", "6", "mm"], ["Liver Attenuation", "CT Whole Abdomen", "50", "65", "HU"], ["Ventricle Width", "MRI Brain", "0", "10", "mm"],
-  ["Spinal Canal Diameter", "MRI Spine", "10", "20", "mm"], ["Meniscal Thickness", "MRI Knee", "3", "5", "mm"], ["Breast Lesion Size", "Digital Mammography", "0", "5", "mm"],
-  ["Bone Density T-score", "DEXA Bone Density", "-1", "1", "T-score"], ["Peak Systolic Velocity", "Carotid Doppler", "0", "125", "cm/s"], ["Venous Diameter", "Venous Doppler Lower Limb", "2", "10", "mm"],
-] as const;
-
 const val = (row: Row, key: string) => key in row ? row[key] : row.data?.[key];
 const pretty = (text: string) => text.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 
@@ -61,8 +39,7 @@ export function RadiologyMasterDataPage() {
   const categoryQuery = useQuery({ queryKey: ["/crm/modules/radiology-categories"], queryFn: () => api.get("/crm/modules/radiology-categories").then(unwrap) });
   const unitQuery = useQuery({ queryKey: ["/crm/modules/radiology-units"], queryFn: () => api.get("/crm/modules/radiology-units").then(unwrap) });
   const testQuery = useQuery({ queryKey: ["/crm/modules/radiology-tests"], queryFn: () => api.get("/crm/modules/radiology-tests").then(unwrap) });
-  const parameterQuery = useQuery({ queryKey: ["/crm/modules/radiology-parameters"], queryFn: () => api.get("/crm/modules/radiology-parameters").then(unwrap) });
-  const rows: Row[] = current.data?.items || [], categoryRows: Row[] = categoryQuery.data?.items || [], unitRows: Row[] = unitQuery.data?.items || [], testRows: Row[] = testQuery.data?.items || [], parameterRows: Row[] = parameterQuery.data?.items || [];
+  const rows: Row[] = current.data?.items || [], categoryRows: Row[] = categoryQuery.data?.items || [], unitRows: Row[] = unitQuery.data?.items || [], testRows: Row[] = testQuery.data?.items || [];
   const initialize = (module: string, ready: boolean, records: object[]) => {
     if (!ready || initialized.current.has(module) || !records.length) return;
     initialized.current.add(module);
@@ -70,8 +47,6 @@ export function RadiologyMasterDataPage() {
   };
   useEffect(() => initialize("radiology-categories", !!categoryQuery.data && !categoryRows.length, categories.map((title) => ({ title, code: title.toUpperCase().replace(/[^A-Z]+/g, "_"), status: "ACTIVE" }))), [categoryQuery.data, categoryRows.length]);
   useEffect(() => initialize("radiology-units", !!unitQuery.data && !unitRows.length, units.map(([title, symbol]) => ({ title, symbol, status: "ACTIVE" }))), [unitQuery.data, unitRows.length]);
-  useEffect(() => initialize("radiology-tests", !!testQuery.data && !testRows.length, tests.map(([title, code, category, modality, bodyPart, durationMinutes, reportingHours, price]) => ({ title, code, category, modality, bodyPart, durationMinutes, reportingHours, price, status: "ACTIVE" }))), [testQuery.data, testRows.length]);
-  useEffect(() => initialize("radiology-parameters", !!parameterQuery.data && !parameterRows.length && !!testRows.length && !!unitRows.length, parameters.map(([title, testName, referenceFrom, referenceTo, unit]) => ({ title, testName, referenceFrom, referenceTo, unit, status: "ACTIVE" }))), [parameterQuery.data, parameterRows.length, testRows.length, unitRows.length]);
   const filtered = useMemo(() => rows.filter((row) => JSON.stringify(row).toLowerCase().includes(search.toLowerCase())), [rows, search]);
   const save = useMutation({ mutationFn: (payload: Record<string, FormDataEntryValue>) => editing ? api.patch(`${endpoint}/${editing.id}`, payload) : api.post(endpoint, payload), onSuccess: () => { qc.invalidateQueries({ queryKey: [endpoint] }); setOpen(false); setEditing(null); } });
   const remove = useMutation({ mutationFn: (id: string) => api.delete(`${endpoint}/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }) });

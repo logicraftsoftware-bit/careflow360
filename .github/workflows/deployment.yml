@@ -95,6 +95,9 @@ jobs:
               echo "Bulk doctor schedules were already populated; skipping."
             fi
 
+            echo "Clearing the original Medicity Guwahati lab and radiology test catalogs..."
+            TEST_CATALOG_BACKUP_DIR=/var/www/careflow360/.maintenance npm run catalogs:clear-2026-09-25 -w @careflow360/api
+
             echo "Building API..."
             npm run build -w @careflow360/api
 
