@@ -458,3 +458,17 @@
     grid-column: auto;
   }
 }
+
+.diagnostic-progress { grid-template-columns: repeat(5, 1fr); }
+.diagnostic-confirm-grid { display:grid;grid-template-columns:minmax(0,1.2fr) minmax(330px,.8fr);gap:22px;align-items:start }
+.diagnostic-details textarea { min-height:88px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;resize:vertical }
+.diagnostic-details .wide { grid-column:1/-1 }
+.test-picker { padding:18px;border:1px solid #dbe5f1;border-radius:12px;background:#fff }
+.test-picker h3 { margin:0 0 14px }
+.test-picker .patient-search { position:relative }
+.test-picker .patient-results { position:absolute;z-index:20;left:0;right:0;top:48px;max-height:260px;overflow:auto;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 14px 35px #0f172a22 }
+.test-picker .patient-results button { width:100%;display:grid;grid-template-columns:1fr auto;padding:11px;border:0;border-bottom:1px solid #eef2f7;background:#fff;text-align:left }
+.test-picker .selected-tests select { max-width:210px;margin-top:6px;padding:6px;border:1px solid #cbd5e1;border-radius:6px }
+.payment-final-card { max-width:700px;margin:auto;padding:22px;border:1px solid #dbe5f1;border-radius:12px;background:#fff }
+.inline-new-patient { max-width:700px;margin:auto }
+@media(max-width:900px){.diagnostic-confirm-grid{grid-template-columns:1fr}.test-picker{order:-1}}

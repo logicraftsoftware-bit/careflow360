@@ -1,115 +1,54 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FlaskConical, Plus, ScanLine, Search, Trash2 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, CalendarCheck, Check, FlaskConical, Plus, ScanLine, Search, Trash2, UserRound } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api, unwrap } from "../api";
+import "./AppointmentBookingPage.css";
 
 type Kind = "lab" | "radiology";
 type Patient = { id: string; name: string; mobile?: string; patientNumber?: string };
 type Test = { id: string; title: string; data?: { code?: string; price?: number } };
-type Technician = { id: string; name: string; mobile?: string };
+type Option = { id: string; name: string; city?: string; address?: string; role?: string; status?: string };
+type Tube = { id: string; title: string; status: string; data?: { sampleType?: string } };
 type Specimen = { tubeType: string; sampleType: string };
-type TubeMaster = { id: string; title: string; status: string; data?: { sampleType?: string; code?: string; capColor?: string; volume?: string } };
+const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
-export function DiagnosticAppointmentBookingPage({ kind, onSpot = false }: { kind: Kind; onSpot?: boolean }) {
-  const nav = useNavigate(), qc = useQueryClient(), { id } = useParams(), editing = Boolean(id), isLab = kind === "lab", label = isLab ? "Lab" : "Radiology";
-  const currentUser = JSON.parse(localStorage.getItem("user") || "{}"), isLabTechnician = currentUser.roleCodes?.includes("LAB_TECHNICIAN");
-  const [patientSearch, setPatientSearch] = useState(""), [patient, setPatient] = useState<Patient | null>(null), [patientOpen, setPatientOpen] = useState(false);
-  const [testSearch, setTestSearch] = useState(""), [testOpen, setTestOpen] = useState(false), [selected, setSelected] = useState<Test[]>([]);
-  const [discount, setDiscount] = useState(0), [specimens, setSpecimens] = useState<Specimen[]>([]);
-  const [showNewPatient, setShowNewPatient] = useState(false);
-  const { data: patientData } = useQuery({ queryKey: ["booking-patients"], queryFn: () => api.get("/crm/patients?limit=100").then(unwrap) });
-  const { data: testData } = useQuery({ queryKey: [`${kind}-booking-tests`], queryFn: () => api.get(`/crm/modules/${kind}-tests?limit=100`).then(unwrap) });
-  const { data: technicians = [] } = useQuery<Technician[]>({ queryKey: ["lab-technicians"], queryFn: () => api.get("/crm/lab-technicians").then(unwrap), enabled: isLab && !onSpot });
-  const { data: tubeData, isError: tubeLoadError } = useQuery({ queryKey: ["specimen-tube-master"], queryFn: () => api.get("/crm/modules/specimen-tubes").then(unwrap), enabled: isLab });
-  const { data: orderData, isLoading: orderLoading } = useQuery({ queryKey: [kind, "appointment-edit", id], queryFn: () => api.get(`/crm/modules/${kind}-appointments`).then(unwrap), enabled: editing });
-  const order = orderData?.items?.find((item: any) => item.id === id), orderValues = order?.data || {};
-  const tubeOptions: TubeMaster[] = (tubeData?.items || []).filter((item: TubeMaster) => item.status === "ACTIVE");
-  const patients: Patient[] = patientData?.items || [], tests: Test[] = testData?.items || [];
-  const patientMatches = patients.filter((item) => [item.name, item.mobile, item.patientNumber].some((value) => String(value || "").toLowerCase().includes(patientSearch.toLowerCase()))).slice(0, 10);
-  const testMatches = tests.filter((item) => !selected.some((chosen) => chosen.id === item.id) && [item.title, item.data?.code].some((value) => String(value || "").toLowerCase().includes(testSearch.toLowerCase()))).slice(0, 12);
-  const subtotal = useMemo(() => selected.reduce((sum, test) => sum + Number(test.data?.price || 0), 0), [selected]);
-  const total = Math.max(0, subtotal - Number(discount || 0));
-  const save = useMutation({
-    mutationFn: (payload: Record<string, unknown>) => editing
-      ? api.patch(isLab ? `/crm/lab-collections/orders/${id}` : `/crm/modules/radiology-appointments/${id}`, payload)
-      : api.post(isLab ? "/crm/lab-collections/orders" : "/crm/modules/radiology-appointments", payload),
-    onSuccess: () => nav(isLab ? "/app/lab-collection/assigned" : "/app/radiology-appointments"),
-  });
-  const createPatient = useMutation({
-    mutationFn: (payload: object) => api.post("/crm/patients", payload).then(unwrap),
-    onSuccess: (created: Patient) => { setPatient(created); setPatientSearch(`${created.name} · ${created.mobile || created.patientNumber || ""}`); setShowNewPatient(false); qc.invalidateQueries({ queryKey: ["booking-patients"] }); },
-  });
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!patient || !selected.length || (isLab && !specimens.length)) return;
-    const form = Object.fromEntries(new FormData(event.currentTarget));
-    const common = { ...form, patientId: patient.id, testIds: selected.map((test) => test.id), testNames: selected.map((test) => test.title).join(", "), tests: selected.map((test) => ({ id: test.id, title: test.title, price: Number(test.data?.price || 0) })), subtotal, discountAmount: Number(discount || 0), amount: total, currency: "INR" };
-    save.mutate(isLab ? { patientId: patient.id, appointmentAt: form.appointmentAt, ...(onSpot ? {} : { technicianId: form.technicianId }), testNames: common.testNames, instructions: form.instructions, priority: form.priority, paymentStatus: form.paymentStatus, subtotal, discountAmount: Number(discount || 0), amount: total, specimens: specimens.map((item, index) => ({ ...item, tests: [selected[index].title] })) } : { ...common, title: editing ? order.title : `RADIOLOGY-${Date.now().toString(36).toUpperCase()}` });
-  };
-  const selectTube = (index: number, title: string) => {
-    const tube = tubeOptions.find((item) => item.title === title);
-    setSpecimens((rows) => {
-      const next = Array.from({ length: selected.length }, (_, position) => rows[position] || { tubeType: "", sampleType: "" });
-      next[index] = { tubeType: title, sampleType: tube?.data?.sampleType || "" };
-      return next;
-    });
-  };
-  const addTest = (test: Test) => {
-    setSelected((items) => [...items, test]);
-    if (isLab) setSpecimens((items) => [...items, { tubeType: "", sampleType: "" }]);
-    setTestSearch("");
-    setTestOpen(false);
-  };
-  const removeTest = (testId: string) => {
-    const index = selected.findIndex((item) => item.id === testId);
-    setSelected((items) => items.filter((item) => item.id !== testId));
-    if (isLab && index >= 0) setSpecimens((items) => items.filter((_, position) => position !== index));
-  };
-  useEffect(() => {
-    if (!order || !patients.length || patient) return;
-    const foundPatient = patients.find((item) => item.id === orderValues.patientId) || null;
-    setPatient(foundPatient);
-    if (foundPatient) setPatientSearch(`${foundPatient.name} · ${foundPatient.mobile || foundPatient.patientNumber || ""}`);
-    const savedTests = Array.isArray(orderValues.tests) ? orderValues.tests.map((test: any) => ({ id: test.id, title: test.title, data: { price: test.price } })) : [];
-    setSelected(savedTests);
-    setDiscount(Number(orderValues.discountAmount || 0));
-    if (isLab) setSpecimens(savedTests.map((_: Test, index: number) => {
-      const item = Array.isArray(orderValues.specimens) ? orderValues.specimens[index] : undefined;
-      return item ? { tubeType: item.tubeType || "", sampleType: item.sampleType || "" } : { tubeType: "", sampleType: "" };
-    }));
-  }, [order, patients, patient, orderValues, isLab]);
-  const localDate = (value?: string) => value ? new Date(value).toISOString().slice(0, 16) : "";
-  if (editing && orderLoading) return <div className="state">Loading order…</div>;
-  if (editing && !order) return <div className="state error">Order not found.</div>;
-  if (onSpot && !isLabTechnician) return <div className="state error">On-the-spot orders are available only to lab technician accounts.</div>;
-
-  return <div className="diagnostic-booking">
-    <button className="schedule-back" onClick={() => nav(`/app/${kind}-appointments`)}><ArrowLeft /> Back to {label} Appointments</button>
-    <div className="schedule-title"><div><span>{onSpot ? "TECHNICIAN COLLECTION" : "CLINIC MANAGEMENT"}</span><h1>{onSpot ? "On-the-Spot Lab Order" : `${editing ? "Edit" : "Create"} ${label} Order`}</h1><p>{onSpot ? "Register or select the customer, choose tests and prepare labelled tubes at the collection location." : isLab ? "Create the order, define every specimen tube and assign a technician." : "Create and schedule a patient radiology procedure."}</p></div>{isLab ? <FlaskConical /> : <ScanLine />}</div>
-    <form onSubmit={submit} className="diagnostic-booking-grid">
-      <section className="panel diagnostic-form">
-        <h2>Patient and appointment</h2>
-        <label>Patient *</label>
-        <div className="patient-search"><div className="smart-select-input"><Search /><input value={patientSearch} placeholder="Search patient name, mobile or ID" onFocus={() => setPatientOpen(true)} onBlur={() => setTimeout(() => setPatientOpen(false), 150)} onChange={(event) => { setPatientSearch(event.target.value); setPatient(null); setPatientOpen(true); }} /></div>{patientOpen && <div className="patient-results">{patientMatches.map((item) => <button type="button" key={item.id} onMouseDown={() => { setPatient(item); setPatientSearch(`${item.name} · ${item.mobile || item.patientNumber}`); setPatientOpen(false); }}><strong>{item.name}</strong><span>{item.mobile}</span><small>{item.patientNumber}</small></button>)}</div>}{patient && <small className="patient-selected">Patient selected</small>}</div>
-        {onSpot && <div className="onspot-patient"><button type="button" className="btn ghost" onClick={() => setShowNewPatient((value) => !value)}><Plus /> Register new customer</button>{showNewPatient && <div className="diagnostic-fields"><label>Customer name *<input id="onspot-name" /></label><label>Mobile number *<input id="onspot-mobile" inputMode="tel" /></label><label>Gender<select id="onspot-gender"><option>OTHER</option><option>MALE</option><option>FEMALE</option></select></label><button type="button" className="btn" disabled={createPatient.isPending} onClick={() => { const name = (document.getElementById("onspot-name") as HTMLInputElement)?.value.trim(), mobile = (document.getElementById("onspot-mobile") as HTMLInputElement)?.value.trim(), gender = (document.getElementById("onspot-gender") as HTMLSelectElement)?.value; if (name && mobile) createPatient.mutate({ name, mobile, gender, status: "ACTIVE" }); }}>{createPatient.isPending ? "Registering…" : "Save customer"}</button></div>}</div>}
-        <div className="diagnostic-fields">
-          <label>Appointment date and time *<input name="appointmentAt" type="datetime-local" required defaultValue={localDate(orderValues.appointmentAt)} /></label>
-          {isLab && !onSpot && <label>Assigned technician *<select name="technicianId" required defaultValue={orderValues.assignedTechnicianId || ""}><option value="" disabled>Select lab technician</option>{technicians.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-          <label>Priority<select name="priority" defaultValue={orderValues.priority || "ROUTINE"}><option>ROUTINE</option><option>URGENT</option><option>{isLab ? "STAT" : "EMERGENCY"}</option></select></label>
-          <label>Payment status<select name="paymentStatus" defaultValue={orderValues.paymentStatus || "PENDING"}><option>PENDING</option><option>PAID</option><option>PARTIALLY_PAID</option></select></label>
-          <label className="wide">Instructions<textarea name="instructions" defaultValue={orderValues.instructions || ""} placeholder="Fasting, preparation or collection instructions" /></label>
-        </div>
-        {isLab && <div className="specimen-builder"><div className="specimen-head"><div><h2>Test-wise specimen tubes</h2><p>Every selected test requires its own tube choice. Remove or add tests from the Pathology tests panel.</p></div><span className="tube-count">{selected.length} tests · {specimens.filter((item) => item.tubeType).length} selected</span></div>{tubeLoadError && <div className="alert error">Unable to load Specimen Tube Master. Refresh the page or check the master data.</div>}{selected.map((test, index) => { const item = specimens[index] || { tubeType: "", sampleType: "" }; return <div className="specimen-row test-wise" key={test.id}><div className="tube-test"><small>Test {index + 1}</small><b>{test.title}</b></div><label>Tube/container type *<select required value={item.tubeType} onChange={(event) => selectTube(index, event.target.value)}><option value="" disabled>{tubeOptions.length ? "Select tube for this test" : "No active tubes in master"}</option>{tubeOptions.map((tube) => <option key={tube.id} value={tube.title}>{tube.title}{tube.data?.capColor ? ` · ${tube.data.capColor}` : ""}{tube.data?.volume ? ` · ${tube.data.volume}` : ""}</option>)}</select></label><label>Sample type<input readOnly value={item.sampleType} placeholder="Filled automatically" /></label></div>; })}{!selected.length && <div className="tube-empty">Select pathology tests to choose their specimen tubes.</div>}</div>}
-      </section>
-      <aside className="panel test-cart">
-        <h2>{isLab ? "Pathology" : "Radiology"} tests</h2>
-        <div className="patient-search"><div className="smart-select-input"><Search /><input value={testSearch} placeholder="Search and add tests" onFocus={() => setTestOpen(true)} onBlur={() => setTimeout(() => setTestOpen(false), 150)} onChange={(event) => { setTestSearch(event.target.value); setTestOpen(true); }} /></div>{testOpen && <div className="patient-results">{testMatches.map((test) => <button type="button" key={test.id} onMouseDown={() => addTest(test)}><strong>{test.title}</strong><span>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</span><small>{test.data?.code}</small></button>)}</div>}</div>
-        <div className="selected-tests">{selected.map((test) => <article key={test.id}><div><b>{test.title}</b><small>{isLab ? "Tube selection required" : test.data?.code}</small></div><strong>₹{Number(test.data?.price || 0).toLocaleString("en-IN")}</strong><button type="button" onClick={() => removeTest(test.id)}><Trash2 /></button></article>)}{!selected.length && <p>Search and add one or more tests.</p>}</div>
-        <div className="booking-totals"><p><span>Subtotal</span><b>₹{subtotal.toLocaleString("en-IN")}</b></p><label>Discount amount<input type="number" min="0" max={subtotal} value={discount} onChange={(event) => setDiscount(Number(event.target.value))} /></label><p className="grand-total"><span>Total payable</span><b>₹{total.toLocaleString("en-IN")}</b></p></div>
-        {save.error && <div className="alert error">{(save.error as any)?.response?.data?.message || "Unable to create order."}</div>}
-        <button className="btn full" disabled={!patient || !selected.length || (isLab && (specimens.length !== selected.length || specimens.some((item) => !item.tubeType || !item.sampleType) || (!onSpot && !technicians.length))) || save.isPending}><Plus />{save.isPending ? "Saving…" : onSpot ? "Create and prepare labels" : `${editing ? "Save" : "Create"} ${label} Order`}</button>
-      </aside>
-    </form>
-  </div>;
+export function DiagnosticAppointmentBookingPage({ kind, onSpot=false }: { kind: Kind; onSpot?: boolean }) {
+ const nav=useNavigate(), qc=useQueryClient(), lab=kind==="lab", label=lab?"Lab":"Radiology", user=JSON.parse(localStorage.getItem("user")||"{}");
+ const now=new Date(), today=key(now); const [month,setMonth]=useState(new Date(now.getFullYear(),now.getMonth(),1)), [step,setStep]=useState(onSpot?3:1), [date,setDate]=useState(onSpot?today:""), [branch,setBranch]=useState<Option|null>(null);
+ const [patientMode,setPatientMode]=useState<"EXISTING"|"NEW">("EXISTING"), [search,setSearch]=useState(""), [patient,setPatient]=useState<Patient|null>(null);
+ const [testSearch,setTestSearch]=useState(""), [selected,setSelected]=useState<Test[]>([]), [specimens,setSpecimens]=useState<Specimen[]>([]);
+ const [time,setTime]=useState("09:00"), [technicianId,setTechnicianId]=useState(""), [priority,setPriority]=useState("ROUTINE"), [instructions,setInstructions]=useState(""), [doctorId,setDoctorId]=useState(""), [whatsapp,setWhatsapp]=useState(true);
+ const [discount,setDiscount]=useState(0), [paymentStatus,setPaymentStatus]=useState("PENDING"), [paymentMethod,setPaymentMethod]=useState(""), [reference,setReference]=useState("");
+ const {data:branchData}=useQuery({queryKey:["diagnostic-branches"],queryFn:()=>api.get("/crm/branches?limit=100").then(unwrap),enabled:!onSpot});
+ const {data:patientData={items:[]},isFetching}=useQuery({queryKey:["diagnostic-patients",search],queryFn:()=>api.get("/crm/appointment-patients",{params:{search}}).then(unwrap),enabled:step===3&&patientMode==="EXISTING"&&!!search.trim()});
+ const {data:testData}=useQuery({queryKey:[`${kind}-booking-tests`],queryFn:()=>api.get(`/crm/modules/${kind}-tests?limit=100`).then(unwrap)});
+ const {data:doctorData}=useQuery({queryKey:["diagnostic-doctors"],queryFn:()=>api.get("/crm/doctors?limit=100").then(unwrap),enabled:step>=4});
+ const {data:staffData}=useQuery({queryKey:["diagnostic-technicians",kind],queryFn:()=>lab?api.get("/crm/lab-technicians").then(unwrap):api.get("/crm/staff-accounts").then(unwrap),enabled:step>=4});
+ const {data:tubeData}=useQuery({queryKey:["specimen-tubes"],queryFn:()=>api.get("/crm/modules/specimen-tubes").then(unwrap),enabled:lab&&step>=4});
+ const branches:Option[]=(branchData?.items||[]).filter((x:Option)=>x.status!=="INACTIVE"), tests:Test[]=testData?.items||[], doctors:Option[]=doctorData?.items||[], tubes:Tube[]=(tubeData?.items||[]).filter((x:Tube)=>x.status==="ACTIVE");
+ const rawTech:Option[]=lab?(staffData||[]):(staffData?.items||[]).filter((x:Option)=>x.status==="ACTIVE"&&/TECHNICIAN/i.test(x.role||""));
+ const technicians=[...rawTech].sort((a,b)=>a.id===user.id?-1:b.id===user.id?1:a.name.localeCompare(b.name));
+ const matches=tests.filter(x=>!selected.some(y=>y.id===x.id)&&`${x.title} ${x.data?.code||""}`.toLowerCase().includes(testSearch.toLowerCase())).slice(0,12);
+ const subtotal=useMemo(()=>selected.reduce((n,x)=>n+Number(x.data?.price||0),0),[selected]), total=Math.max(0,subtotal-discount);
+ const cells=useMemo(()=>{const f=new Date(month.getFullYear(),month.getMonth(),1),s=new Date(f);s.setDate(1-f.getDay());return Array.from({length:42},(_,i)=>{const d=new Date(s);d.setDate(s.getDate()+i);return d})},[month]);
+ const createPatient=useMutation({mutationFn:(body:object)=>api.post("/crm/patients",body).then(unwrap),onSuccess:(p:Patient)=>{setPatient(p);setStep(4);qc.invalidateQueries({queryKey:["diagnostic-patients"]})}});
+ const save=useMutation<any,any,void>({mutationFn:()=>{const tech=technicians.find(x=>x.id===technicianId),doctor=doctors.find(x=>x.id===doctorId), common={patientId:patient!.id,branchId:branch?.id,branchName:branch?.name||"Clinic",appointmentAt:new Date(`${date}T${time}:00+05:30`).toISOString(),testIds:selected.map(x=>x.id),testNames:selected.map(x=>x.title).join(", "),tests:selected.map(x=>({id:x.id,title:x.title,price:Number(x.data?.price||0)})),technicianId,assignedTechnicianId:technicianId,assignedTechnicianName:tech?.name,referringDoctorId:doctorId||undefined,referringDoctorName:doctor?.name,instructions,priority,sendWhatsApp:whatsapp,paymentStatus,paymentMethod:paymentStatus==="PAID"?paymentMethod:undefined,paymentReference:paymentStatus==="PAID"?reference:undefined,subtotal,discountAmount:discount,amount:total,currency:"INR"};return lab?api.post("/crm/lab-collections/orders",{...common,specimens:specimens.map((x,i)=>({...x,tests:[selected[i].title]}))}):api.post("/crm/modules/radiology-appointments",{...common,title:`RADIOLOGY-${Date.now().toString(36).toUpperCase()}`,status:"CONFIRMED"})},onSuccess:()=>{window.alert(`${label} appointment booked successfully`);nav(`/app/${kind}-appointments`)}});
+ const add=(x:Test)=>{setSelected(v=>[...v,x]);if(lab)setSpecimens(v=>[...v,{tubeType:"",sampleType:""}]);setTestSearch("")}, remove=(id:string)=>{const i=selected.findIndex(x=>x.id===id);setSelected(v=>v.filter(x=>x.id!==id));if(lab)setSpecimens(v=>v.filter((_,j)=>i!==j))};
+ const ready=!!selected.length&&!!technicianId&&(!lab||specimens.every(x=>x.tubeType&&x.sampleType));
+ const submit=(e:FormEvent)=>{e.preventDefault();if(discount>subtotal)return window.alert("Discount cannot be greater than subtotal");if(paymentStatus==="PAID"&&!paymentMethod)return window.alert("Select a payment method");if(paymentStatus==="PAID"&&paymentMethod!=="CASH"&&!reference.trim())return window.alert("Enter the payment reference");save.mutate()};
+ const names=["Date","Branch","Patient","Confirm","Payment"];
+ return <div className="booking-wizard diagnostic-wizard"><button className="schedule-back" onClick={()=>nav(`/app/${kind}-appointments`)}><ArrowLeft/> Back to {label} appointments</button><div className="booking-head"><div><span>NEW APPOINTMENT</span><h1>Book {label.toLowerCase()} appointment</h1><p>Choose the visit details, tests and payment in five simple steps.</p></div>{lab?<FlaskConical/>:<ScanLine/>}</div><nav className="wizard-progress diagnostic-progress">{names.map((x,i)=><div key={x} className={step>i+1?"done":step===i+1?"active":""}><i>{step>i+1?<Check/>:i+1}</i><span>{x}</span></div>)}</nav><section className="panel wizard-card" key={step}>
+ {step===1&&<><Title n={1} title="Choose appointment date" text="Select the date when the patient will visit."/><div className="wizard-calendar"><header><button onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1,1))}><ArrowLeft/></button><b>{month.toLocaleDateString("en-IN",{month:"long",year:"numeric"})}</b><button onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1,1))}><ArrowRight/></button></header><div className="weekdays">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(x=><span key={x}>{x}</span>)}</div><div className="days">{cells.map(d=><button key={key(d)} disabled={key(d)<today} className={`${d.getMonth()!==month.getMonth()?"outside":""} ${key(d)===date?"selected":""}`} onClick={()=>{setDate(key(d));setStep(2)}}>{d.getDate()}</button>)}</div></div></>}
+ {step===2&&<><Back fn={()=>setStep(1)}/><Title n={2} title="Select branch" text="Choose the clinic branch for this appointment."/><div className="choice-grid">{branches.map(x=><button className="choice-card" key={x.id} onClick={()=>{setBranch(x);setStep(3)}}><div><b>{x.name}</b><span>{[x.city,x.address].filter(Boolean).join(" · ")}</span></div><ArrowRight/></button>)}</div>{!branches.length&&<Empty text="No active branches found."/>}</>}
+ {step===3&&<><Back fn={()=>setStep(2)}/><Title n={3} title="Select patient" text="Search an existing patient or register a new patient."/><div className="patient-tabs"><button className={patientMode==="EXISTING"?"active":""} onClick={()=>setPatientMode("EXISTING")}><Search/> Existing patient</button><button className={patientMode==="NEW"?"active":""} onClick={()=>setPatientMode("NEW")}><Plus/> New patient</button></div>{patientMode==="EXISTING"?<><label className="wizard-patient-search"><Search/><input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by patient ID, mobile, name or email"/></label><div className="wizard-patient-results">{isFetching?<Empty text="Searching…"/>:(patientData.items||[]).map((x:Patient)=><button key={x.id} onClick={()=>{setPatient(x);setStep(4)}}><i><UserRound/></i><div><b>{x.name}</b><span>{x.patientNumber} · {x.mobile}</span></div><ArrowRight/></button>)}</div></>:<NewPatient pending={createPatient.isPending} save={x=>createPatient.mutate(x)}/>}</>}
+ {step===4&&<><Back fn={()=>setStep(3)}/><Title n={4} title="Confirm appointment" text="Select multiple tests and complete the appointment instructions."/><div className="diagnostic-confirm-grid"><div><div className="appointment-summary"><Summary label="Date" value={new Date(`${date}T00:00:00`).toLocaleDateString("en-IN",{dateStyle:"long"})}/><Summary label="Branch" value={branch?.name||"On-the-spot"}/><Summary label="Patient" value={patient?.name||""}/><Summary label="Patient ID" value={patient?.patientNumber||"New patient"}/></div><div className="final-fields diagnostic-details"><label>Appointment time *<input type="time" value={time} onChange={e=>setTime(e.target.value)}/></label><label>Priority<select value={priority} onChange={e=>setPriority(e.target.value)}><option value="ROUTINE">Routine</option><option value="URGENT">Urgent</option><option value={lab?"STAT":"EMERGENCY"}>{lab?"STAT":"Emergency"}</option></select></label><label>Assigned technician *<select value={technicianId} onChange={e=>setTechnicianId(e.target.value)}><option value="">Select technician</option>{technicians.map(x=><option key={x.id} value={x.id}>{x.id===user.id?`Self (${x.name})`:x.name}</option>)}</select></label><label>Referred by doctor<select value={doctorId} onChange={e=>setDoctorId(e.target.value)}><option value="">No referring doctor</option>{doctors.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label><label className="wide">Instructions<textarea value={instructions} onChange={e=>setInstructions(e.target.value)} placeholder="Fasting, preparation or collection instructions"/></label><label className="whatsapp-opt-in"><input type="checkbox" checked={whatsapp} onChange={e=>setWhatsapp(e.target.checked)}/> Send appointment confirmation to the patient on WhatsApp</label></div></div><aside className="test-picker"><h3>{lab?"Pathology":"Radiology"} tests</h3><div className="patient-search"><div className="smart-select-input"><Search/><input value={testSearch} onChange={e=>setTestSearch(e.target.value)} placeholder="Search and add multiple tests"/></div>{testSearch&&<div className="patient-results">{matches.map(x=><button type="button" key={x.id} onMouseDown={()=>add(x)}><strong>{x.title}</strong><span>{money(Number(x.data?.price||0))}</span></button>)}</div>}</div><div className="selected-tests">{selected.map((x,i)=><article key={x.id}><div><b>{x.title}</b>{lab&&<select value={specimens[i]?.tubeType||""} onChange={e=>{const t=tubes.find(x=>x.title===e.target.value);setSpecimens(v=>v.map((r,j)=>j===i?{tubeType:e.target.value,sampleType:t?.data?.sampleType||""}:r))}}><option value="">Select specimen tube *</option>{tubes.map(t=><option key={t.id}>{t.title}</option>)}</select>}</div><strong>{money(Number(x.data?.price||0))}</strong><button type="button" onClick={()=>remove(x.id)}><Trash2/></button></article>)}</div><div className="booking-totals"><p><span>Selected tests</span><b>{selected.length}</b></p><p className="grand-total"><span>Grand total</span><b>{money(subtotal)}</b></p></div></aside></div><div className="wizard-actions"><button className="btn" disabled={!ready} onClick={()=>setStep(5)}>Continue to payment <ArrowRight/></button></div></>}
+ {step===5&&<form onSubmit={submit}><Back fn={()=>setStep(4)}/><Title n={5} title="Final payment" text="Apply the discount and record how the patient will pay."/><div className="payment-final-card"><div className="booking-totals"><p><span>Tests ({selected.length})</span><b>{money(subtotal)}</b></p><label>Discount amount<input type="number" min="0" max={subtotal} value={discount} onChange={e=>setDiscount(Number(e.target.value))}/></label><p className="grand-total"><span>Grand total</span><b>{money(total)}</b></p></div><div className="final-fields"><label>Payment status<select value={paymentStatus} onChange={e=>setPaymentStatus(e.target.value)}><option value="PENDING">Pending</option><option value="PARTIALLY_PAID">Partially paid</option><option value="PAID">Paid</option></select></label>{paymentStatus==="PAID"&&<><label>Payment method<select value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value)}><option value="">Select method</option><option value="CASH">Cash</option><option value="UPI">UPI</option><option value="CARD">Card</option><option value="BANK_TRANSFER">Bank transfer</option></select></label><label>Reference / transaction number<input value={reference} onChange={e=>setReference(e.target.value)} placeholder={paymentMethod==="CASH"?"Optional for cash":"Required"}/></label></>}</div>{save.error&&<div className="alert error">{(save.error as any)?.response?.data?.message||"Unable to book appointment"}</div>}<div className="wizard-actions"><button className="btn" disabled={save.isPending}><CalendarCheck/>{save.isPending?"Booking…":`Confirm ${label} appointment`}</button></div></div></form>}
+ </section></div>;
 }
+function Title({n,title,text}:{n:number;title:string;text:string}){return <div className="wizard-title"><small>STEP {n}</small><h2>{title}</h2><p>{text}</p></div>}
+function Back({fn}:{fn:()=>void}){return <button type="button" className="wizard-back" onClick={fn}><ArrowLeft/> Back</button>}
+function Empty({text}:{text:string}){return <div className="wizard-state">{text}</div>}
+function Summary({label,value}:{label:string;value:string}){return <div><span>{label}</span><b>{value}</b></div>}
+function NewPatient({pending,save}:{pending:boolean;save:(x:object)=>void}){const submit=(e:FormEvent<HTMLFormElement>)=>{e.preventDefault();save(Object.fromEntries(new FormData(e.currentTarget)))};return <form className="new-patient-grid inline-new-patient" onSubmit={submit}><label>Patient name *<input name="name" required/></label><label>Mobile number *<input name="mobile" required inputMode="tel"/></label><label>Email<input name="email" type="email"/></label><label>Gender<select name="gender"><option value="OTHER">Other</option><option value="MALE">Male</option><option value="FEMALE">Female</option></select></label><button className="btn" disabled={pending}>{pending?"Registering…":"Register and continue"}</button></form>}

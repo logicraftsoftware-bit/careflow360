@@ -321,7 +321,8 @@ async function notifyDiagnostic(
   const data = row.data as any;
   if (
     !["lab-appointments", "radiology-appointments"].includes(row.module) ||
-    !data?.patientId
+    !data?.patientId ||
+    (data.sendWhatsApp === false && !strict)
   )
     return;
   if (
@@ -347,9 +348,9 @@ async function notifyDiagnostic(
     patientNumber: patient.patientNumber,
     clinicName: clinic.name,
     clinicPhone: clinic.mobile,
-    doctorName: row.module === "lab-appointments" ? "Laboratory" : "Radiology",
+    doctorName: data.referringDoctorName || (row.module === "lab-appointments" ? "Laboratory" : "Radiology"),
     departmentName: data.testNames || "Diagnostic test",
-    branchName: "Clinic",
+    branchName: data.branchName || "Clinic",
     startsAt: new Date(data.appointmentAt || row.createdAt),
     amount: Number(data.amount || 0),
     token: row.title,
@@ -841,6 +842,8 @@ crmRouter.post(
       body = z
         .object({
           patientId: z.string(),
+          branchId: z.string().optional(),
+          branchName: z.string().optional(),
           appointmentAt: z.coerce.date(),
           testNames: z.string().trim().min(2),
           instructions: z.string().trim().max(500).optional(),
@@ -850,6 +853,13 @@ crmRouter.post(
           discountAmount: z.coerce.number().min(0).default(0),
           amount: z.coerce.number().min(0).default(0),
           technicianId: z.string().optional(),
+          tests: z.array(z.object({ id: z.string(), title: z.string(), price: z.coerce.number() })).optional(),
+          testIds: z.array(z.string()).optional(),
+          referringDoctorId: z.string().optional(),
+          referringDoctorName: z.string().optional(),
+          sendWhatsApp: z.boolean().default(true),
+          paymentMethod: z.string().optional(),
+          paymentReference: z.string().optional(),
           specimens: z
             .array(
               z.object({
@@ -920,7 +930,14 @@ crmRouter.post(
           status: "ASSIGNED",
           data: {
             patientId: patient.id,
+            branchId: body.branchId,
+            branchName: body.branchName,
             testNames: body.testNames,
+            tests: body.tests,
+            testIds: body.testIds,
+            referringDoctorId: body.referringDoctorId,
+            referringDoctorName: body.referringDoctorName,
+            sendWhatsApp: body.sendWhatsApp,
             appointmentAt: body.appointmentAt.toISOString(),
             instructions: body.instructions || "",
             priority: body.priority,
@@ -928,6 +945,8 @@ crmRouter.post(
             subtotal: body.subtotal ?? body.amount,
             discountAmount: body.discountAmount,
             amount: body.amount,
+            paymentMethod: body.paymentMethod,
+            paymentReference: body.paymentReference,
             assignedTechnicianId: technician.id,
             assignedTechnicianName: technician.name,
             assignedAt: now,
@@ -941,6 +960,7 @@ crmRouter.post(
     await audit(req, "lab.order.technician_created", "ModuleRecord", row.id, {
       specimenCount: specimens.length,
     });
+    await notifyDiagnostic(req, row);
     return ok(res, row, "Lab order created and assigned", 201);
   })
 );
