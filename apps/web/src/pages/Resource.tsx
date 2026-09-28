@@ -8,6 +8,7 @@ import {
 import { api, unwrap } from "../api";
 import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
 import { AppointmentFields } from "./AppointmentFields";
+import { DoctorCommissionFields } from "./DoctorCommissionFields";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -552,6 +553,8 @@ const configs: Record<string, Config> = {
       f("email", "Email", "email"),
       f("experience", "Experience", "number"),
       f("consultationFee", "Consultation fee", "number"),
+      f("commissionType", "Commission type", "select", true, ["FLAT", "PERCENTAGE"]),
+      f("commissionValue", "Commission amount / percentage", "number", true),
       stat,
     ],
     columns: [
@@ -2002,7 +2005,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
               <AppointmentFields appointment={edit} />
             ) : (
               <div className="modal-grid">
-                {c.fields.map((x) => (
+                {c.fields.filter((x) => slug !== "doctors" || !["commissionType", "commissionValue"].includes(x.name)).map((x) => (
                   <label
                     key={x.name}
                     className={x.type === "textarea" ? "wide" : ""}
@@ -2090,6 +2093,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     )}
                   </label>
                 ))}
+                {slug === "doctors" && <DoctorCommissionFields key={edit?.id || "new"} doctor={edit}/>}
               </div>
             )}
             {save.error && (

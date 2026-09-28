@@ -2,6 +2,7 @@ import { Router } from "express";
 import { randomInt, randomUUID } from "node:crypto";
 import argon2 from "argon2";
 import { z } from "zod";
+import { validateDoctorCommission } from "../doctor-commission.js";
 import bwipjs from "bwip-js";
 import {
   asyncRoute,
@@ -115,6 +116,8 @@ const allowedFields: Record<string, string[]> = {
     "email",
     "experience",
     "consultationFee",
+    "commissionType",
+    "commissionValue",
     "status",
   ],
   doctorSchedules: [
@@ -2456,6 +2459,7 @@ crmRouter.post(
       ...prepared(req.params.resource, req.body, req.user!.id, true),
       tenantId: tid,
     };
+    if (req.params.resource === "doctors") Object.assign(data, validateDoctorCommission(data));
     if (req.params.resource === "departments") {
       const branchIds: string[] = Array.isArray(data.branchIds)
         ? [...new Set<string>(data.branchIds.filter(Boolean) as string[])]
@@ -2549,6 +2553,7 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
+    if (req.params.resource === "doctors") Object.assign(data, validateDoctorCommission(data, found));
     if (req.params.resource === "departments" && data.branchIds) {
       const branchIds: string[] = Array.isArray(data.branchIds)
         ? [...new Set<string>(data.branchIds.filter(Boolean) as string[])]

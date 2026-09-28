@@ -437,6 +437,11 @@ model Department {
   @@index([tenantId, branchId])
 }
 
+enum CommissionType {
+  FLAT
+  PERCENTAGE
+}
+
 model Doctor {
   id                 String           @id @default(auto()) @map("_id") @db.ObjectId
   tenantId           String           @db.ObjectId
@@ -451,6 +456,8 @@ model Doctor {
   email              String?
   experience         Int?
   consultationFee    Float            @default(0)
+  commissionType     CommissionType   @default(FLAT)
+  commissionValue    Float            @default(0)
   status             RecordStatus     @default(ACTIVE)
   branches           DoctorBranch[]
   schedules          DoctorSchedule[]
