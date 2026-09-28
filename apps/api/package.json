@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "schedules:bulk-2026": "tsx scripts/bulk-doctor-schedules.ts",
-    "catalogs:clear-2026-09-25": "tsx scripts/clear-test-catalogs.ts"
+    "catalogs:clear-2026-09-25": "tsx scripts/clear-test-catalogs.ts",
+    "catalogs:import-test-list": "tsx scripts/import-test-list.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

@@ -133,4 +133,13 @@ jobs:
             echo "Clearing the original Medicity Guwahati lab and radiology test catalogs..."
             TEST_CATALOG_BACKUP_DIR=/var/www/careflow360/.maintenance npm run catalogs:clear-2026-09-25 -w @careflow360/api
 
+            TEST_IMPORT_MARKER=/var/www/careflow360/.maintenance/test-list-19a8b1dc-imported
+            if [ ! -f "$TEST_IMPORT_MARKER" ]; then
+              echo "Importing and verifying all 3,403 Medicity Guwahati tests by department..."
+              npm run catalogs:import-test-list -w @careflow360/api -- --apply
+              touch "$TEST_IMPORT_MARKER"
+            else
+              echo "The full test list was already imported and verified; skipping."
+            fi
+
             echo "Deployment completed successfully"
