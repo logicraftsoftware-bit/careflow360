@@ -1993,6 +1993,11 @@ crmRouter.get(
               },
             }
           : {}),
+        ...(req.params.resource === "appointments" ? { include: {
+          patient: { select: { id: true, name: true, mobile: true } },
+          doctor: { select: { id: true, name: true } },
+          department: { select: { id: true, name: true } },
+        } } : {}),
       }),
       model.count({ where }),
     ]);

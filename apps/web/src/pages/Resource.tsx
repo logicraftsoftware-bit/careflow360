@@ -9,6 +9,8 @@ import { api, unwrap } from "../api";
 import { DoctorScheduleEditor } from "./DoctorScheduleEditor";
 import { AppointmentFields } from "./AppointmentFields";
 import { DoctorCommissionFields } from "./DoctorCommissionFields";
+import { AppointmentOverview } from "./AppointmentOverview";
+import { appointmentRange, bookingGroup, paymentGroup } from "./appointmentAnalytics";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -981,7 +983,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     ],
     columns: ["title", "description", "status", "updatedAt"],
   };
-  const tableColumns =
+  const tableColumns = slug === "appointments" ? ["appointmentNumber", "patientId", "doctorId", "startsAt", "status", "paymentStatus", "createdBy", "createdAt"] :
     mode === "tenant" && slug !== "audit-logs"
       ? [
           ...c.columns,
@@ -1011,10 +1013,18 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [branchFilter, setBranchFilter] = useState("ALL"),
     [planFilter, setPlanFilter] = useState("ALL"),
     [appointmentPeriod, setAppointmentPeriod] = useState("ALL"),
-    [appointmentDateFrom, setAppointmentDateFrom] = useState(""),
-    [appointmentDateTo, setAppointmentDateTo] = useState(""),
+    [appointmentDateFrom, setAppointmentDateFrom] = useState(() => slug === "appointments" ? appointmentRange("This Month")[0] : ""),
+    [appointmentDateTo, setAppointmentDateTo] = useState(() => slug === "appointments" ? appointmentRange("This Month")[1] : ""),
     [paymentFilter, setPaymentFilter] = useState("ALL"),
     [page, setPage] = useState(1);
+  useEffect(() => {
+    if (slug === "appointments") {
+      const [from, to] = appointmentRange("This Month");
+      setAppointmentDateFrom(from); setAppointmentDateTo(to); setAppointmentPeriod("ALL");
+      setFilter("ALL"); setDoctorFilter("ALL"); setPaymentFilter("ALL"); setSearch(""); setPage(1);
+    }
+  }, [slug]);
+  useEffect(() => { if (slug === "appointments") setPage(1); }, [slug, search, filter, doctorFilter, paymentFilter]);
   const base =
       mode === "admin"
         ? slug === "registrations" || slug === "tenants"
@@ -1105,6 +1115,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     patientRows.find((patient: any) => patient.id === row.patientId)?.mobile ||
     "";
   const display = (record: any, key: string) => {
+    if (slug === "appointments") {
+      const relation = ({ patientId: "patient", doctorId: "doctor", departmentId: "department" } as Record<string, string>)[key];
+      if (relation && record[relation]?.name) return record[relation].name;
+      if (key === "status") return bookingGroup(record.status);
+      if (key === "paymentStatus") return paymentGroup(record.paymentStatus);
+    }
     if (slug === "doctors" && key === "commissionType")
       return record.commissionType === "PERCENTAGE" ? "Percentage" : "Flat";
     if (slug === "doctors" && key === "commissionValue") {
@@ -1587,8 +1603,8 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
   if (slug === "calendar")
     return <ClinicAppointmentCalendar/>;
   return (
-    <>
-      <div className="page-head">
+    <div className={slug === "appointments" ? "doctor-appointments-page" : undefined}>
+      {slug === "appointments" ? <AppointmentOverview rows={all} from={appointmentDateFrom} to={appointmentDateTo} onRange={(from, to) => { setAppointmentDateFrom(from); setAppointmentDateTo(to); setAppointmentPeriod("ALL"); setPage(1); }} onAdd={() => navigate("/app/appointments/new")} loading={isLoading} failed={!!error} nameFor={display}/> : <div className="page-head">
         <div>
           <span>
             {mode === "admin" ? "PLATFORM MANAGEMENT" : "CLINIC MANAGEMENT"}
@@ -1619,7 +1635,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             </button>
           </div>
         )}
-      </div>
+      </div>}
       <section className="panel table-panel">
         <div className={`toolbar ${slug === "appointments" ? "appointment-toolbar" : ""}`}>
           <div className="search">
@@ -1627,7 +1643,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={`Search ${c.title.toLowerCase()}…`}
+              placeholder={slug === "appointments" ? "Search by patient name, mobile number…" : `Search ${c.title.toLowerCase()}…`}
             />
           </div>
           <div className="filter-select">
@@ -1639,7 +1655,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                   : "All statuses"}
               </option>
               {statuses.map((s) => (
-                <option key={s}>{s}</option>
+                <option key={s} value={s}>{slug === "appointments" ? s.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase()) : s}</option>
               ))}
             </select>
           </div>
@@ -1751,29 +1767,6 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           {slug === "appointments" && (
             <div className="filter-select">
               <select
-                value={appointmentPeriod}
-                onChange={(event) => {
-                  setAppointmentPeriod(event.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="ALL">All appointment dates</option>
-                <option value="PAST">Previous appointments</option>
-                <option value="TODAY">Today’s appointments</option>
-                <option value="UPCOMING">Upcoming appointments</option>
-              </select>
-            </div>
-          )}
-          {slug === "appointments" && (
-            <div className="appointment-date-range">
-              <label><span>From</span><input type="date" value={appointmentDateFrom} max={appointmentDateTo || undefined} onChange={(event) => { setAppointmentDateFrom(event.target.value); setPage(1); }} /></label>
-              <label><span>To</span><input type="date" value={appointmentDateTo} min={appointmentDateFrom || undefined} onChange={(event) => { setAppointmentDateTo(event.target.value); setPage(1); }} /></label>
-              {(appointmentDateFrom || appointmentDateTo) && <button type="button" aria-label="Clear appointment date range" onClick={() => { setAppointmentDateFrom(""); setAppointmentDateTo(""); setPage(1); }}><X /></button>}
-            </div>
-          )}
-          {slug === "appointments" && (
-            <div className="filter-select">
-              <select
                 value={paymentFilter}
                 onChange={(event) => {
                   setPaymentFilter(event.target.value);
@@ -1832,7 +1825,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 <thead>
                   <tr>
                     {tableColumns.map((k) => (
-                      <th key={k}>{label(k)}</th>
+                      <th key={k}>{slug === "appointments" ? ({ appointmentNumber: "#", startsAt: "Appointment Date & Time", status: "Booking Status" } as Record<string, string>)[k] || label(k) : label(k)}</th>
                     ))}
                     <th>Actions</th>
                   </tr>
@@ -1849,9 +1842,10 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     >
                       {tableColumns.map((k) => (
                         <td key={k}>
-                          <span className={k === "status" ? "status-pill" : ""}>
+                          {slug === "appointments" && k === "status" ? <select className={`appointment-status-select ${r.status.toLowerCase()}`} value={r.status} disabled={changeStatus.isPending} aria-label={`Change booking status for ${r.appointmentNumber}`} onChange={(event) => { const next = event.target.value; event.currentTarget.value = r.status; requestStatusChange(r, next); }}>{statusOptions.map((status) => <option key={status} value={status}>{status.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase())}</option>)}</select> : <span className={slug === "appointments" && k === "paymentStatus" ? `appointment-status-pill ${r.paymentStatus.toLowerCase()}` : k === "status" ? "status-pill" : ""}>
                             {display(r, k)}
-                          </span>
+                          </span>}
+                          {slug === "appointments" && k === "patientId" && <small className="appointment-patient-mobile">{phoneFor(r)}</small>}
                         </td>
                       ))}
                       <td>
@@ -1869,7 +1863,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                                 <PhoneCall />
                               </button>
                             )}
-                          {!!statusOptions.length && r.status && (
+                          {!!statusOptions.length && r.status && slug !== "appointments" && (
                             <select
                               className="quick-status"
                               value={r.status}
@@ -2325,6 +2319,6 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
