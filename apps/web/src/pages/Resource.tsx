@@ -563,6 +563,8 @@ const configs: Record<string, Config> = {
       "qualification",
       "mobile",
       "consultationFee",
+      "commissionType",
+      "commissionValue",
       "status",
     ],
   },
@@ -1103,6 +1105,12 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     patientRows.find((patient: any) => patient.id === row.patientId)?.mobile ||
     "";
   const display = (record: any, key: string) => {
+    if (slug === "doctors" && key === "commissionType")
+      return record.commissionType === "PERCENTAGE" ? "Percentage" : "Flat";
+    if (slug === "doctors" && key === "commissionValue") {
+      const amount = Number(record.commissionValue ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+      return record.commissionType === "PERCENTAGE" ? `${amount}%` : `INR ${amount}`;
+    }
     const raw = val(record, key),
       referenceIndex = referenceKeys.indexOf(key);
     if (referenceIndex < 0 || !raw) return show(raw);
