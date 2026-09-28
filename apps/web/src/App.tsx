@@ -1,3 +1,4 @@
+import { AccountsPage } from "./pages/Accounts";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Landing, Pricing, Contact, Features, Legal } from "./pages/Public";
 import { Login, Register } from "./pages/Auth";
@@ -119,6 +120,8 @@ export default function App() {
         <Route path="lab" element={<LabMasterDataPage />} />
         <Route path="radiology" element={<RadiologyMasterDataPage />} />
         <Route path="payments" element={<PaymentLogsPage />} />
+        <Route path="accounts" element={<Navigate to="/app/accounts/doctor" replace />} />
+        {(["doctor", "lab", "radiology"] as const).map((kind) => <Route key={kind} path={`accounts/${kind}`} element={<AccountsPage key={kind} kind={kind}/>}/>)}
         {menus.filter((x) => !["settings", "lab", "radiology", "payments", "roles-permissions", "staff"].includes(x)).map((x) => (
           <Route
             key={x}

@@ -59,6 +59,11 @@ const collections = [
   ["Collected Samples", "lab-collection/collected", CheckCircle2],
   ["All Technician Data", "lab-collection/all", Users],
 ] as const;
+const accounts = [
+  ["Doctor Appointment Wise", "accounts/doctor", Stethoscope],
+  ["Lab Appointment Wise", "accounts/lab", FlaskConical],
+  ["Radiology Appointment Wise", "accounts/radiology", ScanLine],
+] as const;
 const masters = [
   ["Settings", "settings", Settings],
   ["Department", "departments", Building2],
@@ -105,6 +110,7 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
         : path,
     canRead = (path: string) =>
       !staff ||
+      (path === "accounts" && user.roleCodes?.some((code: string) => ["SUPER_ADMIN", "CLINIC_ADMIN", "CLINIC_MANAGER", "BRANCH_ADMIN", "MANAGER"].includes(code))) ||
       (path === "patient-followups" &&
         (permissions.has("calendar.read") || permissions.has("calendar.manage"))) ||
       (path === "lab-collection" &&
@@ -133,6 +139,9 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
     [collectionOpen, setCollectionOpen] = useState(collectionActive),
     [masterOpen, setMasterOpen] = useState(masterActive),
     [masterSearch, setMasterSearch] = useState("");
+  const accountsActive = location.pathname.startsWith("/app/accounts");
+  const [accountsOpen, setAccountsOpen] = useState(accountsActive);
+  useEffect(() => { if (accountsActive) setAccountsOpen(true); }, [accountsActive]);
   useEffect(() => {
     if (leadActive) setLeadOpen(true);
     if (appointmentActive) setAppointmentOpen(true);
@@ -247,6 +256,7 @@ export function AppLayout({ mode }: { mode: "tenant" | "admin" }) {
                     <span>{label}</span>
                   </NavLink>
                 ))}
+            {mode === "tenant" && canRead("accounts") && group("Accounts", WalletCards, accountsActive, accountsOpen, () => setAccountsOpen((value) => !value), accounts)}
             {mode === "tenant" &&
               canRead("lab-collection") &&
               group(
