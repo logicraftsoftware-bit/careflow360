@@ -1013,13 +1013,13 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
     [branchFilter, setBranchFilter] = useState("ALL"),
     [planFilter, setPlanFilter] = useState("ALL"),
     [appointmentPeriod, setAppointmentPeriod] = useState("ALL"),
-    [appointmentDateFrom, setAppointmentDateFrom] = useState(() => slug === "appointments" ? appointmentRange("This Month")[0] : ""),
-    [appointmentDateTo, setAppointmentDateTo] = useState(() => slug === "appointments" ? appointmentRange("This Month")[1] : ""),
+    [appointmentDateFrom, setAppointmentDateFrom] = useState(() => slug === "appointments" ? appointmentRange("Today")[0] : ""),
+    [appointmentDateTo, setAppointmentDateTo] = useState(() => slug === "appointments" ? appointmentRange("Today")[1] : ""),
     [paymentFilter, setPaymentFilter] = useState("ALL"),
     [page, setPage] = useState(1);
   useEffect(() => {
     if (slug === "appointments") {
-      const [from, to] = appointmentRange("This Month");
+      const [from, to] = appointmentRange("Today");
       setAppointmentDateFrom(from); setAppointmentDateTo(to); setAppointmentPeriod("ALL");
       setFilter("ALL"); setDoctorFilter("ALL"); setPaymentFilter("ALL"); setSearch(""); setPage(1);
     }

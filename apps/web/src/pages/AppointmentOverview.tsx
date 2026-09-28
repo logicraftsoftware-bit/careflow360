@@ -15,7 +15,7 @@ function Ranking({ title, rows }: { title: string; rows: { name: string; value: 
   return <article className="appointment-chart"><header><h2>{title}</h2><span>Top 5 · selected period</span></header><div className="appointment-ranking">{rows.length ? rows.map((row, i) => <div key={row.name}><span title={row.name}>{row.name}</span><div><i style={{ width: `${row.value * 100 / max}%`, background: palette[i] }}/></div><b>{row.value}</b></div>) : <p>No appointments in this period.</p>}</div></article>;
 }
 export function AppointmentOverview({ rows, from, to, onRange, onAdd, loading, failed, nameFor }: { rows: AnalyticsAppointment[]; from: string; to: string; onRange: (from: string, to: string) => void; onAdd: () => void; loading: boolean; failed: boolean; nameFor: (row: any, key: string) => string }) {
-  const [preset, setPreset] = useState("This Month"), [monthly, setMonthly] = useState(false);
+  const [preset, setPreset] = useState("Today"), [monthly, setMonthly] = useState(false);
   const summary = useMemo(() => summarizeAppointments(rows), [rows]);
   const trend = useMemo(() => appointmentTrend(rows, from, to, monthly), [rows, from, to, monthly]);
   const rank = (key: "doctorId" | "departmentId") => Object.entries(rows.reduce<Record<string, number>>((all, row) => { const name = nameFor(row, key); all[name] = (all[name] || 0) + 1; return all; }, {})).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value).slice(0, 5);
