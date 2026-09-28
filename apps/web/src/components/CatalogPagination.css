@@ -1,0 +1,4 @@
+.catalog-pagination{flex-wrap:wrap;gap:12px;border-top:1px solid var(--border)}
+.catalog-pagination>div{flex-wrap:wrap;gap:8px}
+.catalog-pagination button{padding:6px 10px;cursor:pointer}
+.catalog-pagination button:disabled{cursor:default}
