@@ -20,7 +20,7 @@ cashfreeRouter.post("/webhook",asyncRoute(async(req,res)=>{
   const paymentId=String(event.data?.payment?.cf_payment_id||"");const externalId=paymentId?`${event.type}:${paymentId}`:`${event.type}:${timestamp}:${cfLinkId}`;
   const duplicate=await prisma.webhookEvent.findUnique({where:{provider_externalId:{provider:"CASHFREE",externalId}}});if(duplicate?.processedAt)return res.json({success:true,duplicate:true});
   const webhook=duplicate||await prisma.webhookEvent.create({data:{provider:"CASHFREE",externalId,payload:event}});
-  if(event.type==="PAYMENT_SUCCESS_WEBHOOK"){if(diagnosticAppointmentId)await confirmCashfreeDiagnostic(diagnosticAppointmentId,paymentId);else await confirmCashfreeAppointment(appointmentId,paymentId)}
+  if(event.type==="PAYMENT_SUCCESS_WEBHOOK"){if(diagnosticAppointmentId)await confirmCashfreeDiagnostic(diagnosticAppointmentId,paymentId,Number(event.data?.payment?.payment_amount));else await confirmCashfreeAppointment(appointmentId,paymentId)}
   else if(event.type==="PAYMENT_FAILED_WEBHOOK"&&appointmentId){await prisma.auditLog.create({data:{tenantId,action:"appointment.payment.cashfree_failed",entityType:"Appointment",entityId:appointmentId,metadata:{paymentId:paymentId||null,reason:event.data?.payment?.payment_message||"Payment failed"}}})}
   await prisma.webhookEvent.update({where:{id:webhook.id},data:{processedAt:new Date()}});return res.json({success:true})
 }));

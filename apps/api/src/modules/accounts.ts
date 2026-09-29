@@ -36,6 +36,6 @@ accountsRouter.get("/:kind", asyncRoute(async (req, res) => {
     const d = record.data as any, patient = patientMap.get(d.patientId);
     const paymentStatus = d.paymentStatus || "PENDING";
     return { id: record.id, appointment: record.title, date: d.appointmentAt || record.createdAt, patient: patient?.name || "Unknown patient", mobile: patient?.mobile || "", patientNumber: patient?.patientNumber || "", service: d.testNames || testMap.get(d[`${kind}TestId`]) || "Unknown test", department: "", branch: "", status: record.status, paymentStatus, methods: d.paymentMethod || "Unrecorded", commissionType: "", commissionValue: 0,
-      ...financials({ amount: Number(d.amount || 0), subtotal: d.subtotal == null ? undefined : Number(d.subtotal), discount: Number(d.discountAmount || 0), status: record.status, paymentStatus }) };
+      ...financials({ amount: Number(d.amount || 0), subtotal: d.subtotal == null ? undefined : Number(d.subtotal), discount: Number(d.discountAmount || 0), status: record.status, paymentStatus, payments: d.collectedAmount == null ? undefined : [{ amount: Number(d.collectedAmount), status: "PAID" }] }) };
   }) });
 }));

@@ -20,6 +20,11 @@ describe("diagnostic booking WhatsApp", () => {
     expect(mocks.send).toHaveBeenCalledWith("payment_pending", expect.anything(), expect.objectContaining({ paymentUrl: "Please contact Clinic at 8888888888 for payment." }));
     expect(mocks.audit).toHaveBeenCalledWith(req, "lab-appointments.payment_link.failed", "ModuleRecord", "order-1", expect.anything());
   });
+  it("does not send a substitute message when a requested WhatsApp payment link fails", async () => {
+    mocks.link.mockRejectedValue(new Error("Cashfree not configured"));
+    expect(await notifyDiagnostic(req, { ...row, data: { ...row.data, paymentMethod: "WHATSAPP_LINK", paymentLinkAmount: 100 } })).toMatchObject({ sent: false });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
   it("includes a payment link when it is available", async () => {
     await notifyDiagnostic(req, row);
     expect(mocks.send).toHaveBeenCalledWith("payment_pending", expect.anything(), expect.objectContaining({ paymentUrl: "https://payments.example/link" }));

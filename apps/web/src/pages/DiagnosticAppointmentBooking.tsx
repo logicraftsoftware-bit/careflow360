@@ -79,12 +79,12 @@ export function DiagnosticAppointmentBookingPage({
     [technicianId, setTechnicianId] = useState(user.id || ""),
     [priority, setPriority] = useState("ROUTINE"),
     [instructions, setInstructions] = useState(""),
-    [doctorId, setDoctorId] = useState(user.id || ""),
-    [whatsapp, setWhatsapp] = useState(true);
+    [doctorId, setDoctorId] = useState(user.id || "");
   const [discount, setDiscount] = useState(0),
     [paymentStatus, setPaymentStatus] = useState("PENDING"),
     [paymentMethod, setPaymentMethod] = useState(""),
-    [reference, setReference] = useState("");
+    [reference, setReference] = useState(""),
+    [paymentAmount, setPaymentAmount] = useState("");
   const { data: branchData } = useQuery({
     queryKey: ["diagnostic-branches"],
     queryFn: () => api.get("/crm/branches?limit=100").then(unwrap),
@@ -156,6 +156,11 @@ export function DiagnosticAppointmentBookingPage({
       [selected]
     ),
     total = Math.max(0, subtotal - discount);
+  const linkPayment = paymentMethod === "WHATSAPP_LINK";
+  const enteredAmount = Number(paymentAmount || 0);
+  const collectedAmount = linkPayment || paymentStatus === "PENDING" ? 0 : enteredAmount;
+  const remainingAmount = Math.max(0, Math.round((total - collectedAmount) * 100) / 100);
+  const actualStatus = collectedAmount <= 0 ? "PENDING" : remainingAmount > 0 ? "PARTIALLY_PAID" : "PAID";
   const cells = useMemo(() => {
     const f = new Date(month.getFullYear(), month.getMonth(), 1),
       s = new Date(f);
@@ -197,10 +202,13 @@ export function DiagnosticAppointmentBookingPage({
           referringDoctorName: doctor?.name,
           instructions,
           priority,
-          sendWhatsApp: whatsapp,
-          paymentStatus,
-          paymentMethod: paymentStatus !== "PENDING" ? paymentMethod : undefined,
-          paymentReference: paymentStatus !== "PENDING" ? reference.trim() : undefined,
+          sendWhatsApp: linkPayment,
+          paymentStatus: actualStatus,
+          paymentMethod: paymentMethod || undefined,
+          paymentReference: !linkPayment && collectedAmount > 0 ? reference.trim() : undefined,
+          collectedAmount,
+          remainingAmount,
+          paymentLinkAmount: linkPayment ? enteredAmount : undefined,
           subtotal,
           discountAmount: discount,
           amount: total,
@@ -219,7 +227,7 @@ export function DiagnosticAppointmentBookingPage({
     },
     onSuccess: (response) => {
       const delivery = unwrap(response)?.whatsapp;
-      const notice = whatsapp && !delivery?.sent ? `\n\nWhatsApp confirmation was not sent. ${delivery?.reason || "Check clinic AiSensy settings and retry from the appointment list."}` : "";
+      const notice = linkPayment && !delivery?.sent ? `\n\nWhatsApp confirmation was not sent. ${delivery?.reason || "Check clinic AiSensy settings and retry from the appointment list."}` : "";
       window.alert(`${label} appointment booked successfully${notice}`);
       nav(`/app/${kind}-appointments`);
     },
@@ -241,6 +249,8 @@ export function DiagnosticAppointmentBookingPage({
       return window.alert("Discount cannot be greater than subtotal");
     if (paymentStatus !== "PENDING" && !paymentMethod)
       return window.alert("Select a payment method");
+    if ((linkPayment || paymentStatus !== "PENDING") && (!Number.isFinite(enteredAmount) || enteredAmount <= 0 || enteredAmount > total))
+      return window.alert("Enter an amount greater than zero and no more than the grand total");
     save.mutate();
   };
   const names = ["Date", "Branch", "Patient", "Confirm", "Payment"];
@@ -518,14 +528,7 @@ export function DiagnosticAppointmentBookingPage({
                       placeholder="Fasting, preparation or collection instructions"
                     />
                   </label>
-                  <label className="whatsapp-opt-in">
-                    <input
-                      type="checkbox"
-                      checked={whatsapp}
-                      onChange={(e) => setWhatsapp(e.target.checked)}
-                    />{" "}
-                    Send appointment confirmation to the patient on WhatsApp
-                  </label>
+
                 </div>
               </div>
               <aside className="test-picker">
@@ -629,38 +632,62 @@ export function DiagnosticAppointmentBookingPage({
                   Payment status
                   <select
                     value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    onChange={(e) => {
+                      const status = e.target.value;
+                      setPaymentStatus(status);
+                      setPaymentAmount(status === "PAID" ? String(total) : "");
+                      if (linkPayment) setPaymentMethod("");
+                    }}
                   >
                     <option value="PENDING">Pending</option>
                     <option value="PARTIALLY_PAID">Partially paid</option>
                     <option value="PAID">Paid</option>
                   </select>
                 </label>
-                {paymentStatus !== "PENDING" && (
+                {(
                   <>
                     <label>
                       Payment method
                       <select
                         value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        onChange={(e) => {
+                          const method = e.target.value;
+                          setPaymentMethod(method);
+                          if (method === "WHATSAPP_LINK") { setPaymentStatus("PENDING"); setPaymentAmount(String(total)); }
+                          else if (method && paymentStatus === "PENDING") { setPaymentStatus("PAID"); setPaymentAmount(String(total)); }
+                        }}
                       >
                         <option value="">Select method</option>
+                        <option value="WHATSAPP_LINK">Send payment link on WhatsApp</option>
                         <option value="CASH">Cash</option>
                         <option value="UPI">UPI</option>
                         <option value="CARD">Card</option>
                         <option value="BANK_TRANSFER">Bank transfer</option>
                       </select>
                     </label>
-                    <label>
+                    {(linkPayment || paymentStatus !== "PENDING") && <label>
+                      {linkPayment ? "Payment link amount" : "Amount received"}
+                      <input type="number" min="0.01" max={total} step="0.01" required value={paymentAmount} onChange={(event) => {
+                        setPaymentAmount(event.target.value);
+                        if (!linkPayment) setPaymentStatus(Number(event.target.value) >= total ? "PAID" : "PARTIALLY_PAID");
+                      }}/>
+                    </label>}
+                    {!linkPayment && paymentStatus !== "PENDING" && <label>
                       Reference / transaction number
                       <input
                         value={reference}
                         onChange={(e) => setReference(e.target.value)}
                         placeholder="Optional"
                       />
-                    </label>
+                    </label>}
                   </>
                 )}
+              </div>
+              <div className="booking-totals" aria-live="polite">
+                <p><span>Amount received{!linkPayment && collectedAmount > 0 ? ` (${paymentMethod.replace(/_/g, " ").toLowerCase()})` : ""}</span><b>{money(collectedAmount)}</b></p>
+                <p><span>Remaining balance</span><b>{money(remainingAmount)}</b></p>
+                <p><span>Payment status</span><b>{actualStatus === "PARTIALLY_PAID" ? "Partially paid" : actualStatus === "PAID" ? "Paid" : "Pending"}</b></p>
+                {linkPayment && <small>A WhatsApp payment link for {money(enteredAmount)} will be sent after booking. The payment remains pending until confirmed.</small>}
               </div>
               {save.error && (
                 <div className="alert error">

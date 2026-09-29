@@ -42,7 +42,7 @@ export async function notifyDiagnostic(
     departmentName: data.testNames || "Diagnostic test",
     branchName: data.branchName || "Clinic",
     startsAt: new Date(data.appointmentAt || row.createdAt),
-    amount: Number(data.amount || 0),
+    amount: Number(data.paymentMethod === "WHATSAPP_LINK" ? data.paymentLinkAmount ?? data.amount ?? 0 : data.amount || 0),
     token: row.title,
   };
   const kind =
@@ -62,6 +62,7 @@ export async function notifyDiagnostic(
         await audit(req, `${row.module}.payment_link.failed`, "ModuleRecord", row.id, {
           error: error instanceof Error ? error.message : "Unable to create payment link",
         });
+        if (data.paymentMethod === "WHATSAPP_LINK") throw error;
         paymentUrl = `Please contact ${clinic.name} at ${clinic.mobile} for payment.`;
       }
     }

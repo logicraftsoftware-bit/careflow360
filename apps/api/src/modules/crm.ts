@@ -1,3 +1,4 @@
+import { diagnosticPayment } from "../diagnostic-payment.js";
 import { notifyDiagnostic } from "../diagnostic-notification.js";
 import { validateSpecimenTube } from "../specimen-tubes.js";
 import { Router } from "express";
@@ -772,6 +773,8 @@ crmRouter.post(
           referringDoctorId: z.string().optional(),
           referringDoctorName: z.string().optional(),
           sendWhatsApp: z.boolean().default(true),
+          collectedAmount: z.coerce.number().min(0).optional(),
+          paymentLinkAmount: z.coerce.number().positive().optional(),
           paymentMethod: z.string().optional(),
           paymentReference: z.string().optional(),
           specimens: z
@@ -788,6 +791,7 @@ crmRouter.post(
       patient = await prisma.patient.findFirst({
         where: { id: body.patientId, tenantId: tid },
       });
+    const paymentDetails = body.collectedAmount !== undefined ? diagnosticPayment(body) : {};
     if (body.specimens.some((item) => item.tests.length !== 1))
       throw new AppError(400, "Choose exactly one specimen tube for each test", "ONE_TUBE_PER_TEST_REQUIRED");
     if (!patient) throw new AppError(404, "Patient not found", "NOT_FOUND");
@@ -864,6 +868,8 @@ crmRouter.post(
             amount: body.amount,
             paymentMethod: body.paymentMethod,
             paymentReference: body.paymentReference,
+            ...paymentDetails,
+            ...(Number(body.collectedAmount || 0) > 0 ? { paymentCollectedById: req.user!.id } : {}),
             assignedTechnicianId: technician.id,
             assignedTechnicianName: technician.name,
             assignedAt: now,
@@ -1508,6 +1514,10 @@ crmRouter.post(
       throw new AppError(409, "Please refresh this page before adding tests.", "CATALOG_CLIENT_OUTDATED");
     }
     const { title, status = "ACTIVE", ...data } = req.body;
+    if (["lab-appointments", "radiology-appointments"].includes(req.params.module) && data.collectedAmount !== undefined) {
+      Object.assign(data, diagnosticPayment(data));
+      if (data.collectedAmount > 0) data.paymentCollectedById = req.user!.id;
+    }
     await validateSpecimenTube(tid, req.params.module, data);
     if (
       ["lab-appointments", "radiology-appointments"].includes(
