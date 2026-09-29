@@ -654,8 +654,7 @@ export function DiagnosticAppointmentBookingPage({
                           const method = e.target.value;
                           setPaymentMethod(method);
                           if (method === "WHATSAPP_LINK") {
-                            setPaymentStatus("PENDING");
-                            // Keep the amount entered before switching to a payment link.
+                            // Keep the selected status and amount when requesting a payment link.
                             if (paymentAmount === "") setPaymentAmount(String(total));
                           } else if (method && paymentStatus === "PENDING") {
                             const amount = paymentAmount === "" ? total : Number(paymentAmount);
@@ -693,7 +692,7 @@ export function DiagnosticAppointmentBookingPage({
               <div className="booking-totals" aria-live="polite">
                 <p><span>Amount received{!linkPayment && collectedAmount > 0 ? ` (${paymentMethod.replace(/_/g, " ").toLowerCase()})` : ""}</span><b>{money(collectedAmount)}</b></p>
                 <p><span>Remaining balance</span><b>{money(remainingAmount)}</b></p>
-                <p><span>Payment status</span><b>{actualStatus === "PARTIALLY_PAID" ? "Partially paid" : actualStatus === "PAID" ? "Paid" : "Pending"}</b></p>
+                <p><span>{linkPayment ? "Payment confirmation" : "Payment status"}</span><b>{linkPayment ? "Awaiting payment" : actualStatus === "PARTIALLY_PAID" ? "Partially paid" : actualStatus === "PAID" ? "Paid" : "Pending"}</b></p>
                 {linkPayment && <small>A WhatsApp payment link for {money(enteredAmount)} will be sent after booking. The payment remains pending until confirmed.</small>}
               </div>
               {save.error && (
