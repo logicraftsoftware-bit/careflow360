@@ -199,8 +199,8 @@ export function DiagnosticAppointmentBookingPage({
           priority,
           sendWhatsApp: whatsapp,
           paymentStatus,
-          paymentMethod: paymentStatus === "PAID" ? paymentMethod : undefined,
-          paymentReference: paymentStatus === "PAID" ? reference : undefined,
+          paymentMethod: paymentStatus !== "PENDING" ? paymentMethod : undefined,
+          paymentReference: paymentStatus !== "PENDING" ? reference.trim() : undefined,
           subtotal,
           discountAmount: discount,
           amount: total,
@@ -217,8 +217,10 @@ export function DiagnosticAppointmentBookingPage({
             status: "CONFIRMED",
           });
     },
-    onSuccess: () => {
-      window.alert(`${label} appointment booked successfully`);
+    onSuccess: (response) => {
+      const delivery = unwrap(response)?.whatsapp;
+      const notice = whatsapp && !delivery?.sent ? `\n\nWhatsApp confirmation was not sent. ${delivery?.reason || "Check clinic AiSensy settings and retry from the appointment list."}` : "";
+      window.alert(`${label} appointment booked successfully${notice}`);
       nav(`/app/${kind}-appointments`);
     },
   });
@@ -237,14 +239,8 @@ export function DiagnosticAppointmentBookingPage({
     e.preventDefault();
     if (discount > subtotal)
       return window.alert("Discount cannot be greater than subtotal");
-    if (paymentStatus === "PAID" && !paymentMethod)
+    if (paymentStatus !== "PENDING" && !paymentMethod)
       return window.alert("Select a payment method");
-    if (
-      paymentStatus === "PAID" &&
-      paymentMethod !== "CASH" &&
-      !reference.trim()
-    )
-      return window.alert("Enter the payment reference");
     save.mutate();
   };
   const names = ["Date", "Branch", "Patient", "Confirm", "Payment"];
@@ -640,7 +636,7 @@ export function DiagnosticAppointmentBookingPage({
                     <option value="PAID">Paid</option>
                   </select>
                 </label>
-                {paymentStatus === "PAID" && (
+                {paymentStatus !== "PENDING" && (
                   <>
                     <label>
                       Payment method
@@ -660,11 +656,7 @@ export function DiagnosticAppointmentBookingPage({
                       <input
                         value={reference}
                         onChange={(e) => setReference(e.target.value)}
-                        placeholder={
-                          paymentMethod === "CASH"
-                            ? "Optional for cash"
-                            : "Required"
-                        }
+                        placeholder="Optional"
                       />
                     </label>
                   </>
