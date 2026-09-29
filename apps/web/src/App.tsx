@@ -118,6 +118,8 @@ export default function App() {
         <Route path="call-logs/details" element={<CallLogDetailsPage />} />
         <Route path="settings" element={<ClinicSettingsPage />} />
         <Route path="lab" element={<LabMasterDataPage />} />
+        <Route path="lab/:section/new" element={<LabMasterDataPage form />} />
+        <Route path="lab/:section/:id/edit" element={<LabMasterDataPage form />} />
         <Route path="radiology" element={<RadiologyMasterDataPage />} />
         <Route path="payments" element={<PaymentLogsPage />} />
         <Route path="accounts" element={<Navigate to="/app/accounts/doctor" replace />} />

@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FlaskConical, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { FlaskConical, Pencil, Plus, Search, Trash2, ArrowLeft } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import "./LabMasterData.css";
 import { api, unwrap } from "../api";
 import { useCatalogPagination } from "../components/CatalogPagination";
 
@@ -38,13 +40,21 @@ const defaultUnits = [["Percentage", "%"], ["Grams per decilitre", "g/dL"], ["Mi
 const value = (row: Row, key: string) => key in row ? row[key] : row.data?.[key];
 const pretty = (text: string) => text.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 
-export function LabMasterDataPage() {
+export function LabMasterDataPage({ form = false }: { form?: boolean }) {
+  const navigate = useNavigate();
+  const { section: sectionSlug, id } = useParams();
+  const [searchParams] = useSearchParams();
+  const selectedSection = sectionSlug || searchParams.get("section") || "lab-tests";
+  const active = Math.max(0, sections.findIndex((item) => item.module === selectedSection));
   const qc = useQueryClient();
   const seeded = useRef(new Set<string>());
-  const [active, setActive] = useState(0), [search, setSearch] = useState(""), [editing, setEditing] = useState<Row | null>(null), [modalOpen, setModalOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const section = sections[active], endpoint = `/crm/modules/${section.module}`;
   const { data, isLoading, error } = useQuery({ queryKey: [endpoint], queryFn: () => api.get(endpoint).then(unwrap) });
   const rows: Row[] = data?.items || [];
+  const editing = id ? rows.find((row) => row.id === id) || null : null;
+  const listPath = section.module === "lab-tests" ? "/app/lab" : `/app/lab?section=${section.module}`;
+  const closeForm = () => navigate(listPath);
   const { data: categoryData } = useQuery({ queryKey: ["/crm/modules/lab-categories"], queryFn: () => api.get("/crm/modules/lab-categories").then(unwrap) });
   const { data: unitData } = useQuery({ queryKey: ["/crm/modules/lab-units"], queryFn: () => api.get("/crm/modules/lab-units").then(unwrap) });
   const { data: testData } = useQuery({ queryKey: ["/crm/modules/lab-tests"], queryFn: () => api.get("/crm/modules/lab-tests").then(unwrap) });
@@ -72,13 +82,31 @@ export function LabMasterDataPage() {
   const { visibleRows, pagination } = useCatalogPagination(filtered, `${active}:${search}`, active === 0);
   const save = useMutation({
     mutationFn: (payload: Record<string, FormDataEntryValue>) => editing ? api.patch(`${endpoint}/${editing.id}`, payload) : api.post(endpoint, payload, { headers: { "X-Test-Catalog-Version": "2" } }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: [endpoint] }); setModalOpen(false); setEditing(null); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: [endpoint] }); closeForm(); },
   });
   const remove = useMutation({ mutationFn: (id: string) => api.delete(`${endpoint}/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: [endpoint] }) });
-  const openForm = (row: Row | null = null) => { setEditing(row); setModalOpen(true); };
+  const openForm = (row: Row | null = null) => { save.reset(); navigate(`/app/lab/${section.module}/${row ? `${row.id}/edit` : "new"}`); };
   const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); save.mutate(Object.fromEntries(new FormData(event.currentTarget))); };
-  const switchSection = (index: number) => { setActive(index); setSearch(""); setEditing(null); setModalOpen(false); };
+  const switchSection = (index: number) => { setSearch(""); navigate(index === 0 ? "/app/lab" : `/app/lab?section=${sections[index].module}`); };
   const optionsFor = (field: Field) => field.options || (field.name === "category" ? categories.map((row) => row.title) : field.name === "unit" ? units.map((row) => String(value(row, "symbol") || row.title)) : field.name === "testName" ? tests.map((row) => row.title) : []);
+
+  if (form) return <div className="lab-entry-page">
+    <button type="button" className="btn ghost" onClick={closeForm}><ArrowLeft/> Back to {section.label}</button>
+    {!sections.some((item) => item.module === selectedSection) ? <div className="panel state error">Unknown lab section.</div>
+      : isLoading ? <div className="panel state">Loading lab details...</div>
+      : error ? <div className="panel state error">Unable to load lab details. Please reload and try again.</div>
+      : id && !editing ? <div className="panel state error">This record was not found.</div>
+      : <form key={`${section.module}:${id || "new"}`} className="panel lab-entry-form" onSubmit={submit}>
+      <header className="lab-head"><div><span>LABORATORY</span><h1>{id ? "Edit" : "Add"} {section.singular}</h1><p>{section.description}</p></div></header>
+      <div className="lab-entry-body">{save.error && <div className="alert error">Unable to save. Check the entered values and try again.</div>}<div className="lab-entry-grid">{section.fields.map((field) => { const fieldOptions = optionsFor(field), current = String(value(editing || {} as Row, field.name) ?? fieldOptions[0] ?? ""); if (field.name === "specimenTubeId") {
+        const selectedId = String(value(editing || {} as Row, field.name) || "");
+        return <label key={field.name}>{field.label}<select name={field.name} defaultValue={selectedId} disabled={tubesLoading || !!tubesError}>
+          <option value="">{tubesLoading ? "Loading specimen tubes..." : "Select specimen tube (optional)"}</option>
+          {selectedId && !tubes.some((tube) => tube.id === selectedId) && <option value={selectedId}>Unavailable specimen tube</option>}
+          {tubes.filter((tube) => tube.status === "ACTIVE" || tube.id === selectedId).map((tube) => <option key={tube.id} value={tube.id}>{tube.title}{value(tube, "capColor") ? ` - ${value(tube, "capColor")}` : ""}{tube.status !== "ACTIVE" ? " (inactive)" : ""}</option>)}
+        </select>{tubesError ? <small role="alert">Unable to load specimen tubes. Please try again.</small> : !tubesLoading && !tubes.some((tube) => tube.status === "ACTIVE") ? <small>Add an active tube in Specimen Tube Master to link it here.</small> : null}</label>;
+      } return <label key={field.name} className={field.type === "textarea" ? "wide" : ""}>{field.label}{field.type === "textarea" ? <textarea name={field.name} defaultValue={current}/> : field.type === "select" ? <select name={field.name} required={field.required} defaultValue={current}>{current && !fieldOptions.includes(current) && <option value={current}>{current}</option>}{!fieldOptions.length && !current && <option value="">Add a master record first</option>}{fieldOptions.map((option) => <option key={option} value={option}>{field.options ? pretty(option.toLowerCase()) : option}</option>)}</select> : <input name={field.name} type={field.type || "text"} required={field.required} min={field.type === "number" ? 0 : undefined} step={field.name === "price" ? "0.01" : undefined} defaultValue={current}/>}</label>; })}</div><div className="lab-entry-actions"><button type="button" className="btn ghost" onClick={closeForm}>Cancel</button><button className="btn" disabled={save.isPending}>{save.isPending ? "Saving…" : `Save ${section.singular}`}</button></div></div></form>}
+  </div>;
 
   return <div className="lab-layout">
     <aside className="lab-menu panel">{sections.map((item, index) => <button key={item.module} className={active === index ? "active" : ""} onClick={() => switchSection(index)}>{item.label}</button>)}</aside>
@@ -87,13 +115,6 @@ export function LabMasterDataPage() {
       <div className="lab-toolbar"><div className="search"><Search/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${section.label.toLowerCase()}...`}/></div><small>{filtered.length} record{filtered.length === 1 ? "" : "s"}</small></div>
       {isLoading ? <div className="state">Loading {section.label.toLowerCase()}…</div> : error ? <div className="state error">Unable to load lab data.</div> : <div className="table-wrap"><table><thead><tr>{section.columns.map((column) => <th key={column}>{column === "specimenTubeId" ? "Specimen tube" : pretty(column)}</th>)}<th>Actions</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={row.id}>{section.columns.map((column) => <td key={column}>{column === "status" ? <span className="status-pill">{String(value(row, column) || "ACTIVE")}</span> : column === "specimenTubeId" ? tubeName(row) : String(value(row, column) ?? "—")}</td>)}<td><div className="row-actions"><button aria-label="Edit" onClick={() => openForm(row)}><Pencil/></button><button className="danger" aria-label="Delete" onClick={() => confirm(`Delete this ${section.singular.toLowerCase()}?`) && remove.mutate(row.id)}><Trash2/></button></div></td></tr>)}</tbody></table>{!filtered.length && <div className="empty"><FlaskConical/><p>No {section.label.toLowerCase()} found.</p><button className="btn" onClick={() => openForm()}>Add the first one</button></div>}{pagination}</div>}
     </section>
-    {modalOpen && <div className="modal-bg"><form className="modal lab-modal" onSubmit={submit}><div className="modal-head"><div><h2>{editing ? "Edit" : "Add"} {section.singular}</h2><p>Enter the details below.</p></div><button type="button" className="icon" onClick={() => setModalOpen(false)}><X/></button></div>{save.error && <div className="alert error">Unable to save. Check the entered values and try again.</div>}<div className="modal-grid">{section.fields.map((field) => { const fieldOptions = optionsFor(field), current = String(value(editing || {} as Row, field.name) || fieldOptions[0] || ""); if (field.name === "specimenTubeId") {
-        const selectedId = String(value(editing || {} as Row, field.name) || "");
-        return <label key={field.name}>{field.label}<select name={field.name} defaultValue={selectedId} disabled={tubesLoading || !!tubesError}>
-          <option value="">{tubesLoading ? "Loading specimen tubes..." : "Select specimen tube (optional)"}</option>
-          {selectedId && !tubes.some((tube) => tube.id === selectedId) && <option value={selectedId}>Unavailable specimen tube</option>}
-          {tubes.filter((tube) => tube.status === "ACTIVE" || tube.id === selectedId).map((tube) => <option key={tube.id} value={tube.id}>{tube.title}{value(tube, "capColor") ? ` - ${value(tube, "capColor")}` : ""}{tube.status !== "ACTIVE" ? " (inactive)" : ""}</option>)}
-        </select>{tubesError ? <small role="alert">Unable to load specimen tubes. Please try again.</small> : !tubesLoading && !tubes.some((tube) => tube.status === "ACTIVE") ? <small>Add an active tube in Specimen Tube Master to link it here.</small> : null}</label>;
-      } return <label key={field.name} className={field.type === "textarea" ? "wide" : ""}>{field.label}{field.type === "textarea" ? <textarea name={field.name} defaultValue={current}/> : field.type === "select" ? <select name={field.name} required={field.required} defaultValue={current}>{!fieldOptions.length && <option value="">Add a master record first</option>}{fieldOptions.map((option) => <option key={option} value={option}>{field.options ? pretty(option.toLowerCase()) : option}</option>)}</select> : <input name={field.name} type={field.type || "text"} required={field.required} min={field.type === "number" ? 0 : undefined} step={field.name === "price" ? "0.01" : undefined} defaultValue={current}/>}</label>; })}</div><div className="modal-actions"><button type="button" className="btn ghost" onClick={() => setModalOpen(false)}>Cancel</button><button className="btn" disabled={save.isPending}>{save.isPending ? "Saving…" : `Save ${section.singular}`}</button></div></form></div>}
+
   </div>;
 }
