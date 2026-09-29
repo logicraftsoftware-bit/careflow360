@@ -1,3 +1,4 @@
+import { DiagnosticDocuments } from "../components/DiagnosticDocuments";
 import { useEffect, useMemo, useState } from "react";
 import {
   useMutation,
@@ -2226,6 +2227,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 )}
               </div>
             )}
+            {["lab-appointments", "radiology-appointments"].includes(slug) && <DiagnosticDocuments id={view.id} onPaymentRecorded={(payment) => setView((current: any) => ({ ...current, ...payment }))}/>}
             <button className="btn full" onClick={() => setView(undefined)}>
               Close
             </button>

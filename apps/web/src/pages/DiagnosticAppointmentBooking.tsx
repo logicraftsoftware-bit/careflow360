@@ -1,3 +1,4 @@
+import { DiagnosticDocuments } from "../components/DiagnosticDocuments";
 import { FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -73,6 +74,7 @@ export function DiagnosticAppointmentBookingPage({
     ),
     [search, setSearch] = useState(""),
     [patient, setPatient] = useState<Patient | null>(null);
+  const [booked, setBooked] = useState<any>(null);
   const [testSearch, setTestSearch] = useState(""),
     [selected, setSelected] = useState<Test[]>([]);
   const [time, setTime] = useState("09:00"),
@@ -226,10 +228,8 @@ export function DiagnosticAppointmentBookingPage({
           });
     },
     onSuccess: (response) => {
-      const delivery = unwrap(response)?.whatsapp;
-      const notice = linkPayment && !delivery?.sent ? `\n\nWhatsApp confirmation was not sent. ${delivery?.reason || "Check clinic AiSensy settings and retry from the appointment list."}` : "";
-      window.alert(`${label} appointment booked successfully${notice}`);
-      nav(`/app/${kind}-appointments`);
+      setBooked(unwrap(response));
+      qc.invalidateQueries({ queryKey: [`/crm/modules/${kind}-appointments`] });
     },
   });
   const add = (x: Test) => {
@@ -254,6 +254,12 @@ export function DiagnosticAppointmentBookingPage({
     save.mutate();
   };
   const names = ["Date", "Branch", "Patient", "Confirm", "Payment"];
+  if (booked) return <div className="panel">
+    <h1>{label} appointment booked successfully</h1>
+    {linkPayment && !booked.whatsapp?.sent && <p className="alert error">{booked.whatsapp?.reason || "WhatsApp payment link was not sent. Check the appointment logs."}</p>}
+    <DiagnosticDocuments id={booked.id}/>
+    <button className="btn ghost" onClick={() => nav(`/app/${kind}-appointments`)}>Back to appointments</button>
+  </div>;
   return (
     <div className="booking-wizard diagnostic-wizard">
       <button

@@ -1,3 +1,5 @@
+import { initialDocuments, reconcileDocuments } from "../diagnostic-receipts.js";
+import { diagnosticDocumentsRouter } from "./diagnostic-documents.js";
 import { diagnosticPayment } from "../diagnostic-payment.js";
 import { notifyDiagnostic } from "../diagnostic-notification.js";
 import { validateSpecimenTube } from "../specimen-tubes.js";
@@ -31,6 +33,7 @@ import {
 import { listTelecmiUsers } from "./telecmi.js";
 export const crmRouter = Router();
 crmRouter.use(auth);
+crmRouter.use(diagnosticDocumentsRouter);
 const isCallCentreRole = (role: string) => /^CALL_(CENTRE|CENTER)(?:_AGENT)?$/.test(role);
 async function resolveTelecmiAgent(tenant:string,role:string,agentId?:string,currentUserId?:string){
   if(!isCallCentreRole(role))return {telecmiAgentId:null,telecmiAgentName:null,telecmiExtension:null};
@@ -869,6 +872,7 @@ crmRouter.post(
             paymentMethod: body.paymentMethod,
             paymentReference: body.paymentReference,
             ...paymentDetails,
+            ...initialDocuments({ ...body, ...paymentDetails, paymentCollectedById: req.user!.id }),
             ...(Number(body.collectedAmount || 0) > 0 ? { paymentCollectedById: req.user!.id } : {}),
             assignedTechnicianId: technician.id,
             assignedTechnicianName: technician.name,
@@ -927,7 +931,7 @@ crmRouter.patch(
       definitionChanged = JSON.stringify((previous.specimens || []).map(({ tubeType, sampleType, tests }: any) => ({ tubeType, sampleType, tests }))) !== JSON.stringify(body.specimens),
       row = await prisma.moduleRecord.update({
         where: { id: record.id },
-        data: { data: { ...previous, patientId: patient.id, appointmentAt: body.appointmentAt.toISOString(), assignedTechnicianId: technician.id, assignedTechnicianName: technician.name, testNames: body.testNames, instructions: body.instructions || "", priority: body.priority, paymentStatus: body.paymentStatus, subtotal: body.subtotal ?? body.amount, discountAmount: body.discountAmount, amount: body.amount, specimens, ...(definitionChanged ? { labelsGeneratedAt: null, labelsGeneratedById: null } : {}) } },
+        data: { data: { ...previous, patientId: patient.id, appointmentAt: body.appointmentAt.toISOString(), assignedTechnicianId: technician.id, assignedTechnicianName: technician.name, testNames: body.testNames, instructions: body.instructions || "", priority: body.priority, paymentStatus: body.paymentStatus, subtotal: body.subtotal ?? body.amount, discountAmount: body.discountAmount, amount: body.amount, ...reconcileDocuments(previous, body, `edit-${randomUUID()}`, req.user!.id), specimens, ...(definitionChanged ? { labelsGeneratedAt: null, labelsGeneratedById: null } : {}) } },
       });
     await audit(req, "lab.order.updated", "ModuleRecord", row.id, { specimenCount: specimens.length, labelsInvalidated: definitionChanged });
     return ok(res, row, "Lab order updated successfully");
@@ -1130,7 +1134,7 @@ crmRouter.patch(
               ? {
                   paymentStatus: body.payment.status,
                   paymentMethod: body.payment.method,
-                  amount: body.payment.amount ?? data.amount,
+                  ...reconcileDocuments(data, { paymentStatus: body.payment.status, paymentMethod: body.payment.method, paymentReference: body.payment.transactionId }, `collection-${randomUUID()}`, req.user!.id),
                   transactionId: body.payment.transactionId,
                   paymentCollectedById: req.user!.id,
                 }
@@ -1519,6 +1523,7 @@ crmRouter.post(
       if (data.collectedAmount > 0) data.paymentCollectedById = req.user!.id;
     }
     await validateSpecimenTube(tid, req.params.module, data);
+    if (["lab-appointments", "radiology-appointments"].includes(req.params.module)) Object.assign(data, initialDocuments(data, req.params.module === "lab-appointments" ? "LAB" : "RAD"));
     if (
       ["lab-appointments", "radiology-appointments"].includes(
         req.params.module
@@ -1551,6 +1556,11 @@ crmRouter.patch(
     const { title, status, ...data } = req.body;
     const previousData = found.data as Record<string, any>;
     await validateSpecimenTube(tid, req.params.module, data, previousData.specimenTubeId);
+    if (["lab-appointments", "radiology-appointments"].includes(req.params.module)) {
+      const documents = reconcileDocuments(previousData, data, `edit-${randomUUID()}`, req.user!.id);
+      delete data.tokenNumber;
+      Object.assign(data, documents);
+    }
     if (
       ["lab-appointments", "radiology-appointments"].includes(
         req.params.module
