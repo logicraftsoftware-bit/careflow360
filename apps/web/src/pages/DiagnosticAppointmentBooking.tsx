@@ -26,7 +26,7 @@ type Patient = {
 type Test = {
   id: string;
   title: string;
-  data?: { code?: string; price?: number };
+  data?: { code?: string; price?: number; specimenTubeId?: string; sampleType?: string };
 };
 type Option = {
   id: string;
@@ -42,7 +42,6 @@ type Tube = {
   status: string;
   data?: { sampleType?: string };
 };
-type Specimen = { tubeType: string; sampleType: string };
 const key = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate()
@@ -75,8 +74,7 @@ export function DiagnosticAppointmentBookingPage({
     [search, setSearch] = useState(""),
     [patient, setPatient] = useState<Patient | null>(null);
   const [testSearch, setTestSearch] = useState(""),
-    [selected, setSelected] = useState<Test[]>([]),
-    [specimens, setSpecimens] = useState<Specimen[]>([]);
+    [selected, setSelected] = useState<Test[]>([]);
   const [time, setTime] = useState("09:00"),
     [technicianId, setTechnicianId] = useState(user.id || ""),
     [priority, setPriority] = useState("ROUTINE"),
@@ -115,7 +113,7 @@ export function DiagnosticAppointmentBookingPage({
         : api.get("/crm/staff-accounts").then(unwrap),
     enabled: step >= 4,
   });
-  const { data: tubeData } = useQuery({
+  const { data: tubeData, isLoading: tubesLoading, error: tubesError } = useQuery({
     queryKey: ["specimen-tubes"],
     queryFn: () => api.get("/crm/modules/specimen-tubes").then(unwrap),
     enabled: lab && step >= 4,
@@ -125,9 +123,12 @@ export function DiagnosticAppointmentBookingPage({
     ),
     tests: Test[] = testData?.items || [],
     doctors: Option[] = doctorData?.items || [],
-    tubes: Tube[] = (tubeData?.items || []).filter(
-      (x: Tube) => x.status === "ACTIVE"
-    );
+    tubes: Tube[] = tubeData?.items || [];
+  const linkedTube = (test: Test) => tubes.find((tube) => tube.id === test.data?.specimenTubeId);
+  const specimens = selected.flatMap((test) => {
+    const tube = linkedTube(test);
+    return tube ? [{ tubeType: tube.title, sampleType: tube.data?.sampleType || test.data?.sampleType || "Unspecified", tests: [test.title] }] : [];
+  });
   const rawTech: Option[] = lab
     ? staffData || []
     : (staffData?.items || []).filter(
@@ -208,10 +209,7 @@ export function DiagnosticAppointmentBookingPage({
       return lab
         ? api.post("/crm/lab-collections/orders", {
             ...common,
-            specimens: specimens.map((x, i) => ({
-              ...x,
-              tests: [selected[i].title],
-            })),
+            specimens,
           })
         : api.post("/crm/modules/radiology-appointments", {
             ...common,
@@ -226,18 +224,15 @@ export function DiagnosticAppointmentBookingPage({
   });
   const add = (x: Test) => {
       setSelected((v) => [...v, x]);
-      if (lab) setSpecimens((v) => [...v, { tubeType: "", sampleType: "" }]);
       setTestSearch("");
     },
     remove = (id: string) => {
-      const i = selected.findIndex((x) => x.id === id);
       setSelected((v) => v.filter((x) => x.id !== id));
-      if (lab) setSpecimens((v) => v.filter((_, j) => i !== j));
     };
   const ready =
     !!selected.length &&
     !!technicianId &&
-    (!lab || specimens.every((x) => x.tubeType && x.sampleType));
+    (!lab || !selected.some((test) => test.data?.specimenTubeId) || (!tubesLoading && !tubesError));
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (discount > subtotal)
@@ -564,34 +559,14 @@ export function DiagnosticAppointmentBookingPage({
                   )}
                 </div>
                 <div className="selected-tests">
-                  {selected.map((x, i) => (
+                  {selected.map((x) => (
                     <article key={x.id}>
                       <div>
                         <b>{x.title}</b>
                         {lab && (
-                          <select
-                            value={specimens[i]?.tubeType || ""}
-                            onChange={(e) => {
-                              const t = tubes.find(
-                                (x) => x.title === e.target.value
-                              );
-                              setSpecimens((v) =>
-                                v.map((r, j) =>
-                                  j === i
-                                    ? {
-                                        tubeType: e.target.value,
-                                        sampleType: t?.data?.sampleType || "",
-                                      }
-                                    : r
-                                )
-                              );
-                            }}
-                          >
-                            <option value="">Select specimen tube *</option>
-                            {tubes.map((t) => (
-                              <option key={t.id}>{t.title}</option>
-                            ))}
-                          </select>
+                          <small style={{ display: "block", marginTop: 6 }}>
+                            {!x.data?.specimenTubeId ? "No specimen tube chosen" : tubesLoading ? "Loading specimen tube..." : tubesError ? "Unable to load specimen tube. Please reload and try again." : linkedTube(x)?.title || "No specimen tube chosen"}
+                          </small>
                         )}
                       </div>
                       <strong>{money(Number(x.data?.price || 0))}</strong>

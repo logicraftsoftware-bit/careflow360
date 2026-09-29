@@ -872,7 +872,7 @@ crmRouter.post(
                 tests: z.array(z.string().trim().min(1)).min(1),
               })
             )
-            .min(1),
+            .default([]),
         })
         .parse(req.body),
       patient = await prisma.patient.findFirst({
