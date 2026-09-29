@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Pencil, Plus, Search, Trash2, ArrowLeft } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import "./LabMasterData.css";
+import { SpecimenTubeSelect } from "../components/SpecimenTubeSelect";
 import { api, unwrap } from "../api";
 import { useCatalogPagination } from "../components/CatalogPagination";
 
@@ -100,11 +101,11 @@ export function LabMasterDataPage({ form = false }: { form?: boolean }) {
       <header className="lab-head"><div><span>LABORATORY</span><h1>{id ? "Edit" : "Add"} {section.singular}</h1><p>{section.description}</p></div></header>
       <div className="lab-entry-body">{save.error && <div className="alert error">Unable to save. Check the entered values and try again.</div>}<div className="lab-entry-grid">{section.fields.map((field) => { const fieldOptions = optionsFor(field), current = String(value(editing || {} as Row, field.name) ?? fieldOptions[0] ?? ""); if (field.name === "specimenTubeId") {
         const selectedId = String(value(editing || {} as Row, field.name) || "");
-        return <label key={field.name}>{field.label}<select name={field.name} defaultValue={selectedId} disabled={tubesLoading || !!tubesError}>
-          <option value="">{tubesLoading ? "Loading specimen tubes..." : "Select specimen tube (optional)"}</option>
-          {selectedId && !tubes.some((tube) => tube.id === selectedId) && <option value={selectedId}>Unavailable specimen tube</option>}
-          {tubes.filter((tube) => tube.status === "ACTIVE" || tube.id === selectedId).map((tube) => <option key={tube.id} value={tube.id}>{tube.title}{value(tube, "capColor") ? ` - ${value(tube, "capColor")}` : ""}{tube.status !== "ACTIVE" ? " (inactive)" : ""}</option>)}
-        </select>{tubesError ? <small role="alert">Unable to load specimen tubes. Please try again.</small> : !tubesLoading && !tubes.some((tube) => tube.status === "ACTIVE") ? <small>Add an active tube in Specimen Tube Master to link it here.</small> : null}</label>;
+        return <SpecimenTubeSelect key={field.name} defaultValue={selectedId} loading={tubesLoading} error={!!tubesError} options={tubes.map((tube) => ({
+          id: tube.id, active: tube.status === "ACTIVE",
+          label: `${tube.title}${value(tube, "capColor") ? ` - ${value(tube, "capColor")}` : ""}${tube.status !== "ACTIVE" ? " (inactive)" : ""}`,
+          search: [tube.title, value(tube, "code"), value(tube, "sampleType"), value(tube, "capColor")].filter(Boolean).join(" "),
+        }))}/>;
       } return <label key={field.name} className={field.type === "textarea" ? "wide" : ""}>{field.label}{field.type === "textarea" ? <textarea name={field.name} defaultValue={current}/> : field.type === "select" ? <select name={field.name} required={field.required} defaultValue={current}>{current && !fieldOptions.includes(current) && <option value={current}>{current}</option>}{!fieldOptions.length && !current && <option value="">Add a master record first</option>}{fieldOptions.map((option) => <option key={option} value={option}>{field.options ? pretty(option.toLowerCase()) : option}</option>)}</select> : <input name={field.name} type={field.type || "text"} required={field.required} min={field.type === "number" ? 0 : undefined} step={field.name === "price" ? "0.01" : undefined} defaultValue={current}/>}</label>; })}</div><div className="lab-entry-actions"><button type="button" className="btn ghost" onClick={closeForm}>Cancel</button><button className="btn" disabled={save.isPending}>{save.isPending ? "Saving…" : `Save ${section.singular}`}</button></div></div></form>}
   </div>;
 

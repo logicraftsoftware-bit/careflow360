@@ -10,3 +10,13 @@
 .lab-entry-grid small { color: #64748b; }
 .lab-entry-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
 @media (max-width: 640px) { .lab-entry-grid { grid-template-columns: 1fr; } .lab-entry-body { padding: 18px; } }
+
+.lab-entry-form { overflow: visible; }
+.specimen-select-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.specimen-select-control { position: relative; }
+.specimen-select-control input[role="combobox"] { padding-right: 70px; }
+.specimen-select-clear { position: absolute; top: 8px; right: 8px; padding: 6px; border: 0; border-radius: 5px; background: #f1f5f9; color: #334155; cursor: pointer; }
+.specimen-select-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; max-height: 260px; overflow-y: auto; margin: 4px 0 0; padding: 4px; list-style: none; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 8px 24px #0f172a20; }
+.specimen-select-options li { padding: 10px 12px; border-radius: 5px; cursor: pointer; }
+.specimen-select-options li.highlighted, .specimen-select-options li:hover { background: #e8efff; color: #2457bd; }
+.specimen-select-options li[aria-selected="true"] { font-weight: 700; }
