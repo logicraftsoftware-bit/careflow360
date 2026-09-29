@@ -254,11 +254,9 @@ export function DiagnosticAppointmentBookingPage({
     save.mutate();
   };
   const names = ["Date", "Branch", "Patient", "Confirm", "Payment"];
-  if (booked) return <div className="panel">
-    <h1>{label} appointment booked successfully</h1>
+  if (booked) return <div className="diagnostic-confirmation-page">
     {linkPayment && !booked.whatsapp?.sent && <p className="alert error">{booked.whatsapp?.reason || "WhatsApp payment link was not sent. Check the appointment logs."}</p>}
-    <DiagnosticDocuments id={booked.id}/>
-    <button className="btn ghost" onClick={() => nav(`/app/${kind}-appointments`)}>Back to appointments</button>
+    <DiagnosticDocuments id={booked.id} confirmation onBack={() => nav(`/app/${kind}-appointments`)}/>
   </div>;
   return (
     <div className="booking-wizard diagnostic-wizard">
