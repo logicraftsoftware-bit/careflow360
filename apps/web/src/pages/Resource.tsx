@@ -2298,6 +2298,9 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                     <p>
                       By {log.actor?.name || log.actor?.email || "System"}
                     </p>
+                    {(log.metadata?.error || log.metadata?.reason) && (
+                      <p className="alert error">{String(log.metadata.error || log.metadata.reason)}</p>
+                    )}
                     {log.metadata?.changes && (
                       <dl>
                         {Object.entries(log.metadata.changes).map(
