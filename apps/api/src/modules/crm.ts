@@ -1,3 +1,4 @@
+import { validateSpecimenTube } from "../specimen-tubes.js";
 import { Router } from "express";
 import { randomInt, randomUUID } from "node:crypto";
 import argon2 from "argon2";
@@ -1587,6 +1588,7 @@ crmRouter.post(
     return ok(res, null, "WhatsApp message sent successfully");
   })
 );
+
 crmRouter.post(
   "/modules/:module",
   asyncRoute(async (req, res) => {
@@ -1596,6 +1598,7 @@ crmRouter.post(
       throw new AppError(409, "Please refresh this page before adding tests.", "CATALOG_CLIENT_OUTDATED");
     }
     const { title, status = "ACTIVE", ...data } = req.body;
+    await validateSpecimenTube(tid, req.params.module, data);
     if (
       ["lab-appointments", "radiology-appointments"].includes(
         req.params.module
@@ -1627,6 +1630,7 @@ crmRouter.patch(
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const { title, status, ...data } = req.body;
     const previousData = found.data as Record<string, any>;
+    await validateSpecimenTube(tid, req.params.module, data, previousData.specimenTubeId);
     if (
       ["lab-appointments", "radiology-appointments"].includes(
         req.params.module
@@ -1659,6 +1663,11 @@ crmRouter.delete(
       where: { id: req.params.id, tenantId: tid, module: req.params.module },
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
+    if (found.module === "specimen-tubes") {
+      const tests = await prisma.moduleRecord.findMany({ where: { tenantId: tid, module: "lab-tests" }, select: { data: true } });
+      const linkedTest = tests.some((test) => (test.data as Record<string, unknown>)?.specimenTubeId === found.id);
+      if (linkedTest) throw new AppError(409, "This specimen tube is linked to a lab test. Remove the link before deleting it, or mark the tube inactive.", "SPECIMEN_TUBE_IN_USE");
+    }
     await prisma.moduleRecord.delete({ where: { id: found.id } });
     await audit(req, `${req.params.module}.deleted`, "ModuleRecord", found.id);
     return ok(res, null, "Deleted successfully");
