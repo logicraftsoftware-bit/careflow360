@@ -57,7 +57,7 @@ export function DiagnosticDocuments({ id, onPaymentRecorded, confirmation = fals
         <div className="dd-amounts"><div className="blue"><Wallet/><span><small>Total Amount</small><b>{rupees(data.amount)}</b></span></div><div className="green"><CheckCircle2/><span><small>Amount Received</small><b>{rupees(data.collectedAmount)}</b></span></div><div className="red"><Clock3/><span><small>Remaining Amount</small><b>{rupees(data.remainingAmount)}</b></span></div></div>
         <div className={`dd-payment-status ${data.paymentStatus === "PAID" ? "settled" : ""}`}><span><ReceiptText/>Payment Status</span><b>{status === "pending" ? "Pending payment" : status}</b></div>
       </article>
-      {data.remainingAmount > 0 && data.status !== "CANCELLED" && data.paymentStatus !== "REFUNDED" ? <form className="dd-card dd-payment-form" onSubmit={submit}>
+      {!confirmation && (data.remainingAmount > 0 && data.status !== "CANCELLED" && data.paymentStatus !== "REFUNDED" ? <form className="dd-card dd-payment-form" onSubmit={submit}>
         <header className="dd-card-head"><span className="dd-icon blue"><CreditCard/></span><div><h2>Receive Remaining Payment</h2><p>Collect the pending amount for this appointment.</p></div></header>
         <div className="dd-fields"><label>Amount Received<div className="dd-currency-input"><span>INR</span><input aria-label="Amount received" required type="number" min="0.01" step="0.01" max={data.remainingAmount} placeholder={Number(data.remainingAmount).toFixed(2)} value={amount} onChange={(event) => setAmount(event.target.value)}/></div></label>
           <label>Payment Method<select value={method} onChange={(event) => setMethod(event.target.value)}><option>CASH</option><option>CARD</option><option>UPI</option><option value="BANK_TRANSFER">Bank transfer</option></select></label>
@@ -65,7 +65,7 @@ export function DiagnosticDocuments({ id, onPaymentRecorded, confirmation = fals
         </div>
         {payment.error && <p className="alert error" role="alert">{(payment.error as any).response?.data?.message || "Unable to record payment"}</p>}
         <button className="btn dd-record" disabled={payment.isPending}><ReceiptText/>{payment.isPending ? "Saving..." : "Record Payment & Generate Receipt"}</button>
-      </form> : <article className="dd-card dd-settled"><CheckCircle2/><h2>{data.remainingAmount === 0 ? "Payment Complete" : "Payment Information"}</h2><p>{data.remainingAmount === 0 ? "There is no remaining balance for this appointment." : "See the invoice and payment history for details."}</p></article>}
+      </form> : <article className="dd-card dd-settled"><CheckCircle2/><h2>{data.remainingAmount === 0 ? "Payment Complete" : "Payment Information"}</h2><p>{data.remainingAmount === 0 ? "There is no remaining balance for this appointment." : "See the invoice and payment history for details."}</p></article>)}
     </div>
     <div className="dd-actions"><button type="button" className="btn ghost dd-invoice" onClick={() => download("invoice")}><Download/> Download Invoice</button>{onBack && <button type="button" className="btn ghost" onClick={onBack}><ArrowLeft/>Back to Appointments</button>}</div>
     <article className="dd-card dd-receipts"><header className="dd-card-head"><span className="dd-icon purple"><ReceiptText/></span><div><h2>Payment Receipts</h2><p>A separate receipt for each payment received.</p></div></header>
