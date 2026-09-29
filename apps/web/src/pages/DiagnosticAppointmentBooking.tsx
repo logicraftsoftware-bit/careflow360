@@ -653,8 +653,15 @@ export function DiagnosticAppointmentBookingPage({
                         onChange={(e) => {
                           const method = e.target.value;
                           setPaymentMethod(method);
-                          if (method === "WHATSAPP_LINK") { setPaymentStatus("PENDING"); setPaymentAmount(String(total)); }
-                          else if (method && paymentStatus === "PENDING") { setPaymentStatus("PAID"); setPaymentAmount(String(total)); }
+                          if (method === "WHATSAPP_LINK") {
+                            setPaymentStatus("PENDING");
+                            // Keep the amount entered before switching to a payment link.
+                            if (paymentAmount === "") setPaymentAmount(String(total));
+                          } else if (method && paymentStatus === "PENDING") {
+                            const amount = paymentAmount === "" ? total : Number(paymentAmount);
+                            setPaymentStatus(amount >= total ? "PAID" : "PARTIALLY_PAID");
+                            if (paymentAmount === "") setPaymentAmount(String(total));
+                          }
                         }}
                       >
                         <option value="">Select method</option>
