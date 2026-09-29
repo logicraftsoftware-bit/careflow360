@@ -2227,7 +2227,7 @@ export function ResourcePage({ slug, mode }: { slug: string; mode: Mode }) {
                 )}
               </div>
             )}
-            {["lab-appointments", "radiology-appointments"].includes(slug) && <DiagnosticDocuments id={view.id} onPaymentRecorded={(payment) => setView((current: any) => ({ ...current, ...payment }))}/>}
+            {["lab-appointments", "radiology-appointments"].includes(slug) && <DiagnosticDocuments id={view.id}/>}
             <button className="btn full" onClick={() => setView(undefined)}>
               Close
             </button>
