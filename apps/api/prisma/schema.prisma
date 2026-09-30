@@ -487,11 +487,11 @@ model DoctorSchedule {
   branchId    String       @db.ObjectId
   dayOfWeek   Int
   scheduleDate DateTime?
-  sessionPeriod String?    @default("MORNING")
+  sessionPeriod String?    @default("DAILY")
   startTime   String
   endTime     String
-  slotMinutes Int          @default(15)
-  maxPatients Int          @default(20)
+  slotMinutes Int          @default(30)
+  maxPatients Int          @default(30)
   status      RecordStatus @default(ACTIVE)
   doctor      Doctor       @relation(fields: [doctorId], references: [id])
   branch      Branch       @relation(fields: [branchId], references: [id])

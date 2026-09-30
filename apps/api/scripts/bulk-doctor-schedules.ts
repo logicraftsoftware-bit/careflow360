@@ -6,10 +6,7 @@ const START_DATE = "2026-09-17";
 const END_DATE = "2026-12-31";
 const TENANT_NAME = process.env.BULK_SCHEDULE_TENANT || "MEDICITY GUWAHATI";
 
-const sessions = [
-  { sessionPeriod: "MORNING", startTime: "09:00", endTime: "14:00", slotMinutes: 15, maxPatients: 20 },
-  { sessionPeriod: "EVENING", startTime: "17:00", endTime: "19:30", slotMinutes: 15, maxPatients: 10 },
-] as const;
+const sessions = [{ sessionPeriod: "DAILY", startTime: "07:00", endTime: "22:00", slotMinutes: 30, maxPatients: 30 }] as const;
 
 function datesBetween(from: string, to: string) {
   const dates: Date[] = [];

@@ -73,6 +73,9 @@ jobs:
             echo "Generating Prisma Client..."
             npm run db:generate
 
+            echo "Consolidating doctor schedules into 30 daily slots..."
+            npm run schedules:migrate-daily -w @careflow360/api
+
             echo "Updating database schema..."
             # The client was generated in the previous step. Generating it again
             # after a successful MongoDB db push can return a spurious exit 1 on

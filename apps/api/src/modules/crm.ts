@@ -1,3 +1,5 @@
+import { DAILY_SCHEDULE } from "../daily-schedule.js";
+import { validateAppointmentHours } from "../appointment-hours.js";
 import { initialDocuments, reconcileDocuments } from "../diagnostic-receipts.js";
 import { diagnosticDocumentsRouter } from "./diagnostic-documents.js";
 import { diagnosticPayment } from "../diagnostic-payment.js";
@@ -199,13 +201,6 @@ const allowedFields: Record<string, string[]> = {
     "internalNotes",
   ],
 };
-function calculatedScheduleEnd(startTime: string, slotMinutes: number, maxPatients: number) {
-  const [hours, minutes] = startTime.split(":").map(Number);
-  const total = hours * 60 + minutes + slotMinutes * maxPatients;
-  if (!Number.isFinite(total) || total >= 24 * 60)
-    throw new AppError(400, "The calculated schedule end time cannot go past midnight", "INVALID_SCHEDULE_DURATION");
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-}
 function prepared(
   resource: string,
   body: any,
@@ -253,12 +248,10 @@ function prepared(
     data.mobile = normalizePatientMobile(data.mobile);
   if (
     resource === "doctorSchedules" &&
-    data.scheduleDate &&
-    data.dayOfWeek === undefined
+    data.scheduleDate
   )
     data.dayOfWeek = data.scheduleDate.getUTCDay();
-  if (resource === "doctorSchedules" && data.startTime && data.slotMinutes && data.maxPatients)
-    data.endTime = calculatedScheduleEnd(data.startTime, data.slotMinutes, data.maxPatients);
+  if (resource === "doctorSchedules") Object.assign(data, DAILY_SCHEDULE);
   if (creating && resource === "leads") {
     data.leadNumber = `LD-${Date.now().toString(36).toUpperCase()}`;
     data.createdById = userId;
@@ -276,6 +269,7 @@ function prepared(
   if (creating && resource === "followups" && !data.staffId)
     data.staffId = userId;
   if (creating && resource === "supportTickets") data.requesterId = userId;
+  if (creating && resource === "appointments") validateAppointmentHours(data.startsAt, data.endsAt);
   return data;
 }
 
@@ -1873,7 +1867,7 @@ crmRouter.get(
       }),
       prisma.appointment.findMany({
         where: { tenantId: tid, status: { not: "CANCELLED" }, startsAt: { gte: appointmentStart, lt: appointmentEnd } },
-        select: { id: true, patientId: true, doctorId: true, branchId: true, startsAt: true },
+        select: { id: true, patientId: true, doctorId: true, branchId: true, startsAt: true, endsAt: true },
       }),
       prisma.doctor.findMany({ where: { tenantId: tid }, include: { department: true } }),
       prisma.branch.findMany({ where: { tenantId: tid } }),
@@ -2118,6 +2112,7 @@ crmRouter.post(
       const startsAt = sessionStart,
         slotStart = body.startsAt,
         scheduleEnd = sessionEnd;
+      validateAppointmentHours(slotStart, new Date(slotStart.getTime() + schedule.slotMinutes * 60000));
       const offset = slotStart.getTime() - startsAt.getTime();
       if (
         offset < 0 ||
@@ -2134,7 +2129,8 @@ crmRouter.post(
           tenantId: tid,
           doctorId: doctor.id,
           branchId: branch.id,
-          startsAt: slotStart,
+          startsAt: { lt: new Date(slotStart.getTime() + schedule.slotMinutes * 60000) },
+          endsAt: { gt: slotStart },
           status: { not: "CANCELLED" },
         },
       });
@@ -2418,7 +2414,18 @@ crmRouter.post(
       data.branchIds = branchIds;
       data.branchId = branchIds[0];
     }
-    const row = await model.create({ data });
+    const row = req.params.resource === "doctorSchedules"
+      ? await prisma.$transaction(async (tx) => {
+          const where = { tenantId: tid, doctorId: data.doctorId, branchId: data.branchId,
+            ...(data.scheduleDate ? { scheduleDate: data.scheduleDate } : { scheduleDate: null, dayOfWeek: data.dayOfWeek }) };
+          const existing = await tx.doctorSchedule.findFirst({ where, orderBy: { id: "asc" } });
+          const saved = existing
+            ? await tx.doctorSchedule.update({ where: { id: existing.id }, data })
+            : await tx.doctorSchedule.create({ data });
+          await tx.doctorSchedule.deleteMany({ where: { ...where, id: { not: saved.id } } });
+          return saved;
+        })
+      : await model.create({ data });
     await audit(
       req,
       `${req.params.resource}.created`,
@@ -2497,6 +2504,9 @@ crmRouter.patch(
     });
     if (!found) throw new AppError(404, "Record not found", "NOT_FOUND");
     const data = prepared(req.params.resource, req.body, req.user!.id);
+    if (req.params.resource === "doctorSchedules") {
+      Object.assign(data, DAILY_SCHEDULE);
+    }
     if (req.params.resource === "doctors") Object.assign(data, validateDoctorCommission(data, found));
     if (req.params.resource === "departments" && data.branchIds) {
       const branchIds: string[] = Array.isArray(data.branchIds)
@@ -2579,6 +2589,20 @@ crmRouter.patch(
       data.endsAt = new Date(
         data.startsAt.getTime() + schedule.slotMinutes * 60000
       );
+      const conflicts = await prisma.appointment.findFirst({ where: {
+        tenantId: tid, id: { not: appointment.id }, doctorId,
+        branchId: data.branchId || appointment.branchId,
+        status: { not: "CANCELLED" },
+        startsAt: { lt: data.endsAt }, endsAt: { gt: data.startsAt },
+      } });
+      if (conflicts) throw new AppError(409, "This appointment time was already booked", "SLOT_TAKEN");
+      const bookedCount = await prisma.appointment.count({ where: {
+        tenantId: tid, id: { not: appointment.id }, doctorId,
+        branchId: data.branchId || appointment.branchId,
+        status: { not: "CANCELLED" }, startsAt: { gte: dayStart, lt: dayEnd },
+      } });
+      if (bookedCount >= schedule.maxPatients)
+        throw new AppError(409, "No appointment slots remain for this date", "SCHEDULE_FULL");
       if (
         data.status === "RESCHEDULED" &&
         data.startsAt.getTime() === appointment.startsAt.getTime()
@@ -2685,6 +2709,9 @@ crmRouter.patch(
           }
         }
       }
+    }
+    if (req.params.resource === "appointments" && (data.startsAt || data.endsAt)) {
+      validateAppointmentHours(data.startsAt || found.startsAt, data.endsAt || found.endsAt);
     }
     const row = await model.update({ where: { id: found.id }, data });
     const before = JSON.parse(JSON.stringify(found));

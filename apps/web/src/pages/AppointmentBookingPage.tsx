@@ -5,7 +5,6 @@ import {
   ArrowRight,
   CalendarCheck,
   Check,
-  Clock,
   Plus,
   Search,
   Stethoscope,
@@ -28,7 +27,6 @@ const displayDate = (value: string) =>
     month: "long",
     year: "numeric",
   });
-type SessionPeriod = "MORNING" | "EVENING";
 
 export function AppointmentBookingPage({
   appointment: _appointment,
@@ -42,8 +40,7 @@ export function AppointmentBookingPage({
   const [selectedDate, setSelectedDate] = useState(""),
     [branchId, setBranchId] = useState(""),
     [departmentId, setDepartmentId] = useState("");
-  const [sessionPeriod, setSessionPeriod] = useState<SessionPeriod | "">(""),
-    [doctorId, setDoctorId] = useState(""),
+  const [doctorId, setDoctorId] = useState(""),
     [scheduleId, setScheduleId] = useState("");
   const [patientMode, setPatientMode] = useState<"EXISTING" | "NEW">(
       "EXISTING"
@@ -106,29 +103,8 @@ export function AppointmentBookingPage({
       ].filter(Boolean),
     [schedules, branchId]
   );
-  const sessions = useMemo(
-    () =>
-      [
-        ...new Set(
-          schedules
-            .filter(
-              (item) =>
-                item.branchId === branchId &&
-                item.doctor.departmentId === departmentId
-            )
-            .map((item) =>
-              item.sessionPeriod === "EVENING" ? "EVENING" : "MORNING"
-            )
-        ),
-      ] as SessionPeriod[],
-    [schedules, branchId, departmentId]
-  );
   const doctorSchedules = schedules.filter(
-    (item) =>
-      item.branchId === branchId &&
-      item.doctor.departmentId === departmentId &&
-      (item.sessionPeriod === "EVENING" ? "EVENING" : "MORNING") ===
-        sessionPeriod
+    (item) => item.branchId === branchId && item.doctor.departmentId === departmentId
   );
   const selectedSchedule = schedules.find((item) => item.id === scheduleId),
     selectedDoctor = selectedSchedule?.doctor;
@@ -154,8 +130,8 @@ export function AppointmentBookingPage({
             (item) =>
               item.doctorId === doctorId &&
               item.branchId === branchId &&
-              new Date(item.startsAt).getTime() ===
-                new Date(slot.value).getTime()
+              new Date(item.startsAt).getTime() < new Date(slot.value).getTime() + selectedSchedule.slotMinutes * 60000 &&
+              new Date(item.endsAt).getTime() > new Date(slot.value).getTime()
           )
       )
     : [];
@@ -172,7 +148,6 @@ export function AppointmentBookingPage({
   const resetAfterDate = () => {
     setBranchId("");
     setDepartmentId("");
-    setSessionPeriod("");
     setDoctorId("");
     setScheduleId("");
     setPatient(null);
@@ -180,20 +155,12 @@ export function AppointmentBookingPage({
   };
   const resetAfterBranch = () => {
     setDepartmentId("");
-    setSessionPeriod("");
     setDoctorId("");
     setScheduleId("");
     setPatient(null);
     setAppointmentTime("");
   };
   const resetAfterDepartment = () => {
-    setSessionPeriod("");
-    setDoctorId("");
-    setScheduleId("");
-    setPatient(null);
-    setAppointmentTime("");
-  };
-  const resetAfterSession = () => {
     setDoctorId("");
     setScheduleId("");
     setPatient(null);
@@ -205,13 +172,11 @@ export function AppointmentBookingPage({
     ? 2
     : !departmentId
     ? 3
-    : !sessionPeriod
-    ? 4
     : !doctorId
-    ? 5
+    ? 4
     : !patient
-    ? 6
-    : 7;
+    ? 5
+    : 6;
   const createPatient = useMutation({
     mutationFn: (body: any) => api.post("/crm/patients", body).then(unwrap),
     onSuccess: async (saved: any) => {
@@ -264,7 +229,6 @@ export function AppointmentBookingPage({
     "Date",
     "Branch",
     "Department",
-    "Session",
     "Doctor",
     "Patient",
     "Confirm",
@@ -425,40 +389,9 @@ export function AppointmentBookingPage({
         {step === 4 && (
           <ChoiceStep
             number={4}
-            title="Morning or evening?"
-            subtitle="Choose the preferred consultation session."
-            onBack={() => setDepartmentId("")}
-          >
-            <div className="session-choice">
-              {sessions.map((period) => (
-                <button
-                  key={period}
-                  onClick={() => {
-                    setSessionPeriod(period);
-                    resetAfterSession();
-                  }}
-                >
-                  <Clock />
-                  <b>{period === "MORNING" ? "Morning" : "Evening"}</b>
-                  <span>
-                    {period === "MORNING"
-                      ? "Before noon"
-                      : "Afternoon and evening"}
-                  </span>
-                  <ArrowRight />
-                </button>
-              ))}
-            </div>
-          </ChoiceStep>
-        )}
-        {step === 5 && (
-          <ChoiceStep
-            number={5}
             title="Choose an available doctor"
-            subtitle={`${
-              sessionPeriod === "MORNING" ? "Morning" : "Evening"
-            } doctors for ${displayDate(selectedDate)}.`}
-            onBack={() => setSessionPeriod("")}
+            subtitle={`Doctors for ${displayDate(selectedDate)} ? 7:00 AM?10:00 PM ? 30 daily slots.`}
+            onBack={() => setDepartmentId("")}
           >
             <div className="doctor-choice">
               {doctorSchedules.map((schedule: any) => {
@@ -501,9 +434,9 @@ export function AppointmentBookingPage({
             </div>
           </ChoiceStep>
         )}
-        {step === 6 && (
+        {step === 5 && (
           <ChoiceStep
-            number={6}
+            number={5}
             title="Select patient"
             subtitle="Search an existing patient or register a new patient."
             onBack={() => {
@@ -567,10 +500,10 @@ export function AppointmentBookingPage({
             )}
           </ChoiceStep>
         )}
-        {step === 7 && (
+        {step === 6 && (
           <form onSubmit={submit}>
             <ChoiceStep
-              number={7}
+              number={6}
               title="Confirm appointment"
               subtitle="Everything is filled. Select the available time and save."
               onBack={() => setPatient(null)}
@@ -581,10 +514,6 @@ export function AppointmentBookingPage({
                   ["Branch", selectedSchedule.branch.name],
                   ["Department", selectedSchedule.doctor.department.name],
                   ["Doctor", selectedDoctor.name],
-                  [
-                    "Session",
-                    sessionPeriod === "MORNING" ? "Morning" : "Evening",
-                  ],
                   ["Appointment date", displayDate(selectedDate)],
                 ].map(([label, value]) => (
                   <div key={label}>
