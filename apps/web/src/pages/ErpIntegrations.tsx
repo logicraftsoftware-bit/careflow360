@@ -5,10 +5,10 @@ import { api,unwrap } from "../api";
 
 const defaults={baseUrl:"https://erp.hosmedai.com",apiKey:"",timeoutMs:30000,isActive:true};
 export function ErpIntegrationsPage(){
-  const client=useQueryClient(),{data:tenants=[],isLoading,error}=useQuery({queryKey:["admin-erp-integrations"],queryFn:()=>api.get("/super-admin/erp-integrations").then(unwrap)});
+  const client=useQueryClient(),{data:tenants=[],isLoading,error}=useQuery({queryKey:["admin-erp-integrations"],refetchInterval:30000,queryFn:()=>api.get("/super-admin/erp-integrations").then(unwrap)});
   const[tenantId,setTenantId]=useState(""),[form,setForm]=useState(defaults),selected=useMemo(()=>tenants.find((x:any)=>x.id===tenantId),[tenants,tenantId]);
   useEffect(()=>{if(!tenantId&&tenants.length)setTenantId(tenants[0].id)},[tenants,tenantId]);
-  useEffect(()=>{if(selected)setForm({...defaults,...(selected.integration||{}),apiKey:""})},[selected]);
+  useEffect(()=>{if(selected)setForm({...defaults,...(selected.integration||{}),apiKey:""})},[selected?.id,selected?.integration?.baseUrl,selected?.integration?.timeoutMs,selected?.integration?.isActive]);
   const refresh=()=>client.invalidateQueries({queryKey:["admin-erp-integrations"]});
   const save=useMutation({mutationFn:()=>api.put(`/super-admin/tenants/${tenantId}/erp-integration`,form),onSuccess:refresh});
   const sync=useMutation({mutationFn:()=>api.post(`/super-admin/tenants/${tenantId}/erp-sync`),onSuccess:refresh,onError:refresh});
@@ -21,7 +21,7 @@ export function ErpIntegrationsPage(){
       <label className="wide"><span><KeyRound/> ERP API key</span><input type="password" required={!integration?.hasApiKey} value={form.apiKey} autoComplete="new-password" onChange={e=>field("apiKey",e.target.value)} placeholder={integration?.hasApiKey?"Saved securely — leave blank to keep it":"Paste the newly generated ERP key"}/><small>The saved key is encrypted and is never returned to the browser.</small></label>
       <label><span>Request timeout (ms)</span><input required type="number" min={1000} max={120000} value={form.timeoutMs} onChange={e=>field("timeoutMs",Number(e.target.value))}/></label>
     </div>
-    {integration&&<div className="panel" style={{marginTop:16}}><strong>Synchronization status</strong><p>Last result: {integration.lastResult||"Never synced"}</p><p>Last success: {integration.lastSuccessAt?new Date(integration.lastSuccessAt).toLocaleString():"Never"}</p>{integration.lastCounts&&<p>Imported: {Object.entries(integration.lastCounts).map(([key,value])=>`${key} ${value}`).join(" · ")}</p>}{integration.lastError&&<div className="alert error">{integration.lastError}</div>}</div>}
+    {integration&&<div className="panel" style={{marginTop:16}}><strong>Synchronization status</strong><p>{integration.isActive?"Automatic sync runs every 5 minutes while the clinic is active, even when this page is closed.":"Automatic sync is paused. Activate and save this integration to enable it."}</p><p>Last result: {integration.lastResult||"Never synced"}</p><p>Last success: {integration.lastSuccessAt?new Date(integration.lastSuccessAt).toLocaleString():"Never"}</p>{integration.lastCounts&&<p>Imported: {Object.entries(integration.lastCounts).map(([key,value])=>`${key} ${value}`).join(" · ")}</p>}{integration.lastError&&<div className="alert error">{integration.lastError}</div>}</div>}
     {save.isSuccess&&<div className="alert settings-success">ERP configuration saved.</div>}{save.error&&<div className="alert error">{(save.error as any).response?.data?.message||"Unable to save ERP configuration"}</div>}{sync.isSuccess&&<div className="alert settings-success">ERP synchronization completed.</div>}{sync.error&&<div className="alert error">{(sync.error as any).response?.data?.message||"ERP synchronization failed"}</div>}
     <div className="modal-actions"><button type="button" className="btn ghost" disabled={!integration||sync.isPending||integration?.inProgress} onClick={()=>sync.mutate()}><RefreshCw/>{sync.isPending||integration?.inProgress?"Syncing…":"Sync now"}</button><button className="btn" disabled={save.isPending}><Save/>{save.isPending?"Saving…":"Save integration"}</button></div></form>}
   </div></>;

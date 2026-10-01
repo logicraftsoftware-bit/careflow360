@@ -59,11 +59,14 @@ async function postWithRetry(url:string,apiKey:string,payload:ErpBootstrapPayloa
   const error=new Error(`ERP returned HTTP ${response?.status||0}`) as Error&{status?:number};error.status=response?.status;throw error;
 }
 
-export async function syncClinicToErp(tenantId:string){
+export const ERP_SYNC_INTERVAL_MS = 5 * 60_000;
+
+export async function syncClinicToErp(tenantId:string,automatic=false){
   const integration=await prisma.erpOutboundIntegration.findUnique({where:{tenantId}});
   if(!integration?.isActive)throw new AppError(400,"ERP integration is not configured or is inactive","ERP_NOT_CONFIGURED");
   const startedAt=new Date(),stale=new Date(Date.now()-10*60_000);
-  const locked=await prisma.erpOutboundIntegration.updateMany({where:{tenantId,OR:[{syncLockedAt:null},{syncLockedAt:{isSet:false}},{syncLockedAt:{lt:stale}}]},data:{syncLockedAt:startedAt,lastSyncStartedAt:startedAt}});
+  const locked=await prisma.erpOutboundIntegration.updateMany({where:{tenantId,isActive:true,AND:[{OR:[{syncLockedAt:null},{syncLockedAt:{isSet:false}},{syncLockedAt:{lt:stale}}]},...(automatic?[{OR:[{lastSyncStartedAt:null},{lastSyncStartedAt:{isSet:false}},{lastSyncStartedAt:{lte:new Date(startedAt.getTime()-ERP_SYNC_INTERVAL_MS)}}]}]:[])]},data:{syncLockedAt:startedAt,lastSyncStartedAt:startedAt}});
+  if(automatic&&locked.count!==1)return;
   if(locked.count!==1)throw new AppError(409,"An ERP synchronization is already in progress","ERP_SYNC_IN_PROGRESS");
   let status:number|undefined;
   try{
