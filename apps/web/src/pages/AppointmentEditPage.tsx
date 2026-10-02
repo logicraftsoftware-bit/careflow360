@@ -7,14 +7,12 @@ export function AppointmentEditPage() {
   const { id } = useParams();
   const query = useQuery({
     queryKey: ["edit-appointment", id],
-    queryFn: () => api.get("/crm/appointments?limit=100").then(unwrap),
+    queryFn: () => api.get(`/crm/appointments/${id}`).then(unwrap),
   });
-  const appointments = Array.isArray(query.data)
-      ? query.data
-      : query.data?.items || [],
-    appointment = appointments.find((item: any) => item.id === id);
+  const appointment = query.data;
   if (query.isLoading) return <div className="state">Loading appointment…</div>;
+  if (query.error) return <div className="state error">{(query.error as any).response?.data?.message || "Unable to load appointment."}</div>;
   if (!appointment)
     return <div className="state error">Appointment not found.</div>;
-  return <AppointmentBookingPage appointment={appointment} />;
+  return <AppointmentBookingPage key={id} appointment={appointment} />;
 }

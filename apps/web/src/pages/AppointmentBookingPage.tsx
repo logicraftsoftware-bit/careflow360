@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
@@ -29,28 +29,31 @@ const displayDate = (value: string) =>
   });
 
 export function AppointmentBookingPage({
-  appointment: _appointment,
+  appointment,
 }: { appointment?: any } = {}) {
+  const queryClient = useQueryClient();
   const navigate = useNavigate(),
     today = new Date(),
     todayKey = dateKey(today);
+  const savedDate = appointment?.startsAt ? new Date(appointment.startsAt).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) : "";
+  const initialDate = savedDate ? new Date(`${savedDate}T12:00:00`) : today;
   const [month, setMonth] = useState(
-    new Date(today.getFullYear(), today.getMonth(), 1)
+    new Date(initialDate.getFullYear(), initialDate.getMonth(), 1)
   );
-  const [selectedDate, setSelectedDate] = useState(""),
-    [branchId, setBranchId] = useState(""),
-    [departmentId, setDepartmentId] = useState("");
-  const [doctorId, setDoctorId] = useState(""),
+  const [selectedDate, setSelectedDate] = useState(savedDate),
+    [branchId, setBranchId] = useState(appointment?.branchId || ""),
+    [departmentId, setDepartmentId] = useState(appointment?.departmentId || "");
+  const [doctorId, setDoctorId] = useState(appointment?.doctorId || ""),
     [scheduleId, setScheduleId] = useState("");
   const [patientMode, setPatientMode] = useState<"EXISTING" | "NEW">(
       "EXISTING"
     ),
     [patientSearch, setPatientSearch] = useState(""),
-    [patient, setPatient] = useState<any>(null),
+    [patient, setPatient] = useState<any>(appointment?.patient || null),
     [showNewPatient, setShowNewPatient] = useState(false);
-  const [appointmentTime, setAppointmentTime] = useState(""),
-    [status, setStatus] = useState("CONFIRMED"),
-    [paymentStatus, setPaymentStatus] = useState("PENDING"),
+  const [appointmentTime, setAppointmentTime] = useState(appointment?.startsAt ? new Date(appointment.startsAt).toISOString() : ""),
+    [status, setStatus] = useState(appointment?.status || "CONFIRMED"),
+    [paymentStatus, setPaymentStatus] = useState(appointment?.paymentStatus || "PENDING"),
     [sendWhatsApp, setSendWhatsApp] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(""),
     [utrNumber, setUtrNumber] = useState(""),
@@ -83,7 +86,7 @@ export function AppointmentBookingPage({
     enabled: Boolean(doctorId && !patient && patientMode === "EXISTING" && patientSearch.trim()),
   });
   const schedules: any[] = optionData.schedules || [],
-    appointments: any[] = optionData.appointments || [];
+    appointments: any[] = (optionData.appointments || []).filter((item: any) => item.id !== appointment?.id);
   const branches = useMemo(
     () => [
       ...new Map(
@@ -106,8 +109,9 @@ export function AppointmentBookingPage({
   const doctorSchedules = schedules.filter(
     (item) => item.branchId === branchId && item.doctor.departmentId === departmentId
   );
-  const selectedSchedule = schedules.find((item) => item.id === scheduleId),
-    selectedDoctor = selectedSchedule?.doctor;
+  const originalSelection = Boolean(appointment && selectedDate === savedDate && branchId === appointment.branchId && doctorId === appointment.doctorId && departmentId === appointment.departmentId);
+  const selectedSchedule = schedules.find((item) => item.id === scheduleId) || (originalSelection ? schedules.find((item) => item.doctorId === doctorId && item.branchId === branchId && new Date(appointment.startsAt) >= new Date(`${selectedDate}T${item.startTime}:00+05:30`) && new Date(appointment.startsAt) < new Date(`${selectedDate}T${item.endTime}:00+05:30`)) : undefined),
+    selectedDoctor = selectedSchedule?.doctor || (originalSelection ? appointment.doctor : undefined);
   const timeOptions = selectedSchedule
     ? Array.from({ length: selectedSchedule.maxPatients }, (_, index) => {
         const start = new Date(
@@ -135,6 +139,9 @@ export function AppointmentBookingPage({
           )
       )
     : [];
+  if (originalSelection && !timeOptions.some(slot => slot.value === new Date(appointment.startsAt).toISOString())) {
+    timeOptions.unshift({ value: new Date(appointment.startsAt).toISOString(), label: new Date(appointment.startsAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) });
+  }
   const calendarCells = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1),
       start = new Date(first);
@@ -186,13 +193,17 @@ export function AppointmentBookingPage({
     },
   });
   const book = useMutation({
-    mutationFn: () =>
-      api.post("/crm/appointments/book", {
+    mutationFn: () => appointment ? api.patch(`/crm/appointments/${appointment.id}`, {
+      patientId: patient.id, branchId, departmentId, doctorId,
+      ...(!originalSelection || patient.id !== appointment.patientId || new Date(appointmentTime).getTime() !== new Date(appointment.startsAt).getTime() ? { startsAt: appointmentTime } : {}),
+      ...(status !== appointment.status ? { status } : {}),
+      ...(paymentStatus !== appointment.paymentStatus ? { paymentStatus, paymentMethod, utrNumber, paymentRemarks } : {}),
+    }) : api.post("/crm/appointments/book", {
         patientId: patient.id,
         branchId,
         departmentId,
         doctorId,
-        scheduleId,
+        scheduleId: selectedSchedule?.id,
         startsAt: appointmentTime,
         status,
         paymentStatus,
@@ -202,6 +213,10 @@ export function AppointmentBookingPage({
         paymentRemarks: paymentStatus === "PAID" ? paymentRemarks : undefined,
       }),
     onSuccess: (response: any) => {
+      if (appointment) {
+        for (const key of ["/crm/appointments", "edit-appointment", "doctor-appointment-options", "clinic-appointment-calendar", "calendar-appointment-day"]) void queryClient.invalidateQueries({ queryKey: [key] });
+        window.alert("Appointment updated successfully"); navigate("/app/appointments"); return;
+      }
       const saved = response.data.data;
       window.alert(
         saved.token
@@ -215,10 +230,10 @@ export function AppointmentBookingPage({
     event.preventDefault();
     if (!appointmentTime)
       return window.alert("Please select an available appointment time");
-    if (paymentStatus === "PAID" && !paymentMethod)
+    if (paymentStatus === "PAID" && paymentStatus !== appointment?.paymentStatus && !paymentMethod)
       return window.alert("Please select a payment method");
     if (
-      paymentStatus === "PAID" &&
+      paymentStatus === "PAID" && paymentStatus !== appointment?.paymentStatus &&
       paymentMethod !== "CASH" &&
       !utrNumber.trim()
     )
@@ -244,9 +259,9 @@ export function AppointmentBookingPage({
       </button>
       <div className="booking-head">
         <div>
-          <span>NEW APPOINTMENT</span>
-          <h1>Book doctor appointment</h1>
-          <p>Complete each step to find the right doctor and available time.</p>
+          <span>{appointment ? "EDIT APPOINTMENT" : "NEW APPOINTMENT"}</span>
+          <h1>{appointment ? "Edit doctor appointment" : "Book doctor appointment"}</h1>
+          <p>{appointment ? "Review the saved appointment details and update as needed." : "Complete each step to find the right doctor and available time."}</p>
         </div>
         <CalendarCheck />
       </div>
@@ -412,6 +427,7 @@ export function AppointmentBookingPage({
                     onClick={() => {
                       setDoctorId(schedule.doctorId);
                       setScheduleId(schedule.id);
+                      setAppointmentTime("");
                       setPatient(null);
                     }}
                   >
@@ -504,16 +520,16 @@ export function AppointmentBookingPage({
           <form onSubmit={submit}>
             <ChoiceStep
               number={6}
-              title="Confirm appointment"
+              title={appointment ? "Edit appointment details" : "Confirm appointment"}
               subtitle="Everything is filled. Select the available time and save."
               onBack={() => setPatient(null)}
             >
               <div className="appointment-summary">
                 {[
                   ["Patient", `${patient.name} · ${patient.patientNumber}`],
-                  ["Branch", selectedSchedule.branch.name],
-                  ["Department", selectedSchedule.doctor.department.name],
-                  ["Doctor", selectedDoctor.name],
+                  ["Branch", (selectedSchedule?.branch || appointment?.branch)?.name || "Branch"],
+                  ["Department", (selectedSchedule?.doctor?.department || appointment?.department)?.name || "Department"],
+                  ["Doctor", selectedDoctor?.name || "Doctor"],
                   ["Appointment date", displayDate(selectedDate)],
                 ].map(([label, value]) => (
                   <div key={label}>
@@ -522,6 +538,7 @@ export function AppointmentBookingPage({
                   </div>
                 ))}
               </div>
+              {appointment && <div className="wizard-actions"><button type="button" className="btn ghost" onClick={() => setSelectedDate("")}>Change date / branch / doctor</button><button type="button" className="btn ghost" onClick={() => setPatient(null)}>Change patient</button></div>}
               <div className="final-fields">
                 <label>
                   Available appointment time
@@ -548,6 +565,7 @@ export function AppointmentBookingPage({
                     <option value="DRAFT">Draft</option>
                     <option value="BOOKING_PENDING">Booking pending</option>
                     <option value="PAYMENT_PENDING">Payment pending</option>
+                    {appointment && !["CONFIRMED", "DRAFT", "BOOKING_PENDING", "PAYMENT_PENDING"].includes(appointment.status) && <option value={appointment.status}>{appointment.status.replaceAll("_", " ")}</option>}
                   </select>
                 </label>
                 <label>
@@ -559,9 +577,10 @@ export function AppointmentBookingPage({
                     <option value="PENDING">Pending</option>
                     <option value="NOT_REQUIRED">Not required</option>
                     <option value="PAID">Paid</option>
+                    {appointment && !["PENDING", "NOT_REQUIRED", "PAID"].includes(appointment.paymentStatus) && <option value={appointment.paymentStatus}>{appointment.paymentStatus.replaceAll("_", " ")}</option>}
                   </select>
                 </label>
-                {paymentStatus === "PAID" && (
+                {paymentStatus === "PAID" && paymentStatus !== appointment?.paymentStatus && (
                   <>
                     <label>
                       Payment method
@@ -596,7 +615,7 @@ export function AppointmentBookingPage({
                     </label>
                   </>
                 )}
-                <label className="whatsapp-opt-in">
+                {!appointment && <label className="whatsapp-opt-in">
                   <input
                     type="checkbox"
                     checked={sendWhatsApp}
@@ -605,12 +624,12 @@ export function AppointmentBookingPage({
                   <span>
                     Send appointment confirmation to the patient on WhatsApp
                   </span>
-                </label>
+                </label>}
               </div>
               {book.error && (
                 <div className="alert error">
                   {(book.error as any).response?.data?.message ||
-                    "Unable to book appointment"}
+                    (appointment ? "Unable to update appointment" : "Unable to book appointment")}
                 </div>
               )}
               <div className="wizard-actions">
@@ -625,7 +644,7 @@ export function AppointmentBookingPage({
                   className="btn"
                   disabled={book.isPending || !timeOptions.length}
                 >
-                  {book.isPending ? "Booking…" : "Book appointment"}
+                  {book.isPending ? "Saving..." : appointment ? "Save changes" : "Book appointment"}
                 </button>
               </div>
             </ChoiceStep>
@@ -661,7 +680,7 @@ function WizardTitle({ number, title, subtitle }: any) {
 function ChoiceStep({ number, title, subtitle, onBack, children }: any) {
   return (
     <>
-      <button className="wizard-back" onClick={onBack}>
+      <button type="button" className="wizard-back" onClick={onBack}>
         <ArrowLeft /> Previous step
       </button>
       <WizardTitle number={number} title={title} subtitle={subtitle} />

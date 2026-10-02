@@ -1716,6 +1716,17 @@ crmRouter.get(
   })
 );
 crmRouter.get(
+  "/appointments/:id",
+  asyncRoute(async (req, res) => {
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: req.params.id, tenantId: tenantId(req) },
+      include: { patient: true, branch: true, department: true, doctor: true },
+    });
+    if (!appointment) throw new AppError(404, "Appointment not found", "NOT_FOUND");
+    return ok(res, appointment);
+  })
+);
+crmRouter.get(
   "/patient-followups",
   asyncRoute(async (req, res) => {
     const from = z.coerce.date().parse(req.query.from),
