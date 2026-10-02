@@ -6,3 +6,10 @@
 .clinic-calendar-grid button.has-booking { background: #ecfdf5; border-color: #86efac; color: #047857; }
 .clinic-calendar-grid button.has-booking:hover { background: #d1fae5; border-color: #34d399; }
 .clinic-calendar-grid button.no-booking { background: #fff; color: #172554; }
+.clinic-calendar-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 18px 14px 0; }
+.clinic-calendar-filters label { display: flex; flex: 1 1 180px; flex-direction: column; gap: 7px; min-width: 0; color: #475569; font-size: 12px; font-weight: 600; }
+.clinic-calendar-filters select { width: 100%; min-height: 42px; padding: 9px 12px; border: 1px solid #cfd9e6; border-radius: 9px; background: #fff; color: #172554; font: inherit; }
+.clinic-calendar-filters select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.clinic-calendar-filters button { min-height: 42px; }
+.clinic-calendar-filter-note { margin: 10px 14px; color: #64748b; font-size: 12px; }
+.clinic-calendar-empty { padding: 12px; text-align: center; color: #64748b; }

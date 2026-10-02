@@ -31,7 +31,8 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { calendarFilterFields, matchesCalendarFilters } from "./calendarFilters";
 import Swal from "sweetalert2";
 import "./ClinicCalendar.css";
 type Mode = "tenant" | "admin";
@@ -938,22 +939,30 @@ function PatientSearchRef({ field, value }: { field: Field; value?: string }) {
 
 const clinicDateKey=(value:string|Date)=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Kolkata",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(value));
 function ClinicAppointmentCalendar(){
+  const [filterParams,setFilterParams]=useSearchParams();
+  const filterQuery=filterParams.toString();
+  const updateFilter=(field:string,value:string)=>{const next=new URLSearchParams(filterParams);if(value)next.set(`${field}Id`,value);else next.delete(`${field}Id`);setFilterParams(next,{replace:true});};
   const navigate=useNavigate(),today=new Date(),[month,setMonth]=useState(()=>new Date(today.getFullYear(),today.getMonth(),1));
   const year=month.getFullYear(),monthIndex=month.getMonth();
   const first=new Date(Date.UTC(year,monthIndex,1)),gridStart=new Date(first);gridStart.setUTCDate(1-first.getUTCDay());
   const days=Array.from({length:42},(_,index)=>{const date=new Date(gridStart);date.setUTCDate(gridStart.getUTCDate()+index);return date;});
   const rangeEnd=new Date(days[days.length-1]);rangeEnd.setUTCDate(rangeEnd.getUTCDate()+1);
-  const {data:appointments=[],isLoading,error}=useQuery({queryKey:["clinic-appointment-calendar",year,monthIndex],queryFn:()=>api.get(`/crm/appointments/calendar?from=${gridStart.toISOString()}&to=${rangeEnd.toISOString()}`).then(unwrap)});
-  const grouped=useMemo(()=>(appointments as any[]).reduce((map:Map<string,any[]>,appointment:any)=>{if(appointment.startsAt){const key=clinicDateKey(appointment.startsAt);map.set(key,[...(map.get(key)||[]),appointment]);}return map;},new Map<string,any[]>()),[appointments]);
+  const {data:appointments=[],isLoading,error}=useQuery({queryKey:["clinic-appointment-calendar",year,monthIndex],queryFn:()=>api.get(`/crm/appointments/calendar?from=${new Date(gridStart.getTime()-19800000).toISOString()}&to=${new Date(rangeEnd.getTime()-19800000).toISOString()}`).then(unwrap)});
+  const filterOptions=useMemo(()=>Object.fromEntries(calendarFilterFields.map(field=>[field,[...new Map((appointments as any[]).filter(item=>item[field]?.id).map(item=>[item[field].id,item[field]])).values()].sort((a,b)=>a.name.localeCompare(b.name))])),[appointments]);
+  const filteredAppointments=useMemo(()=>(appointments as any[]).filter(item=>item.status!=="CANCELLED"&&matchesCalendarFilters(item,new URLSearchParams(filterQuery))),[appointments,filterQuery]);
+  const grouped=useMemo(()=>filteredAppointments.reduce((map:Map<string,any[]>,appointment:any)=>{if(appointment.startsAt){const key=clinicDateKey(appointment.startsAt);map.set(key,[...(map.get(key)||[]),appointment]);}return map;},new Map<string,any[]>()),[filteredAppointments]);
   const monthTitle=month.toLocaleDateString("en-IN",{month:"long",year:"numeric"});
   return <>
     <div className="page-head"><div><span>CLINIC MANAGEMENT</span><h1>Clinic Appointment Calendar</h1><p>See every doctor appointment across the clinic by date.</p></div></div>
     <section className="panel clinic-calendar">
+      <div className="clinic-calendar-filters">{calendarFilterFields.map(field=><label key={field}>{field.charAt(0).toUpperCase()+field.slice(1)}<select value={filterParams.get(`${field}Id`)||""} onChange={event=>updateFilter(field,event.target.value)}><option value="">All {field === "branch" ? "branches" : `${field}s`}</option>{filterParams.get(`${field}Id`)&&!filterOptions[field].some((option:any)=>option.id===filterParams.get(`${field}Id`))&&<option value={filterParams.get(`${field}Id`)!}>Selected {field} (no appointments)</option>}{filterOptions[field].map((option:any)=><option key={option.id} value={option.id}>{option.name}</option>)}</select></label>)}<button className="btn ghost" disabled={!calendarFilterFields.some(field=>filterParams.has(`${field}Id`))} onClick={()=>{const next=new URLSearchParams(filterParams);calendarFilterFields.forEach(field=>next.delete(`${field}Id`));setFilterParams(next,{replace:true});}}>Clear filters</button></div>
+      <p className="clinic-calendar-filter-note">Filter options reflect appointments in the displayed calendar.</p>
       <div className="clinic-calendar-head"><button aria-label="Previous month" onClick={()=>setMonth(new Date(year,monthIndex-1,1))}><ChevronLeft/></button><h2>{monthTitle}</h2><button aria-label="Next month" onClick={()=>setMonth(new Date(year,monthIndex+1,1))}><ChevronRight/></button></div>
       <div className="clinic-calendar-legend"><span><i className="booked-dot"/>Booked date</span><span><i className="no-booking-dot"/>No appointments</span></div>
       {isLoading?<div className="state">Loading appointments...</div>:error?<div className="state error">{(error as any)?.response?.data?.message||"Unable to load appointments"}</div>:<>
+        {!filteredAppointments.length&&<p className="clinic-calendar-empty" role="status">No appointments match the selected filters in this calendar period.</p>}
         <div className="clinic-calendar-week">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(day=><b key={day}>{day}</b>)}</div>
-        <div className="clinic-calendar-grid">{days.map(date=>{const key=`${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,"0")}-${String(date.getUTCDate()).padStart(2,"0")}`,items=(grouped.get(key)||[]).filter(item=>item.status!=="CANCELLED"),outside=date.getUTCMonth()!==monthIndex,isToday=key===clinicDateKey(new Date());return <button key={key} className={`${outside?"outside":""} ${isToday?"today":""} ${items.length?"has-booking":"no-booking"}`} onClick={()=>items.length&&navigate(`/app/calendar/${key}`)} disabled={!items.length}><span>{date.getUTCDate()}</span>{items.length>0&&<div><strong>{items.length}</strong><small>{items.length===1?"appointment":"appointments"}</small></div>}</button>})}</div>
+        <div className="clinic-calendar-grid">{days.map(date=>{const key=`${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,"0")}-${String(date.getUTCDate()).padStart(2,"0")}`,items=(grouped.get(key)||[]).filter(item=>item.status!=="CANCELLED"),outside=date.getUTCMonth()!==monthIndex,isToday=key===clinicDateKey(new Date());return <button key={key} className={`${outside?"outside":""} ${isToday?"today":""} ${items.length?"has-booking":"no-booking"}`} onClick={()=>items.length&&navigate(`/app/calendar/${key}${filterQuery?`?${filterQuery}`:""}`)} disabled={!items.length}><span>{date.getUTCDate()}</span>{items.length>0&&<div><strong>{items.length}</strong><small>{items.length===1?"appointment":"appointments"}</small></div>}</button>})}</div>
       </>}
     </section>
   </>;

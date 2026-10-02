@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, CalendarClock, Check, ChevronRight, Download, FileText, Search, Stethoscope, UserX, X } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, unwrap } from "../api";
 import "./CalendarAppointmentsPage.css";
+import { matchesCalendarFilters } from "./calendarFilters";
 
 const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 const timeLabel = (value: string) => new Date(value).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: true });
@@ -12,13 +13,15 @@ const attendanceLabel = (status: string) => ["CHECKED_IN", "IN_CONSULTATION", "C
 
 export function CalendarAppointmentsPage() {
   const { date = "", doctorId } = useParams();
+  const [filterParams] = useSearchParams();
+  const filterSuffix = filterParams.toString() ? `?${filterParams}` : "";
   const navigate = useNavigate(), queryClient = useQueryClient();
   const [search, setSearch] = useState(""), [attendance, setAttendance] = useState("ALL"), [payment, setPayment] = useState("ALL");
   const [paymentEdit, setPaymentEdit] = useState<any>(), [paymentMethod, setPaymentMethod] = useState(""), [paymentReference, setPaymentReference] = useState(""), [paymentAmount, setPaymentAmount] = useState(""), [paymentRemarks, setPaymentRemarks] = useState("");
   const [followupEdit, setFollowupEdit] = useState<any>(), [followupAt, setFollowupAt] = useState(""), [followupRemarks, setFollowupRemarks] = useState("");
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date), from = validDate ? new Date(`${date}T00:00:00+05:30`) : new Date(), to = new Date(from.getTime() + 86400000), queryKey = ["calendar-appointment-day", date];
   const { data: raw = [], isLoading, error } = useQuery({ queryKey, queryFn: () => api.get(`/crm/appointments/calendar?from=${from.toISOString()}&to=${to.toISOString()}`).then(unwrap), enabled: validDate });
-  const appointments = (raw as any[]).filter((item) => item.status !== "CANCELLED");
+  const appointments = (raw as any[]).filter((item) => item.status !== "CANCELLED" && matchesCalendarFilters(item, filterParams));
   const doctors = useMemo(() => {
     const grouped = new Map<string, any>();
     for (const appointment of appointments) {
@@ -44,7 +47,7 @@ export function CalendarAppointmentsPage() {
   if (!validDate) return <div className="state error">Invalid calendar date.</div>;
   if (isLoading) return <div className="state">Loading appointments...</div>;
   if (error) return <div className="state error">{(error as any)?.response?.data?.message || "Unable to load appointments"}</div>;
-  if (!doctorId) return <div className="calendar-drilldown"><button className="schedule-back" onClick={() => navigate("/app/calendar")}><ArrowLeft /> Back to calendar</button><div className="page-head"><div><span>APPOINTMENT ROSTER</span><h1>{dateLabel(date)}</h1><p>{appointments.length} appointment{appointments.length === 1 ? "" : "s"} across {doctors.length} doctor{doctors.length === 1 ? "" : "s"}.</p></div></div>{doctors.length ? <div className="doctor-roster-grid">{doctors.map((doctor) => <button key={doctor.id} onClick={() => navigate(`/app/calendar/${date}/${doctor.id}`)}><span className="doctor-roster-icon"><Stethoscope /></span><span><strong>{doctor.name}</strong><small>{doctor.department || "Department not assigned"}</small><em>{[...doctor.branches].join(", ")}</em></span><b>{doctor.appointments.length}<small>patients</small></b><ChevronRight /></button>)}</div> : <div className="panel calendar-no-results">No doctor appointments are booked on this date.</div>}</div>;
+  if (!doctorId) return <div className="calendar-drilldown"><button className="schedule-back" onClick={() => navigate(`/app/calendar${filterSuffix}`)}><ArrowLeft /> Back to calendar</button><div className="page-head"><div><span>APPOINTMENT ROSTER</span><h1>{dateLabel(date)}</h1><p>{appointments.length} appointment{appointments.length === 1 ? "" : "s"} across {doctors.length} doctor{doctors.length === 1 ? "" : "s"}.</p></div></div>{doctors.length ? <div className="doctor-roster-grid">{doctors.map((doctor) => <button key={doctor.id} onClick={() => navigate(`/app/calendar/${date}/${doctor.id}${filterSuffix}`)}><span className="doctor-roster-icon"><Stethoscope /></span><span><strong>{doctor.name}</strong><small>{doctor.department || "Department not assigned"}</small><em>{[...doctor.branches].join(", ")}</em></span><b>{doctor.appointments.length}<small>patients</small></b><ChevronRight /></button>)}</div> : <div className="panel calendar-no-results">No doctor appointments are booked on this date.</div>}</div>;
   if (!selectedDoctor) return <div className="state error">Doctor appointments were not found for this date.</div>;
 
   const paymentOptions = [...new Set(selectedDoctor.appointments.map((item: any) => item.paymentStatus))] as string[];
@@ -56,7 +59,7 @@ export function CalendarAppointmentsPage() {
   const openFollowup = (appointment: any) => { const next = new Date(); next.setDate(next.getDate() + 1); next.setHours(10, 0, 0, 0); setFollowupEdit(appointment); setFollowupAt(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}T10:00`); setFollowupRemarks(""); };
 
   return <div className="calendar-drilldown">
-    <button className="schedule-back" onClick={() => navigate(`/app/calendar/${date}`)}><ArrowLeft /> Back to doctors</button>
+    <button className="schedule-back" onClick={() => navigate(`/app/calendar/${date}${filterSuffix}`)}><ArrowLeft /> Back to doctors</button>
     <div className="page-head roster-page-head"><div><span>DAILY PATIENT LIST</span><h1>{selectedDoctor.name}</h1><p>{dateLabel(date)} · {selectedDoctor.department || "Doctor appointments"}</p></div><div className="roster-export-actions"><button className="btn ghost" onClick={exportCsv}><Download /> Export CSV</button><button className="btn" onClick={exportPdf}><FileText /> Export PDF</button></div></div>
     <div className="appointment-colour-legend"><b>Colour guide:</b><span><i className="waiting" />Awaiting</span><span><i className="checked" />Checked in</span><span><i className="absent" />Absent</span><span><i className="paid" />Paid</span><span><i className="pending" />Payment pending</span><span><i className="partial" />Partially paid</span><span><i className="not-required" />Payment not required</span></div>
     <section className="panel patient-roster"><div className="patient-roster-tools"><label><Search /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient name, ID or phone number" /></label><select value={attendance} onChange={(event) => setAttendance(event.target.value)}><option value="ALL">All attendance</option><option value="WAITING">Awaiting</option><option value="CHECKED_IN">Checked in</option><option value="NO_SHOW">Absent</option></select><select value={payment} onChange={(event) => setPayment(event.target.value)}><option value="ALL">All payment statuses</option>{paymentOptions.map((status) => <option key={status} value={status}>{titleCase(status)}</option>)}</select></div><div className="patient-roster-summary">Showing <b>{filtered.length}</b> of {selectedDoctor.appointments.length} patients</div>
