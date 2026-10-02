@@ -31,6 +31,7 @@ const displayDate = (value: string) =>
 export function AppointmentBookingPage({
   appointment,
 }: { appointment?: any } = {}) {
+  const [step, setStep] = useState(1);
   const queryClient = useQueryClient();
   const navigate = useNavigate(),
     today = new Date(),
@@ -83,7 +84,7 @@ export function AppointmentBookingPage({
       api
         .get("/crm/appointment-patients", { params: { search: patientSearch } })
         .then(unwrap),
-    enabled: Boolean(doctorId && !patient && patientMode === "EXISTING" && patientSearch.trim()),
+    enabled: Boolean(doctorId && patientMode === "EXISTING" && patientSearch.trim()),
   });
   const schedules: any[] = optionData.schedules || [],
     appointments: any[] = (optionData.appointments || []).filter((item: any) => item.id !== appointment?.id);
@@ -157,37 +158,27 @@ export function AppointmentBookingPage({
     setDepartmentId("");
     setDoctorId("");
     setScheduleId("");
-    setPatient(null);
+    if (!appointment) setPatient(null);
     setAppointmentTime("");
   };
   const resetAfterBranch = () => {
     setDepartmentId("");
     setDoctorId("");
     setScheduleId("");
-    setPatient(null);
+    if (!appointment) setPatient(null);
     setAppointmentTime("");
   };
   const resetAfterDepartment = () => {
     setDoctorId("");
     setScheduleId("");
-    setPatient(null);
+    if (!appointment) setPatient(null);
     setAppointmentTime("");
   };
-  const step = !selectedDate
-    ? 1
-    : !branchId
-    ? 2
-    : !departmentId
-    ? 3
-    : !doctorId
-    ? 4
-    : !patient
-    ? 5
-    : 6;
   const createPatient = useMutation({
     mutationFn: (body: any) => api.post("/crm/patients", body).then(unwrap),
     onSuccess: async (saved: any) => {
       setPatient(saved);
+      setStep(6);
       setShowNewPatient(false);
       await refetchPatients();
     },
@@ -323,7 +314,7 @@ export function AppointmentBookingPage({
               <div className="days">
                 {calendarCells.map((date) => {
                   const key = dateKey(date),
-                    disabled = key < todayKey,
+                    disabled = key < todayKey && key !== savedDate,
                     outside = date.getMonth() !== month.getMonth();
                   return (
                     <button
@@ -333,8 +324,8 @@ export function AppointmentBookingPage({
                         selectedDate === key ? "selected" : ""
                       }`}
                       onClick={() => {
-                        setSelectedDate(key);
-                        resetAfterDate();
+                        if (key !== selectedDate) { setSelectedDate(key); resetAfterDate(); }
+                        setStep(2);
                       }}
                     >
                       {date.getDate()}
@@ -352,8 +343,9 @@ export function AppointmentBookingPage({
             subtitle={`${displayDate(
               selectedDate
             )} · Choose the clinic branch.`}
-            onBack={() => setSelectedDate("")}
+            onBack={() => setStep(1)}
           >
+            {appointment && branchId === appointment.branchId && !branches.some((item: any) => item.id === branchId) && <Choice selected title={appointment.branch.name} subtitle="Current branch" onClick={() => setStep(3)} />}
             {optionsError ? (
               <Empty text={(optionsError as any).response?.data?.message || "Unable to load doctor schedules. Please try again."} />
             ) : optionsLoading ? (
@@ -363,13 +355,14 @@ export function AppointmentBookingPage({
                 {branches.map((branch: any) => (
                   <Choice
                     key={branch.id}
+                    selected={branch.id === branchId}
                     title={branch.name}
                     subtitle={[branch.city, branch.address]
                       .filter(Boolean)
                       .join(" · ")}
                     onClick={() => {
-                      setBranchId(branch.id);
-                      resetAfterBranch();
+                      if (branch.id !== branchId) { setBranchId(branch.id); resetAfterBranch(); }
+                      setStep(3);
                     }}
                   />
                 ))}
@@ -384,17 +377,19 @@ export function AppointmentBookingPage({
             number={3}
             title="Select department"
             subtitle="Only departments with available doctors are shown."
-            onBack={() => setBranchId("")}
+            onBack={() => setStep(2)}
           >
             <div className="choice-grid">
+              {appointment && departmentId === appointment.departmentId && !departments.some((item: any) => item.id === departmentId) && <Choice selected title={appointment.department.name} subtitle="Current department" onClick={() => setStep(4)} />}
               {departments.map((department: any) => (
                 <Choice
                   key={department.id}
+                  selected={department.id === departmentId}
                   title={department.name}
                   subtitle={department.code}
                   onClick={() => {
-                    setDepartmentId(department.id);
-                    resetAfterDepartment();
+                    if (department.id !== departmentId) { setDepartmentId(department.id); resetAfterDepartment(); }
+                    setStep(4);
                   }}
                 />
               ))}
@@ -406,8 +401,9 @@ export function AppointmentBookingPage({
             number={4}
             title="Choose an available doctor"
             subtitle={`Doctors for ${displayDate(selectedDate)} ? 7:00 AM?10:00 PM ? 30 daily slots.`}
-            onBack={() => setDepartmentId("")}
+            onBack={() => setStep(3)}
           >
+            {originalSelection && !selectedSchedule && <Choice selected title={appointment.doctor.name} subtitle="Current doctor" onClick={() => setStep(5)} />}
             <div className="doctor-choice">
               {doctorSchedules.map((schedule: any) => {
                 const booked = appointments.filter(
@@ -424,11 +420,15 @@ export function AppointmentBookingPage({
                 return (
                   <button
                     key={schedule.id}
+                    className={selectedSchedule?.id === schedule.id ? "selected" : ""}
+                    aria-pressed={selectedSchedule?.id === schedule.id}
                     onClick={() => {
-                      setDoctorId(schedule.doctorId);
-                      setScheduleId(schedule.id);
-                      setAppointmentTime("");
-                      setPatient(null);
+                      if (selectedSchedule?.id !== schedule.id) {
+                        setDoctorId(schedule.doctorId);
+                        setScheduleId(schedule.id);
+                        setAppointmentTime("");
+                      }
+                      setStep(5);
                     }}
                   >
                     <i>
@@ -455,11 +455,9 @@ export function AppointmentBookingPage({
             number={5}
             title="Select patient"
             subtitle="Search an existing patient or register a new patient."
-            onBack={() => {
-              setDoctorId("");
-              setScheduleId("");
-            }}
+            onBack={() => setStep(4)}
           >
+            {patient && <Choice selected title={patient.name} subtitle={`${patient.patientNumber || ""} - ${patient.mobile || ""}`} onClick={() => setStep(6)} />}
             <div className="patient-tabs">
               <button
                 className={patientMode === "EXISTING" ? "active" : ""}
@@ -495,7 +493,7 @@ export function AppointmentBookingPage({
                     <Loading />
                   ) : patientData.items?.length ? (
                     patientData.items.map((item: any) => (
-                      <button key={item.id} onClick={() => setPatient(item)}>
+                      <button key={item.id} onClick={() => { setPatient(item); setStep(6); }}>
                         <i>
                           <UserRound />
                         </i>
@@ -522,7 +520,7 @@ export function AppointmentBookingPage({
               number={6}
               title={appointment ? "Edit appointment details" : "Confirm appointment"}
               subtitle="Everything is filled. Select the available time and save."
-              onBack={() => setPatient(null)}
+              onBack={() => setStep(5)}
             >
               <div className="appointment-summary">
                 {[
@@ -538,7 +536,7 @@ export function AppointmentBookingPage({
                   </div>
                 ))}
               </div>
-              {appointment && <div className="wizard-actions"><button type="button" className="btn ghost" onClick={() => setSelectedDate("")}>Change date / branch / doctor</button><button type="button" className="btn ghost" onClick={() => setPatient(null)}>Change patient</button></div>}
+
               <div className="final-fields">
                 <label>
                   Available appointment time
@@ -636,7 +634,7 @@ export function AppointmentBookingPage({
                 <button
                   type="button"
                   className="btn ghost"
-                  onClick={() => setPatient(null)}
+                  onClick={() => setStep(5)}
                 >
                   Back
                 </button>
@@ -650,6 +648,7 @@ export function AppointmentBookingPage({
             </ChoiceStep>
           </form>
         )}
+        {step < 6 && <div className="wizard-actions"><button type="button" className="btn" disabled={![Boolean(selectedDate), Boolean(branchId), Boolean(departmentId), Boolean(doctorId && (selectedSchedule || originalSelection)), Boolean(patient)][step - 1]} onClick={() => setStep(step + 1)}>Continue <ArrowRight /></button></div>}
       </section>
       {showNewPatient && (
         <NewPatientModal
@@ -688,9 +687,9 @@ function ChoiceStep({ number, title, subtitle, onBack, children }: any) {
     </>
   );
 }
-function Choice({ title, subtitle, onClick }: any) {
+function Choice({ title, subtitle, onClick, selected = false }: any) {
   return (
-    <button className="choice-card" onClick={onClick}>
+    <button type="button" className={`choice-card ${selected ? "selected" : ""}`} aria-pressed={selected} onClick={onClick}>
       <div>
         <b>{title}</b>
         <span>{subtitle || "Available"}</span>
